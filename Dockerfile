@@ -10,6 +10,7 @@ COPY --chown=1000:1000 package.json package-lock.json ./
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund --strict-ssl=true
+COPY --chown=1000:1000 prompts ./prompts
 COPY --chown=1000:1000 src ./src
 COPY --chown=1000:1000 scripts ./scripts
 RUN node scripts/check-release.mjs

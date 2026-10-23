@@ -414,12 +414,9 @@ async function investigate(id) {
   const conversation = await api("/conversations", {
     title: t("调查 ") + id.slice(0, 8),
     task_id: id,
+    investigate: true,
   });
   state.chatId = conversation.id;
-  if (!conversation.messages.length)
-    await api(`/conversations/${conversation.id}/messages`, {
-      text: `调查任务 ${id} 的执行和交付情况，查明已有证据能够支持的失败原因。先查询具体记录，不猜测，不重新提交任务。`,
-    });
   await switchView("chat");
 }
 async function chat() {

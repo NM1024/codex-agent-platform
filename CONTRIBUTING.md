@@ -18,3 +18,5 @@ Keep generic task lifecycle, capabilities, plugin contracts, delivery and manage
 Keep temporary artifacts in `.tmp/`. Never commit account authentication, deployment environments, certificates, runtime databases or production request/output data. Changes to distribution files must work from a clean Git export, not only a local working directory. Docker targets are `gateway`, `runner`, `manager` and `test`.
 
 For a code change, describe the user-visible problem, resulting behavior and relevant validation. Security issues should follow SECURITY.md.
+
+Keep platform-owned prompt wording in the root [`prompts/`](prompts/README.md) directory and supply message data through `src/prompts.mjs`. Do not put business plugin instructions there or maintain duplicate language copies. Preserve template placeholders and tool identifiers, verify that user data is inserted literally, and include these resources in clean-export and Docker checks.

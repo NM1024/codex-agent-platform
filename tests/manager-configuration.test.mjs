@@ -26,3 +26,13 @@ test('management MCP can configure its agent and reset Admin password without st
   const reset=await client.callTool({name:'admin_password_set',arguments:{password:'new-admin-test-password'}});assert.ok(!reset.isError,JSON.stringify(reset));assert.equal(auth.authorize({headers:{cookie:'agent_admin='+session.token}}),false);
   assert.ok(await auth.login('new-admin-test-password'));assert.ok(!JSON.stringify(store.actions(conversation.id)).includes('new-admin-test-password'));
 });
+test('manager defaults come from the shared prompt file while saved instructions remain authoritative',async t=>{
+  const [{createManagerConfiguration},{readSystemPrompt}]=await Promise.all([import('../src/manager/configuration.mjs'),import('../src/prompts.mjs')]);
+  const store=new ManagerStore(':memory:');t.after(()=>store.close());
+  const create=()=>({model:'fixture-model',timeoutMs:10000,toolTimeoutMs:1000});
+  const agent=create(),configuration=createManagerConfiguration({store,agent});
+  assert.equal(agent.instructions,readSystemPrompt('manager'));
+  configuration.update('manager',{instructions:'My saved instructions in another language.'});
+  const reopenedAgent=create();createManagerConfiguration({store,agent:reopenedAgent});
+  assert.equal(reopenedAgent.instructions,'My saved instructions in another language.');
+});

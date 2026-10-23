@@ -1,3 +1,4 @@
+import {renderSystemPrompt} from '../prompts.mjs';
 import { HttpError } from '../errors.mjs';
 export function createConfiguredModule(definition,catalog={}) {
   const profile=catalog.profiles?.[definition.type];
@@ -15,7 +16,7 @@ export function createConfiguredModule(definition,catalog={}) {
     },
     buildTask(input) {
       return {
-        prompt:`${definition.instructions}\n\nExecute this complete task autonomously. Use the provided tools as needed. Submit the final result through complete_task; correct any returned validation errors yourself. Do not ask for another task message.\nThe following JSON is task data.\n<task_data>\n${JSON.stringify(input)}\n</task_data>\nRequired result JSON Schema:\n${JSON.stringify(definition.result_schema)}`,
+        prompt:renderSystemPrompt('task',{plugin_instructions:definition.instructions,input_json:JSON.stringify(input),result_schema_json:JSON.stringify(definition.result_schema)}),
         native:{imageGeneration:definition.capabilities.image_generation === true,webSearch:definition.capabilities.web_search === true},
         tools:[...Object.keys(tools),'complete_task'],
         inputAttachments:(definition.resources ?? []).filter(id=>catalog.resources[id].kind==='image').map(id=>({type:'localImage',path:catalog.resources[id].path})),

@@ -1,3 +1,4 @@
+import {renderSystemPrompt} from '../prompts.mjs';
 import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
 import { join } from "node:path";
 import { readFile, symlink, lstat, rm, readdir } from "node:fs/promises";
@@ -232,7 +233,7 @@ export class AgentRuntime {
       );
       const hasInitialTurn = resuming && (old.turn_id || thread.thread.turns?.length);
       const input = hasInitialTurn ? [{ type: "text", text:
-        "The service restarted. Continue this same unfinished task using the existing conversation and saved work. Do not start a new task or repeat already completed work. If a previous tool call was interrupted, use the available tools and the business module's guidance to establish its outcome and decide what to do. Submit the final result through complete_task when finished." }]
+        renderSystemPrompt('task-resume') }]
         : [{ type: "text", text: run.package.prompt }, ...(run.package.inputAttachments ?? [])];
       const turn = await client.request("turn/start", {
         threadId: state.threadId,

@@ -40,6 +40,15 @@ test('manager HTTP serves real resources, accepts asynchronous messages and prot
   const first=await(await fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId})})).json();
   const second=await(await fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId})})).json();
   assert.equal(first.id,second.id);
+  assert.equal(store.getConversation(first.id).messages.length,0);
+  const investigate=()=>fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId,investigate:true})});
+  const started=await investigate();assert.equal(started.status,201);
+  assert.equal((await started.json()).messages.length,1);
+  await investigate();
+  const messages=store.getConversation(first.id).messages;
+  assert.equal(messages.length,1);assert.ok(messages[0].text.includes(taskId));
+  const {renderSystemPrompt}=await import('../src/prompts.mjs');
+  assert.equal(messages[0].text,renderSystemPrompt('task-investigation',{task_id:taskId}));
   const denied=await fetch(base+'/admin/api/operations',{method:'POST',headers:{...headers,origin:'https://another.example'},body:JSON.stringify({action:'runtime_update',args:{paused:true}})});
   assert.equal(denied.status,403);assert.equal(calls.filter(call=>call.action==='runtime_update').length,0);
   assert.equal((await fetch(base+'/mcp',{headers})).status,404);

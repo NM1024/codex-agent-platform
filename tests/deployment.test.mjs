@@ -91,13 +91,20 @@ test('init adds an initial Admin password to an existing installation without ch
 test('release validates dynamic plugin JSON and manager web resources',async t=>{
   const {cp,unlink,writeFile}=await import('node:fs/promises');
   const dir=await mkdtemp(join(tmpdir(),'aw-platform-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));
-  await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});
+  await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});await cp(join(root,'prompts'),join(dir,'prompts'),{recursive:true});
   const run=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs')],{cwd:dir,encoding:'utf8'});
   assert.equal(run().status,0);
   const definition=join(dir,'src/plugins/examples/novel.illustrated.json');const original=await readFile(definition);
   await unlink(definition);const missing=run();assert.notEqual(missing.status,0);assert.match(missing.stderr,/novel\.illustrated/);
   await writeFile(definition,original);await unlink(join(dir,'src/manager/web/app.js'));
   const web=run();assert.notEqual(web.status,0);assert.match(web.stderr,/app\.js/);
+  await cp(join(root,'src/manager/web/app.js'),join(dir,'src/manager/web/app.js'));
+  for(const name of ['manager','task','task-resume','manager-resume','task-investigation']) {
+    const file=join(dir,'prompts',name+'.md'),text=await readFile(file);
+    await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes('prompts/'+name+'.md'),missingPrompt.stderr);
+    await writeFile(file,text);
+  }
+  assert.equal(run().status,0);
 });
 
 test("release ignore rules retain Codex source modules and exclude runtime authentication", async (t) => {
@@ -170,7 +177,7 @@ test("release validation rejects missing relative modules before building a runn
   assert.equal(complete.status, 0, complete.stderr);
   await writeFile(
     join(dir, "src", "main.mjs"),
-    'new URL("./prompt.md", import.meta.url);',
+    'new URL(\n  "./prompt.md",\n  import.meta.url,\n);',
   );
   const missingPrompt = spawnSync(process.execPath, [script], {
     cwd: dir,

@@ -1,0 +1,1 @@
+The service restarted. Continue this same unfinished task using the existing conversation and saved work. Do not start a new task or repeat already completed work. If a previous tool call was interrupted, use the available tools and the business module's guidance to establish its outcome and decide what to do. Submit the final result through complete_task when finished.

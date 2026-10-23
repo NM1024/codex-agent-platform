@@ -79,3 +79,7 @@ unset admin_password
 ## Upgrade and backup
 
 Back up all runtime directories together while services are stopped, or use SQLite-consistent snapshots with coordinated workspace backups. Backups contain sensitive account state and business data. Do not delete data to upgrade. Build the new source, then run `start`; container recreation suspends/resumes incomplete work where Codex session state is available. Keep a rollback copy of source/images and data before upgrading. No rollback compatibility across future schema changes is promised in preview releases.
+
+## System prompt changes
+
+The image includes the root `prompts/` directory. Rebuild/redeploy after editing its fixed message templates. Existing Manager instructions are persisted, including their initial default; edit `manager.instructions` through Admin or management MCP to apply an updated default without a restart. See the [system prompt guide](../prompts/README.md). Plugin instructions continue to be managed as plugin configuration.

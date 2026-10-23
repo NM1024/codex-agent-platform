@@ -29,3 +29,15 @@ The console follow-up was validated with the same account-free boundary:
 - Independent review reproduced two additional issues (edits made while a language request was pending and untranslated schedule validation errors). Both were fixed and their targeted browser regressions passed on re-review.
 
 Run the browser suite with the commands in [CONTRIBUTING.md](../CONTRIBUTING.md). Screenshots and test reports are temporary local evidence under `.tmp/`; they are not shipped as product data. Browser and transport tests use synthetic metrics, tasks and Agent messages. They do not verify production networking, actual account permissions, model output quality or the accuracy of a real management Agent's investigations.
+
+
+## System prompt consolidation
+
+The platform-owned Manager, task wrapper, recovery and investigation prompts are loaded from the root `prompts/` directory. Validation uses synthetic data only:
+
+- Host: 185 tests passed. Coverage includes editing prompt files in another language, preserving literal business data during interpolation, and retaining saved Manager instructions over file defaults.
+- Browser: 15 checks passed, including investigating a task from Admin and reopening its existing management conversation without another generated message.
+- Release validation: 60 modules and 2 JSON resources. Removing each of the five prompt files makes validation fail; formatted multiline resource URLs with a trailing comma are checked too. Docker explicitly copies the prompt directory, and CI builds all four release targets before running the isolated container suite.
+- Independent review compared the moved Manager prompt and rendered task/recovery/investigation messages against the previous implementation and found no wording changes.
+
+No real model or account was used to assess the effectiveness of edited prompts. Changing wording in another language still requires the operator to evaluate the resulting Agent behavior.
