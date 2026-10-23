@@ -47,7 +47,7 @@ For local administration from your computer:
 ssh -L 3007:127.0.0.1:3007 user@your-server
 ```
 
-Then open `http://127.0.0.1:3007/admin/`. For a public deployment, use `examples/nginx/platform.conf` as a reverse proxy template. Replace `agent.example.com` and the certificate paths with your domain and trusted full certificate chain. Configure certificate issuance/renewal with your existing ACME tooling. This repository does not install or alter host proxy/certificate services. Forward the original Host and `X-Forwarded-Proto`; the Admin uses them for origin checking and Secure cookies. Keep internal service ports private.
+Then open `http://127.0.0.1:3007/admin/`. Public domains, HTTPS certificates and external gateways are deployment responsibilities; this repository does not supply or manage them. When using your existing gateway, send `/admin/` requests to the Manager and task API requests to the Gateway. Preserve the original Host and `X-Forwarded-Proto`; Admin uses them for origin checking and Secure cookies. Keep internal service ports private and apply external access controls appropriate to your installation.
 
 ## Health and diagnostics
 

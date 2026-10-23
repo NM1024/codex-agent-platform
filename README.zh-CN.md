@@ -149,7 +149,7 @@ ssh -N -L 3007:127.0.0.1:3007 user@your-server
 
 把 `user@your-server` 换成自己的 SSH 登录地址，然后在电脑浏览器访问 [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/)。若服务器本身有浏览器，也可以直接访问这个地址。用初始密码登录，在**系统配置**中设置新的 Admin 密码。修改密码会让已有网页会话退出；初始密码文件不会覆盖已经保存在 Manager 数据库中的新密码。
 
-如果需要通过域名访问，请使用 [Nginx 模板](examples/nginx/platform.conf)并参照[部署文档](docs/DEPLOYMENT.md#https-and-remote-console-access)。替换示例域名和证书路径，使用自己的 ACME 工具申请并自动续期可信证书；模板本身不会签发证书。内部服务端口继续保持私有。
+公网域名、HTTPS 证书和外部访问网关，由部署者使用自己的基础设施配置。本教程采用私有 SSH 访问。内部服务端口应保持私有；对接已有网关时需要保留的请求信息见[部署文档](docs/DEPLOYMENT.md#https-and-remote-console-access)。
 
 ## 提交第一个任务
 

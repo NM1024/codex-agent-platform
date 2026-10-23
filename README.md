@@ -149,7 +149,7 @@ ssh -N -L 3007:127.0.0.1:3007 user@your-server
 
 Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Use the initial password, go to **系统配置** (System settings), and set a new Admin password. Password changes sign out existing web sessions. The initial-password file does not override a password already saved in the Manager database.
 
-For a domain and HTTPS, use the [Nginx template](examples/nginx/platform.conf) and [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access). Replace the example domain and certificate paths; arrange a trusted certificate and renewal with your own ACME tooling. The template does not issue certificates. Keep internal service ports private.
+A public domain, HTTPS certificates and the external access gateway are managed by the deployment operator using their own infrastructure. This tutorial uses private SSH access. Keep internal service ports private; connection requirements for an existing gateway are described in the [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access).
 
 ## Send your first task
 
