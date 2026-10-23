@@ -31,7 +31,7 @@ export class OperationsService {
     if(action==='configuration_list')return {groups:this.configuration.list(),bootstrap:bootstrapSettings};
     if(action==='configuration_get')return this.configuration.get(args.scope);
     if(action==='configuration_update') {
-      const saved=this.configuration.update(args.scope,args.patch),synchronization={gateway:'applied'};
+      const saved=this.configuration.update(args.scope,args.patch,{revision:args.revision}),synchronization={gateway:'applied'};
       if(args.scope==='execution') {
         this.runner.toolTimeoutMs=this.config.toolTimeoutMs;
         try{await this.runner.configure?.({concurrency:this.config.concurrency,...runtimeSettings(this.config)});synchronization.runner='applied';}catch{synchronization.runner='pending';}

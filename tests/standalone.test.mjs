@@ -15,7 +15,7 @@ test('a fresh installation exposes only generic examples and configuration scope
   const store = new RequestStore(':memory:', { registry: app.registry });
   t.after(() => store.close());
   assert.deepEqual(store.plugins.list().map(p => p.type).sort(), ['content.review', 'novel.illustrated']);
-  assert.deepEqual(app.configuration(store).list().map(g => g.scope).sort(), ['execution']);
+  assert.deepEqual(app.configuration(store).list().map(g => g.scope).sort(), ['execution','http_targets']);
   assert.ok(store.plugins.list().every(plugin=>plugin.enabled===false));
   assert.deepEqual(Object.keys(app.registry.catalog.resources ?? {}), []);
   assert.equal(app.config.clientId, 'default');

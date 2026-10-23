@@ -81,6 +81,7 @@ button, input, textarea { font: inherit; }
 .settings-form.ant-form .ant-form-item .ant-form-item-control { min-width: 0; }
 .settings-form .ant-select, .settings-form .ant-input-number { width: 100%; }
 .settings-form.connection-form { --settings-label-width: 110px; --settings-label-gap: 16px; }
+.settings-form.http-target-form { --settings-label-width: 112px; --settings-label-gap: 16px; }
 .deployment-setting { padding: 14px 0; border-bottom: 1px solid #edf0ee; }
 .deployment-setting:last-child { border-bottom: 0; }
 .deployment-setting .ant-typography { overflow-wrap: anywhere; }

@@ -3,6 +3,7 @@ import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Spin, Tabs,
 import {AgentPicker, CatalogNote, JsonView, Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
+import HttpTargetsPanel from '../HttpTargetsPanel';
 
 interface ConfigurationList {
   groups: ConfigGroup[];
@@ -130,11 +131,11 @@ export default function SettingsPage() {
       </Form>
     </Panel>;
   const groups=data?.groups??[],admin=groups.find(group=>group.scope==='admin');
-  const order=['manager','execution','http','access'];
+  const order=['manager','execution','http_targets','http','access'];
   const items=[...groups.filter(group=>group.scope!=='admin').sort((a,b)=>{
     const rank=(scope:string)=>order.includes(scope)?order.indexOf(scope):order.length;
     return rank(a.scope)-rank(b.scope);
-  }).map(group=>({key:group.scope,label:<span data-settings-tab={group.scope}>{t(group.title)}</span>,forceRender:true,children:<ConfigurationForm group={group} reload={reload}/>})),
+  }).map(group=>({key:group.scope,label:<span data-settings-tab={group.scope}>{t(group.title)}</span>,forceRender:true,children:group.scope==='http_targets'?<HttpTargetsPanel group={group} reload={reload} onSaved={saved=>setData(current=>current?{...current,groups:current.groups.map(item=>item.scope===saved.scope?saved:item)}:current)}/>:<ConfigurationForm group={group} reload={reload}/>})),
     {key:'security',label:<span data-settings-tab="security">{t('安全与登录')}</span>,forceRender:true,children:<div className="settings-stack">{passwordPanel}{admin&&<ConfigurationForm group={admin} reload={reload}/>}</div>},
     {key:'deployment',label:<span data-settings-tab="deployment">{t('部署配置')}</span>,children:<Panel title={t('部署配置')}><Typography.Paragraph type="secondary">{t('这些配置通过服务器环境变量设置，修改后需要重启相应服务。')}</Typography.Paragraph>{data?.bootstrap?.map(item=><div className="deployment-setting" key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><Typography.Paragraph>{t(item.description)}</Typography.Paragraph></div>)}</Panel>},
   ];

@@ -1,8 +1,8 @@
 import { validateUrl } from '../config.mjs';
 import { HttpError } from '../errors.mjs';
-export function httpConfiguration(targets) {
-  return {name:'http',title:'HTTP 目标',description:'下一工具调用或尚未发送的交付使用新目标；省略已有目标的 token 保留凭证，删除目标名称则移除目标。',
-    schema:{type:'object',additionalProperties:false,required:['targets'],properties:{targets:{type:'object',additionalProperties:{type:'object',additionalProperties:false,required:['url'],properties:{url:{type:'string',title:'目标地址'},token:{type:'string',writeOnly:true,title:'凭证'},timeoutMs:{type:'integer',minimum:1,maximum:2147483647,title:'超时（毫秒）'}}}}}},defaults:{targets},
+export function httpConfiguration(targets,{name='http',initialTargets}={}) {
+  return {name,title:'HTTP 目标',requireRevision:name==='http_targets',description:'供 Agent 主动请求网站或接口使用，与插件入口和结果回调独立。保存后下一次工具调用立即使用新配置，不会自动发送请求。省略 token 保留凭证，空字符串清除凭证。',
+    schema:{type:'object',additionalProperties:false,required:['targets'],properties:{targets:{type:'object',additionalProperties:{type:'object',additionalProperties:false,required:['url'],properties:{url:{type:'string',title:'目标地址'},token:{type:'string',writeOnly:true,title:'凭证'},timeoutMs:{type:'integer',minimum:1,maximum:2147483647,title:'超时（毫秒）'}}}}}},defaults:initialTargets?()=>({targets:initialTargets()}):{targets},
     validate(value){try{loadTargets({PLATFORM_HTTP_TARGETS_JSON:JSON.stringify(value.targets)});}catch{throw new HttpError(400,'INVALID_CONFIGURATION','HTTP 目标名称、地址、凭证或超时不正确。');}},
     apply(value){for(const key of Object.keys(targets))delete targets[key];for(const [key,target]of Object.entries(value.targets))Object.defineProperty(targets,key,{value:target,enumerable:true,writable:true,configurable:true});}};
 }

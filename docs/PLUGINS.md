@@ -58,7 +58,7 @@ The management `capabilities` operation returns the current plugin schema, tool 
 - `register_image`: store an image generated in the current task; optionally convert/resize it and return an image preview and `artifact_id`.
 - `write_text_artifact`: save supplied UTF-8 text under a task-owned artifact identity.
 - `read_artifact`: read metadata for an artifact belonging to this task.
-- `http_request`: GET/POST JSON to a named destination configured on the Gateway through deployment bootstrap `PLATFORM_HTTP_TARGETS_JSON`. The Agent chooses when to invoke it; URLs and credentials are not editable through global Admin settings or management operations. These targets are separate from final-result callbacks.
+- `http_request`: GET/POST to a named destination configured in **Settings → HTTP targets** or the `http_targets` management configuration group. The tool returns HTTP status and response text; POST sends JSON. The Agent chooses when to invoke it. Changes apply to the next call without restart; saving does not send a request. Read the current scope revision before updating its complete targets map, retaining unrelated names and omitting stored token fields to preserve credentials. Tokens are write-only and should be entered in Admin, not chat. These targets remain separate from final-result callbacks. `PLATFORM_HTTP_TARGETS_JSON` only initializes the new scope; retired `http` records are not imported.
 - Native `image_generation` and `web_search` are selected in the plugin. Availability depends on the installed Codex version and signed-in account.
 - `complete_task` is added automatically. Its result must satisfy the plugin's result schema. Artifact IDs referenced in results must belong to the task and point to readable files.
 
