@@ -241,7 +241,7 @@ test('short English phone layouts keep header controls and send inside the viewp
   await choose(page,'#app-language','en');await navigate(page,'chat');
   for(const viewport of [{width:390,height:568},{width:320,height:568},{width:844,height:390}]){
     await page.setViewportSize(viewport);await page.locator('#message-input').fill('one\ntwo\nthree\nfour\nfive\nsix');
-    for(const locator of [page.locator('#app-language'),page.locator('#refresh'),page.locator('#logout')]){
+    for(const locator of [page.locator('#repository-link'),page.locator('#app-language'),page.locator('#refresh'),page.locator('#logout')]){
       await expect(locator).toBeInViewport({ratio:1});
       const header=await page.locator('.console-header').boundingBox(),box=await locator.boundingBox();
       expect(box.y).toBeGreaterThanOrEqual(header.y);expect(box.y+box.height).toBeLessThanOrEqual(header.y+header.height);

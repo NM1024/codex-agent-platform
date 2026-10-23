@@ -1,6 +1,7 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '项目仓库':'Repository',
   '对接文档':'Integration docs',
   '对接文档：{name}':'Integration docs: {name}',
   '正在加载对接文档…':'Loading integration docs…',

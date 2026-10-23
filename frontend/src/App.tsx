@@ -36,7 +36,7 @@ function Console(){
     <Layout className="console-main">
       <Layout.Header className="console-header">
         <Typography.Title id="page-title" level={1}>{t(titles[view])}</Typography.Title>
-        <Space wrap><Language id="app-language"/><AsyncButton id="refresh" onClick={refreshPage}>{t('刷新')}</AsyncButton><AsyncButton id="logout" onClick={async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}}}>{t('退出')}</AsyncButton></Space>
+        <Space wrap><Button id="repository-link" href="https://github.com/NM1024/codex-agent-platform" target="_blank" rel="noopener noreferrer">{t('项目仓库')}</Button><Language id="app-language"/><AsyncButton id="refresh" onClick={refreshPage}>{t('刷新')}</AsyncButton><AsyncButton id="logout" onClick={async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}}}>{t('退出')}</AsyncButton></Space>
       </Layout.Header>
       {!screens.lg&&<nav className="mobile-navigation" aria-label={t('运行工作台')}>{navigation}</nav>}
       <Layout.Content className={'console-content view-'+view}>
