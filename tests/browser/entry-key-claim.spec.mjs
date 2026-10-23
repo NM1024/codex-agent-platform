@@ -37,9 +37,9 @@ test('human claim displays once, copies privately, and saving uses its new revis
   let current=pending('content.review'),saved;
   await page.route('**/admin/api/plugins/content.review/connection',async route=>{if(route.request().method()==='POST'){saved=route.request().postDataJSON();await route.fulfill({json:claimed});}else await route.fulfill({json:current});});
   await page.route('**/entry-key/claim',async route=>{expect(route.request().postDataJSON()).toEqual({revision:7});current=claimed;await route.fulfill({json:{entryKey:secret,connection:claimed}});});
-  await open(page);await expect(modal(page)).toContainText('领取前不能用于调用');await claim(page).click();
+  await open(page);await modal(page).locator('.connection-help summary').first().click();await expect(modal(page)).toContainText('领取前不能用于调用');await claim(page).click();
   await expect(page.locator('#plugin-claimed-entry-key')).toHaveValue(secret);await expect(claim(page)).toHaveCount(0);
-  await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(modal(page).locator('.connection-example')).not.toContainText(secret);
+  await expect(page.locator('#plugin-entry-key')).toHaveCount(0);await expect(modal(page).locator('.connection-example')).toHaveCount(0);
   await modal(page).getByRole('button',{name:'复制领取的入口密钥',exact:true}).click();expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(secret);
   await modal(page).getByRole('button',{name:'保存接入配置',exact:true}).click();await expect(modal(page)).toHaveCount(0);
   expect(saved.revision).toBe(8);expect(saved).not.toHaveProperty('entryKey');
@@ -105,5 +105,5 @@ test('expired session discards pending claim and a new session starts without th
 
 test('claim action and one-time guidance follow the selected English locale',async({page})=>{
   await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();await open(page);
-  await expect(claim(page)).toHaveText('Claim entry key');await expect(modal(page)).toContainText('only an administrator can claim it once');
+  await expect(claim(page)).toHaveText('Claim entry key');await modal(page).locator('.connection-help summary').first().click();await expect(modal(page)).toContainText('only an administrator can claim it once');
 });

@@ -1,6 +1,22 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '入口配置':'Entry settings',
+  '结果回调':'Result callback',
+  '可选':'Optional',
+  '启用结果回调':'Enable result callback',
+  '用于业务系统提交任务。密钥仅由管理员领取或修改，请勿发送到管理对话。':'For your application to submit tasks. Only administrators claim or change keys. Keep them out of management chat.',
+  '支持 /hooks/ 路径，或本平台的完整公网 HTTP(S) 地址。':'Use a /hooks/ path or this platform’s full public HTTP(S) URL.',
+  '后台已生成，等待领取':'Generated; awaiting claim',
+  '仅本次可见，请立即复制保存。丢失后可重设；保存新密钥后，旧密钥失效。':'Visible only in this window. Copy and save it now. If lost, reset it; saving a new key revokes the old one.',
+  '至少 24 个字符，使用 Authorization: Bearer。':'At least 24 characters; use Authorization: Bearer.',
+  '保存新密钥后，旧密钥立即失效，请同步更新调用方。':'Saving the new key immediately revokes the old one. Update your caller’s configuration.',
+  '使用与安全说明':'Usage and security',
+  '将最终结果发送到你指定的接收地址。':'Send final results to your receiver.',
+  '接收最终结果的完整 HTTP(S) 地址。':'The full HTTP(S) URL that receives final results.',
+  '按接收方要求填写，与入口密钥独立。':'As required by the receiver; independent of the entry key.',
+  '关闭回调并保存，将清除已保存的回调地址和凭证。':'Turning callbacks off and saving clears the saved callback URL and credential.',
+  '回调如何工作':'How callbacks work',
   '主导航':'Main navigation',
   '项目仓库':'Repository',
   '对接文档':'Integration docs',

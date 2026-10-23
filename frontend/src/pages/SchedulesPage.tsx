@@ -17,15 +17,15 @@ export default function SchedulesPage() {
     <AgentGuidance title={t('定时计划配置')} description={t('可在此启用或停用。新增和编辑定时任务，请通过管理 Agent 操作。')}/>
     <Panel title={t('定时计划')}>
       <Typography.Paragraph type="secondary">{t('时间按每个计划设置的时区显示；新增或编辑请在管理对话中说明。')}</Typography.Paragraph>
-      <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} tableLayout="fixed" locale={{emptyText:t('暂无记录')}} columns={[
-        {title:t('计划'),key:'plan',render:(_,plan)=><>{plan.name}<br/><Typography.Text type="secondary">{plan.kind==='inspection'?t('管理巡检'):plan.type}</Typography.Text></>},
-        {title:t('规则'),key:'rule',width:190,responsive:['md'],render:(_,plan)=><><Typography.Text code>{plan.cron}</Typography.Text><br/><Typography.Text type="secondary">{plan.timezone}</Typography.Text></>},
-        {title:t('下次触发'),key:'next',width:190,responsive:['lg'],render:(_,plan)=>nextRun(plan)},
-        {title:t('状态'),key:'status',width:92,render:(_,plan)=><><EnableToggle enabled={plan.enabled} label={t('启停定时计划：{name}',{name:plan.name})} onChange={async enabled=>{
+      <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} className="responsive-table" tableLayout="auto" locale={{emptyText:t('暂无记录')}} columns={[
+        {title:t('计划'),key:'plan',className:'table-identity-cell',render:(_,plan)=><>{plan.name}<br/><Typography.Text type="secondary">{plan.kind==='inspection'?t('管理巡检'):plan.type}</Typography.Text></>},
+        {title:t('规则'),key:'rule',className:'table-meta-cell',responsive:['md'],render:(_,plan)=><><Typography.Text code>{plan.cron}</Typography.Text><br/><Typography.Text type="secondary">{plan.timezone}</Typography.Text></>},
+        {title:t('下次触发'),key:'next',className:'table-meta-cell',responsive:['lg'],render:(_,plan)=>nextRun(plan)},
+        {title:t('状态'),key:'status',className:'table-status-cell',render:(_,plan)=><><EnableToggle enabled={plan.enabled} label={t('启停定时计划：{name}',{name:plan.name})} onChange={async enabled=>{
           const updated=await operation<Schedule>('schedule_enable',{id:plan.id,enabled});
           setPlans(current=>current?.map(item=>item.id===updated.id?updated:item));
         }}/>{plan.blocked_reason&&<div><Typography.Text type="danger">{t('触发受阻')}</Typography.Text></div>}</>},
-        {title:t('操作'),key:'actions',width:112,render:(_,plan)=><Button onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button>},
+        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plan)=><Button onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button>},
       ]}/>
     </Panel>
     {selected&&<Panel title={t('计划详情')}><div id="schedule-detail">

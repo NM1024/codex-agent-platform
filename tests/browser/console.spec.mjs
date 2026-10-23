@@ -66,29 +66,28 @@ test('plugin connection modal is human-only, explains fields and generates indep
   await row.getByRole('button',{name:'配置接入',exact:true}).click();
   const modal=page.getByRole('dialog');await expect(modal).toBeVisible();
   await expect(modal).toContainText('入口');await expect(modal).toContainText('回调');
-  const defaultPath='/hooks/browser/connections',adminOrigin=new URL(page.url()).origin;
+  const defaultPath='/hooks/browser/connections';
   await expect(page.locator('#plugin-entry-address')).toHaveValue(defaultPath);
-  await expect(modal.locator('.connection-call-url code')).toHaveText(defaultPath);
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(defaultPath);
   await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
   expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(defaultPath);
-  await expect(modal).toContainText('调用地址 / 路径');
-  await expect(modal.locator('.connection-example')).toContainText('https://<gateway-host>'+defaultPath);
-  await expect(modal.locator('.connection-example')).not.toContainText(adminOrigin);
+  await modal.locator('.connection-help summary').first().click();
   await expect(modal).toContainText('Admin 端口不是业务入口');
+  await modal.locator('.connection-help summary').first().click();
+  await expect(modal.locator('.connection-example')).toHaveCount(0);
   const absolute='https://gateway.example:3004/hooks/browser-absolute';
   await page.locator('#plugin-entry-address').fill(absolute);
-  await expect(modal.locator('.connection-call-url code')).toHaveText(absolute);
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(absolute);
   await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
   expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(absolute);
-  await expect(modal.locator('.connection-example')).toContainText(absolute);
   await modal.getByRole('button',{name:'生成入口密钥',exact:true}).click();
   const entry=await page.locator('#plugin-entry-key').inputValue();expect(entry.length).toBeGreaterThanOrEqual(32);
+  await page.locator('#plugin-entry-address').fill('/hooks/browser-human-connections');
+  await modal.getByRole('tab',{name:'结果回调',exact:false}).click();
+  await modal.getByRole('switch',{name:'启用结果回调'}).click();
   await modal.getByRole('button',{name:'生成回调凭证',exact:true}).click();
   const callback=await page.locator('#plugin-callback-token').inputValue();expect(callback.length).toBeGreaterThanOrEqual(32);expect(callback).not.toBe(entry);
-  await expect(modal.locator('.connection-example')).toContainText('<入口密钥>');
-  await expect(modal.locator('.connection-example')).not.toContainText(entry);
-  await expect(modal.locator('.connection-example')).not.toContainText(callback);
-  await page.locator('#plugin-entry-address').fill('/hooks/browser-human-connections');
+
   await page.locator('#plugin-callback-url').fill('https://example.invalid/browser-callback');
   await modal.getByRole('button',{name:'保存接入配置',exact:true}).click();
   await expect(modal).toBeHidden();
@@ -98,13 +97,13 @@ test('plugin connection modal is human-only, explains fields and generates indep
   const agentView=JSON.stringify(await operation(page,'plugin_get',{type}));expect(agentView).not.toContain(entry);expect(agentView).not.toContain(callback);expect(agentView).not.toContain('https://example.invalid/browser-callback');
   await row.getByRole('button',{name:'配置接入',exact:true}).click();
   await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(page.locator('#plugin-callback-token')).toHaveValue('');
-  await expect(modal.locator('.connection-call-url code')).toHaveText('/hooks/browser-human-connections');
+  await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser-human-connections');
   await modal.getByRole('button',{name:'取消',exact:true}).click();
   await choose(page,'#app-language','en');
   await row.getByRole('button',{name:'Configure connection',exact:true}).click();
-  await expect(modal).toContainText('Request address / path');await expect(modal).toContainText('The Admin port is not the business entry point');
-  await expect(modal.locator('.connection-example')).toContainText('https://<gateway-host>/hooks/browser-human-connections');
-  await expect(modal.locator('.connection-example')).not.toContainText(adminOrigin);
+  await modal.locator('.connection-help summary').first().click();
+  await expect(modal).toContainText('The Admin port is not the business entry point');
+  await expect(modal.getByRole('button',{name:'Integration docs',exact:true})).toBeVisible();
 });
 
 test('pending plugins cannot be enabled or trialed before a human configures their connection',async({page})=>{
@@ -145,7 +144,7 @@ test('closing or switching connection dialogs clears secrets and ignores a late 
     const loaded=page.waitForResponse(response=>response.url().endsWith('/plugins/'+first+'/connection'));
     release();await loaded;
     await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser/isolation/second');
-    await expect(modal).toHaveAccessibleName('配置接入：接入隔离乙');
+    await expect(modal).toHaveAccessibleName(/^配置接入：接入隔离乙/);
   }finally{release();}
 });
 
