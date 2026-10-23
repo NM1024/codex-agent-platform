@@ -49,11 +49,22 @@ test("editing a disabled schedule preserves its disabled state", async ({
   page,
 }) => {
   await navigate(page, "schedules");
+  // A slow reload used to overwrite text entered immediately after Edit.
+  await page.route("**/admin/api/schedules", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await route.continue();
+  });
   const row = page.locator("tr").filter({ hasText: "每日运行巡检" });
   await row.getByRole("button", { name: "编辑", exact: true }).click();
   await page
     .getByPlaceholder("例如：每天检查运行情况")
     .fill("每日运行巡检（已调整）");
+  await expect(
+    page.getByRole("heading", { name: "编辑计划", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByPlaceholder("例如：每天检查运行情况")).toHaveValue(
+    "每日运行巡检（已调整）",
+  );
   await page.getByRole("button", { name: "保存计划", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("定时计划已保存");
   expect(

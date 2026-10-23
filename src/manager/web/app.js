@@ -1060,8 +1060,20 @@ async function schedules() {
           button(
             t("编辑"),
             async () => {
+              // The row already contains this definition. Fill synchronously so
+              // an extra fetch cannot overwrite the user's next keystroke.
               state.scheduleEditingId = plan.id;
-              await schedules();
+              name.value = plan.name;
+              kind.value = plan.kind;
+              cron.value = plan.cron;
+              timezone.value = plan.timezone;
+              enabled.checked = plan.enabled;
+              if (plan.kind === "task") {
+                type.value = plan.type;
+                input.value = pretty(plan.input);
+              } else message.value = plan.message;
+              updateKind();
+              form.closest(".panel").querySelector("h2").textContent = t("编辑计划");
               $("#schedule-name").focus();
               $("#schedule-name").scrollIntoView({
                 behavior: "smooth",
