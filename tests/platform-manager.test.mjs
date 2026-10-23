@@ -22,9 +22,14 @@ async function setup(t,fixtureOptions={}) {
   const server=createServer(handler);await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
   const url=`http://127.0.0.1:${server.address().port}/mcp`;
   const createClient=options=>{
-    const listeners=new Set();const client={notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){fixtureOptions.onClose?.();if(fixtureOptions.closeGate)await fixtureOptions.closeGate;},async request(method,params){
-      calls.push({method,params});if(method==='thread/start')return {thread:{id:'persistent-manager'}};
-      if(method==='thread/resume')return {thread:{id:params.threadId,turns:resumeTurns}};
+    const listeners=new Set();const client={notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){fixtureOptions.onClose?.();if(fixtureOptions.closeGate)await fixtureOptions.closeGate;},async request(method,params,timeoutMs){
+      calls.push({method,params,timeoutMs});if(method==='thread/start')return {thread:{id:'persistent-manager',name:fixtureOptions.threadName ?? null}};
+      if(method==='thread/resume')return {thread:{id:params.threadId,name:fixtureOptions.threadName ?? null,turns:resumeTurns}};
+      if(method==='thread/read') {
+        fixtureOptions.onRead?.();
+        if(fixtureOptions.readError)throw new Error(fixtureOptions.readError);
+        return {thread:{id:fixtureOptions.readThreadId ?? params.threadId,name:fixtureOptions.readName ?? null}};
+      }
       if(method==='turn/start') {
         if(fixtureOptions.disconnectStart){for(const fn of listeners)fn({method:'transport/closed',params:{code:'CODEX_EXIT'}});throw new Error('CODEX_EXIT');}
         setImmediate(async()=>{
@@ -32,6 +37,7 @@ async function setup(t,fixtureOptions={}) {
           try {
             await mcp.connect(new StreamableHTTPClientTransport(new URL(url),{requestInit:{headers:{authorization:`Bearer ${options.env.AGENT_TASK_MCP_TOKEN}`}}}));
             const result=await mcp.callTool({name:'plugin_save',arguments:{definition:plugin}});assert.ok(!result.isError,JSON.stringify(result));
+            for(const event of fixtureOptions.events?.(options) ?? [])for(const fn of listeners)fn(event);
             for(const fn of listeners)fn({method:'item/completed',params:{threadId:'persistent-manager',item:{type:'agentMessage',text:'已保存插件，可以继续。'}}});
             for(const fn of listeners)fn({method:'turn/completed',params:{threadId:'persistent-manager',turn:{id:'turn-'+clients.length,status:'completed'}}});
           } finally {await mcp.close();}
@@ -55,6 +61,70 @@ test('management conversation executes real MCP writes and continues the same th
   const start=calls.find(call=>call.method==='thread/start');assert.equal(start.params.config['features.shell_tool'],false);
   assert.ok(!JSON.stringify(start.params).includes('unused-auth'));
 });
+
+test('Codex thread names replace placeholder titles on start and resume without extra turns',async t=>{
+  const options={threadName:'  Plugin configuration  '};
+  const {store,agent,calls}=await setup(t,options),conversation=store.createConversation();
+  agent.enqueue(conversation.id,'First user message is not the title');await agent.idle(conversation.id);
+  assert.equal(store.getConversation(conversation.id).title,'Plugin configuration');
+  options.threadName='Updated Codex title';
+  agent.enqueue(conversation.id,'Follow up');await agent.idle(conversation.id);
+  assert.equal(store.list().find(row=>row.id===conversation.id).title,'Updated Codex title');
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,2);
+});
+
+test('same-thread name notifications persist sanitized bounded titles and ignore invalid updates',async t=>{
+  const {store,agent}=await setup(t,{events:options=>[
+    {method:'thread/name/updated',params:{threadId:'persistent-manager',threadName:`Saved ${options.env.AGENT_TASK_MCP_TOKEN} password=synthetic-secret ${'x'.repeat(150)}`}},
+    {method:'thread/name/updated',params:{threadId:'another-thread',threadName:'Wrong conversation'}},
+    ...[null,'',' \n ',{name:'invalid'}].map(threadName=>({method:'thread/name/updated',params:{threadId:'persistent-manager',threadName}})),
+  ]}),conversation=store.createConversation();
+  agent.enqueue(conversation.id,'Configure');await agent.idle(conversation.id);
+  const title=store.getConversation(conversation.id).title;
+  assert.ok(title.startsWith('Saved [REDACTED] password=[REDACTED] '));
+  assert.ok(title.length<=100);
+  assert.ok(!title.includes('synthetic-secret'));
+});
+
+test('final thread metadata refresh discovers a Codex title after durable turn completion',async t=>{
+  let store,conversation;
+  const options={readName:'Final Codex title',onRead:()=>assert.equal(store.getConversation(conversation.id).messages[0].status,'completed')};
+  const fixture=await setup(t,options);({store}=fixture);conversation=store.createConversation();
+  fixture.agent.enqueue(conversation.id,'Inspect');await fixture.agent.idle(conversation.id);
+  assert.equal(store.getConversation(conversation.id).title,'Final Codex title');
+  const lookup=fixture.calls.find(call=>call.method==='thread/read');
+  assert.deepEqual(lookup.params,{threadId:'persistent-manager',includeTurns:false});
+  assert.ok(lookup.timeoutMs>0&&lookup.timeoutMs<=1000);
+});
+
+test('optional title lookup timeout does not interrupt or replay a completed management turn',async t=>{
+  const {store,agent,calls,create}=await setup(t,{readError:'CODEX_TIMEOUT'}),conversation=store.createConversation('Fallback title');
+  agent.enqueue(conversation.id,'Inspect');await agent.idle(conversation.id);
+  const saved=store.getConversation(conversation.id);
+  assert.equal(saved.title,'Fallback title');
+  assert.equal(saved.messages[0].status,'completed');
+  assert.equal(saved.messages.filter(row=>row.role==='assistant').length,1);
+  assert.equal(calls.filter(call=>call.method==='thread/read').length,1);
+  await agent.stop();const restarted=create();t.after(()=>restarted.stop());
+  await restarted.recover();await restarted.idle(conversation.id);
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,1);
+});
+
+test('title refresh ignores metadata belonging to another thread',async t=>{
+  const {store,agent}=await setup(t,{threadName:'Current thread title',readThreadId:'other-thread',readName:'Other title'}),conversation=store.createConversation();
+  agent.enqueue(conversation.id,'Inspect');await agent.idle(conversation.id);
+  assert.equal(store.getConversation(conversation.id).title,'Current thread title');
+});
+
+test('store preserves the last valid title across malformed or empty Codex names',async t=>{
+  const {ManagerStore}=await import('../src/manager/store.mjs');
+  const store=new ManagerStore(':memory:');t.after(()=>store.close());const conversation=store.createConversation();
+  store.syncTitle(conversation.id,'  Saved\n title  ');
+  for(const name of [null,undefined,42,{},'',' \t\n '])store.syncTitle(conversation.id,name);
+  assert.equal(store.getConversation(conversation.id).title,'Saved title');
+  store.syncTitle(conversation.id,'x'.repeat(200));
+  assert.equal(store.getConversation(conversation.id).title.length,100);
+});
 test('management changes model, prompt and tool timeout on its next turn in the same thread',async t=>{
   const {store,agent,calls}=await setup(t),conversation=store.createConversation('热配置');
   agent.enqueue(conversation.id,'第一轮');await agent.idle(conversation.id);
@@ -63,6 +133,43 @@ test('management changes model, prompt and tool timeout on its next turn in the 
   const next=calls.find(call=>call.method==='thread/resume');assert.equal(next.params.model,'configured-manager');
   assert.equal(next.params.developerInstructions,'更新后的管理职责');assert.equal(next.params.config.mcp_servers.agent_task.tool_timeout_sec,4);
   assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
+});
+
+test('conversation model and effort override globals and model default clears a prior effort',async t=>{
+  const {store,agent,calls}=await setup(t),conversation=store.createConversation('模型选择');
+  const createClient=agent.createClient;
+  agent.createClient=options=>{
+    const client=createClient(options),request=client.request.bind(client);
+    client.request=async(method,params)=>method==='model/list'?{data:[{model:'fixture-model',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]}]}:request(method,params);
+    return client;
+  };
+  agent.model='global-model';agent.reasoningEffort='high';
+  store.setConversationExecution(conversation.id,{model:'fixture-model',reasoningEffort:'high'});
+  agent.enqueue(conversation.id,'第一轮');await agent.idle(conversation.id);
+  store.setConversationExecution(conversation.id,{model:'fixture-model',reasoningEffort:null});
+  agent.enqueue(conversation.id,'下一轮使用模型默认');await agent.idle(conversation.id);
+  agent.model='fixture-model';delete agent.reasoningEffort;
+  store.setConversationExecution(conversation.id,{});
+  agent.enqueue(conversation.id,'继承旧版全局默认');await agent.idle(conversation.id);
+  const turns=calls.filter(call=>call.method==='turn/start');
+  assert.deepEqual(turns.map(call=>[call.params.model,call.params.effort]),[['fixture-model','high'],['fixture-model','low'],['fixture-model','low']]);
+  const messages=store.getConversation(conversation.id).messages.filter(message=>message.role==='user');
+  assert.equal(messages[0].execution.reasoningEffort,'high');
+  assert.equal(messages[1].execution.reasoningEffort,null);
+});
+
+test('recovering a completed turn does not depend on the model catalog still containing its model',async t=>{
+  const {store,agent,calls,resumeTurns}=await setup(t),conversation=store.createConversation('恢复已完成轮次');
+  store.thread(conversation.id,'persistent-manager');
+  const message=store.enqueue(conversation.id,'已完成的原始消息');
+  store.recordMessageExecution(message.id,{model:'removed-model',reasoningEffort:'high',timeoutMs:5000,toolTimeoutMs:1000});
+  store.markRunning(message.id);store.turn(message.id,'completed-turn');store.interrupted(message.id);
+  resumeTurns.push({id:'completed-turn',status:'completed',items:[{type:'agentMessage',text:'Saved completed result'}]});
+  await agent.recover();await agent.idle(conversation.id);
+  const saved=store.getConversation(conversation.id);
+  assert.equal(saved.messages[0].status,'completed');
+  assert.equal(saved.messages[1].text,'Saved completed result');
+  assert.equal(calls.filter(call=>call.method==='model/list'||call.method==='turn/start').length,0);
 });
 test('manager resumes a persisted conversation without resending a completed user message',async t=>{
   const {store,agent,create,calls}=await setup(t);const conversation=store.createConversation('保留');

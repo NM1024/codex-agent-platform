@@ -3,6 +3,7 @@ const object=(properties={},required=[])=>({type:'object',properties,required,ad
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:object(properties,required)});
 export const managementTools=[
   tool('overview','Read current gateway/runner health, execution queue, failures and delivery statistics.'),
+  tool('models','List available Codex models and their supported reasoning efforts. Does not start a model turn.'),
   tool('tasks','List task metadata. Filter by status/type/time or search input data. completed means execution completed, not every business item succeeded.',{status:string,type:string,search:string,after:{type:'integer'},before:{type:'integer'},limit:{type:'integer',minimum:1,maximum:200},offset:{type:'integer',minimum:0}}),
   tool('task','Read one task including input, result, concrete errors, runtime and delivery records.',{task_id:id},['task_id']),
   tool('business_records','Query business-item records when an integration supplies them. Historical failures do not imply the latest attempt still failed. latest_only selects each item\'s latest attempt; this does not query the upstream business database.',{type:string,status:string,search:string,latest_only:{type:'boolean'},after:{type:'integer'},before:{type:'integer'},limit:{type:'integer',minimum:1,maximum:200},offset:{type:'integer',minimum:0}},['type']),

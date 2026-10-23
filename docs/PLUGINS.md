@@ -1,6 +1,6 @@
 # JSON plugins
 
-A plugin defines a business contract, not executable code. Create or edit it in Admin, or ask the management Agent to read capabilities and save a validated definition. Installed example definitions live in `src/plugins/examples/` and seed a fresh database; subsequent edits are persistent database settings.
+A plugin defines a business contract, not executable code. Admin shows definitions and offers a simple enable/disable switch. Ask the management Agent to read capabilities and create, edit or trial a validated definition; it can also enable/disable plugins. Installed example definitions live in `src/plugins/examples/` and seed a fresh database; subsequent edits are persistent database settings.
 
 ```json
 {
@@ -53,3 +53,17 @@ For one final-result callback, configure a named HTTPS destination in the `http`
 The destination token is supplied as a Bearer header; it is never part of the plugin or task prompt. Callback payloads contain task identity, request ID, type, status, result/error and artifact metadata. Artifact bytes are downloaded from the authenticated artifact API. The callback receiver must return a 2xx response. Pending callbacks use current target configuration. Callback attempts are separate from task completion and are not automatically retried after ambiguous network errors.
 
 The platform does not limit a business's image attempts or impose a review sequence. Put such business rules in its instructions. Unavailable tools, invalid schemas and unauthorized artifact references produce readable errors for the Agent to correct.
+# Model and reasoning overrides
+
+A plugin may include an optional execution configuration:
+
+```json
+"execution": {
+  "model": "your-account-model-id",
+  "reasoningEffort": "high"
+}
+```
+
+Select actual model IDs and supported reasoning efforts from Admin's selectors or the preset `models` management operation. Omit `execution` to inherit the global business settings. Omit an individual field to inherit it; when selecting a different model without an effort override, its own default applies. Set `reasoningEffort` to `null` to explicitly request the model default. No model or reasoning field is added to business input schemas.
+
+Overrides are stored in each accepted plugin contract and resolved with global settings when that task starts or resumes. Active execution retains its recorded configuration. A catalog read starts no model turn, while an actual trial consumes account allowance.

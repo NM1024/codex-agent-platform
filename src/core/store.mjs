@@ -268,7 +268,7 @@ export class RequestStore {
     if(!run||!['dispatching','running','completing','suspended'].includes(run.status)||(generation!==undefined&&run.generation!==generation))return;
     if(!execution||typeof execution.model!=='string'||!Number.isSafeInteger(execution.taskTimeoutMs)||execution.taskTimeoutMs<1||!Number.isSafeInteger(execution.toolTimeoutMs)||execution.toolTimeoutMs<1)return;
     const metadata=JSON.parse(run.runtime_metadata ?? '{}');
-    metadata.execution={model:execution.model,taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
+    metadata.execution={model:execution.model,...(execution.reasoningEffort!==undefined?{reasoningEffort:execution.reasoningEffort}:{}),taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
     this.db.prepare('UPDATE agent_runs SET runtime_metadata=? WHERE run_id=?').run(JSON.stringify(metadata),id);
   }
   executionSettings(id,generation) {

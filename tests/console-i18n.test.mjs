@@ -1,15 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { t, setLocale, getLocale } from "../src/manager/web/i18n.js";
+import { readFile,readdir } from "node:fs/promises";
+import { t, setLocale, getLocale } from "../frontend/src/i18n.ts";
 
 test("console interface copy has English translations; business data remains literal", async () => {
-  const source = await readFile(
-    new URL("../src/manager/web/app.js", import.meta.url),
-    "utf8",
-  );
+  const directory=new URL('../frontend/src/',import.meta.url);
+  const files=(await readdir(directory,{recursive:true})).filter(file=>/\.tsx?$/.test(file));
+  const source=(await Promise.all(files.map(file=>readFile(new URL(file.replaceAll('\\','/'),directory),'utf8')))).join('\n');
   const html = await readFile(
-    new URL("../src/manager/web/index.html", import.meta.url),
+    new URL("../frontend/index.html", import.meta.url),
     "utf8",
   );
   const keys = [

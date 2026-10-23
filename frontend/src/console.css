@@ -1,0 +1,169 @@
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #172b22;
+  background: #f4f7f5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+.full-width { width: 100%; }
+.console-layout { min-height: 100vh; }
+.console-layout .ant-layout { min-width: 0; }
+.console-layout .console-sidebar {
+  padding: 28px 18px;
+  background: #fff;
+  border-right: 1px solid #e8edea;
+}
+.console-sidebar .ant-typography { color: #244837; }
+.console-sidebar nav { display: grid; gap: 10px; margin-top: 36px; }
+.console-sidebar nav .ant-btn { min-height: 44px; text-align: left; }
+.console-layout .console-header {
+  height: auto;
+  min-height: 96px;
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: #fff;
+  border-bottom: 1px solid #e8edea;
+}
+.console-header h1.ant-typography { margin: 0; font-size: 25px; }
+.console-content { min-width: 0; padding: 28px 32px; }
+.console-content #notice { margin-bottom: 24px; }
+#view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  min-width: 0;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+#view > .ant-space { display: flex; }
+#view .ant-space-item { min-width: 0; }
+#view > .ant-typography { margin-bottom: 0; }
+.console-panel { min-width: 0; }
+.console-panel .ant-card-head-wrapper { gap: 12px; }
+.console-panel .ant-card-head-title { white-space: normal; }
+.console-panel .ant-card-head h2.ant-typography { margin: 0; font-size: 17px; }
+.console-panel .ant-card-body > :last-child { margin-bottom: 0; }
+.console-panel .ant-table-cell { overflow-wrap: anywhere; }
+.console-panel h3.ant-typography { margin-top: 20px; font-size: 16px; }
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 20px;
+}
+.form-grid .ant-select,
+.form-grid .ant-input-number { width: 100%; }
+.complex-settings { display: grid; gap: 16px; justify-items: start; margin-bottom: 24px; }
+.complex-settings > div { min-width: 0; width: 100%; }
+.complex-settings .literal-text { max-height: 260px; overflow: auto; padding: 16px; border-radius: 8px; background: #f4f6f5; }
+.json-view {
+  max-width: 100%;
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 18px;
+  border-radius: 8px;
+  background: #f4f6f5;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.literal-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-guidance-content { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; }
+.agent-guidance-content .ant-typography { margin: 0; }
+.agent-guidance-content .ant-btn { flex-shrink: 0; }
+.enable-toggle { display: grid; justify-items: start; gap: 4px; }
+.enable-toggle .ant-typography { font-size: 12px; white-space: nowrap; }
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at top, #e3eee6, #f5f7f5 65%);
+}
+.login-card { width: 100%; max-width: 460px; }
+.login-card h1.ant-typography { font-size: 30px; }
+.brand-row { display: flex; justify-content: space-between; margin-bottom: 36px; }
+.login-card .ant-alert { margin-top: 16px; }
+.mobile-navigation { display: none; }
+.status-select { min-width: 160px; }
+.previews { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 18px; }
+.previews .ant-image { max-width: 420px; }
+.previews img { max-width: 100%; }
+.chat-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); align-items: start; gap: 24px; }
+.conversation-list { display: flex; flex-direction: column; gap: 8px; }
+.conversation-list .ant-space-item,
+.conversation-list .ant-btn { width: 100%; }
+.conversation-list .ant-btn {
+  height: auto;
+  min-height: 40px;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.messages { min-height: 160px; max-height: 50vh; overflow: auto; padding: 8px; }
+.message { min-width: 0; padding: 16px; margin: 10px 0; border-radius: 10px; background: #f2f5f3; overflow-wrap: anywhere; }
+.message.user { background: #e8efe9; }
+.message-text { white-space: pre-wrap; }
+.message-label {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+  color: #66776d;
+  font-size: 12px;
+}
+.message-label time { font-variant-numeric: tabular-nums; }
+.actions { margin: 16px 0; font-size: 12px; }
+.chat-compose { display: grid; justify-items: start; gap: 12px; margin-top: 16px; }
+.chat-time-note { margin: 12px 0 0; }
+.danger-text { color: #b42318; }
+.message-markdown { min-width: 0; line-height: 1.7; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown h1 { font-size: 1.5em; }
+.message-markdown h2 { font-size: 1.3em; }
+.message-markdown h3 { font-size: 1.15em; }
+.message-markdown pre { overflow: auto; padding: 14px; border-radius: 8px; background: #e5ebe7; white-space: pre; }
+.message-markdown code { padding: 2px 4px; border-radius: 3px; background: #e5ebe7; font-family: Consolas, monospace; }
+.message-markdown pre code { padding: 0; }
+.message-markdown table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.message-markdown th,
+.message-markdown td { padding: 6px 12px; border: 1px solid #cbd5cf; }
+.message-markdown blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid #a3b5aa; color: #52665b; }
+.message-markdown ul,
+.message-markdown ol { padding-left: 24px; }
+.console-layout .ant-table-wrapper { max-width: 100%; min-width: 0; }
+.console-layout .ant-space { max-width: 100%; }
+
+@media (max-width: 991px) {
+  .console-layout .console-sidebar { display: none; }
+  .console-layout .console-header { padding: 16px 20px; }
+  .console-content { padding: 20px; }
+  .mobile-navigation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px 20px; background: #fff; }
+  .mobile-navigation .ant-btn { min-height: 44px; padding: 6px; font-size: 12px; }
+  .chat-layout { grid-template-columns: minmax(0, 1fr); }
+  .conversation-list { max-height: 180px; overflow: auto; }
+}
+
+@media (max-width: 600px) {
+  .console-layout .console-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .console-header h1.ant-typography { font-size: 22px; }
+  .console-header .ant-space { width: 100%; justify-content: space-between; }
+  .console-content { padding: 20px 12px; }
+  #view { gap: 20px; }
+  .mobile-navigation { padding: 10px 12px; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .console-panel .ant-card-body { padding: 16px; }
+  .console-panel .ant-card-head { padding: 0 16px; }
+  .console-panel .ant-table-wrapper .ant-table-cell { padding: 12px 8px; }
+  .agent-guidance-content { flex-direction: column; align-items: stretch; }
+  .json-view { padding: 12px; }
+  .agent-picker { gap: 0; }
+}

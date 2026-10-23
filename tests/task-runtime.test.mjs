@@ -95,6 +95,16 @@ test("one request starts exactly one root thread and one initial turn, subagents
   await runtime.launch(run);
   assert.equal(rpc.calls.filter((x) => x.method === "turn/start").length, 1);
 });
+
+test('explicit model reasoning is forwarded to the task turn',async t=>{
+  const {runtime,run,rpc}=await setup(t);
+  const request=rpc.request.bind(rpc);
+  rpc.request=async(method,params)=>method==='model/list'?{data:[{model:'fixture-model',supportedReasoningEfforts:[{reasoningEffort:'high'}]}]}:request(method,params);
+  await runtime.launch({...run,execution:{model:'fixture-model',reasoningEffort:'high',taskTimeoutMs:1000,toolTimeoutMs:1000}});
+  const turn=rpc.calls.find(call=>call.method==='turn/start').params;
+  assert.equal(turn.effort,'high');
+  assert.equal(turn.model,'fixture-model');
+});
 test("root exit without MCP completion reports missing result; child exit does not finish root", async (t) => {
   const { runtime, run, rpc, events, exited } = await setup(t);
   await runtime.launch(run);

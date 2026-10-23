@@ -14,7 +14,11 @@
     "probe:runtime": "node scripts/probe-runtime.mjs",
     "check:release": "node scripts/check-release.mjs",
     "manager": "node src/main-manager.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "build:admin": "tsc --project frontend/tsconfig.json && vite build --config frontend/vite.config.ts",
+    "check:types": "tsc --project frontend/tsconfig.json",
+    "pretest": "npm run build:admin",
+    "pretest:browser": "npm run build:admin"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
@@ -26,6 +30,17 @@
   "description": "Autonomous Codex task platform with configuration plugins and an operations Agent.",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "1.64.1"
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "antd": "6.6.7",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
   }
 }

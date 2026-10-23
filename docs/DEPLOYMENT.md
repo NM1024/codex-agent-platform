@@ -35,6 +35,28 @@ Admin and management MCP can update execution model, concurrency, pause, queue l
 
 Pausing queues new accepted tasks without interrupting running ones. Current execution keeps its launch settings. Resuming dispatches queued work under the configured capacity. Increasing concurrency starts more independent task conversations and can increase account usage.
 
+Admin keeps simple controls such as model/reasoning selection, pause/resume, concurrency and passwords. Schedules provides viewing and enable/disable switches; creation and editing use management chat. Rule times and next-run values use the plan's configured zone. Structured JSON, HTTP targets and management instructions are read-only with a chat shortcut. The Agent retains every preset operation, including those directly available in Admin.
+
+### Model and reasoning selection
+
+Admin **Settings → Task execution** and **Settings → Management Agent** provide separate model and reasoning selectors. Choices come from Codex `model/list`, including each model's supported reasoning efforts; discovering the list does not start a model turn. The list is cached for up to one minute and does not guarantee that a later task will succeed or have remaining account allowance.
+
+Each **Management chat** can save its own model and reasoning settings above the composer. Sending a message also saves the current choices. They apply to subsequent turns; already running work keeps its settings. Started message settings are recorded for inspection and recovery.
+
+The **Business plugins** page displays saved definitions and model overrides with enable/disable switches. Ask the management Agent to create/edit a plugin, configure its optional `execution` object or run a trial. Existing accepted tasks retain their plugin snapshot; editing a plugin affects only new submissions.
+
+**Inherit global settings** leaves that override unset. **Model default** stores a null reasoning effort. A different model selected without an explicit effort uses that model's default rather than inheriting an effort from the global model. An explicit effort is checked against the selected model before a model turn starts.
+
+Older saved settings and plugins continue to work. If the catalog is unavailable, the console preserves saved values and allows unrelated settings to be edited; restore Codex login/connectivity and refresh before selecting new models. Existing deployments should use Admin rather than changing the first-start `CODEX_MODEL` environment value.
+
+To upgrade for these controls, rebuild the images and run `start` with the same runtime directory. The Manager adds optional execution columns to its existing database; keep your normal backup before upgrading.
+
+The entire Admin interface uses React, TypeScript and Ant Design. Docker builds its static bundle in a dedicated `admin-build` stage; no frontend development server, Node installation on the host or additional container is required. The three-service deployment and `/admin/` reverse-proxy route stay the same. After upgrading, reload the browser page to receive the new hashed assets.
+
+Management Agent replies render Markdown, including lists, tables and fenced code. Raw HTML remains literal text; images are links rather than automatic remote loads. Both user and Agent messages show their saved timestamps in the browser's local locale and time zone. Schedule rules still use each plan's explicit time zone.
+
+Conversation titles prefer Codex `thread.name` from start/resume responses, `thread/name/updated` notifications, and a bounded metadata read after a successful turn. The app-server may not supply a name: the existing title is retained in that case. The platform does not start an extra model turn to generate a title. Title lookup failures do not retry completed management work.
+
 Ports (`PLATFORM_PORT`, `MANAGER_PORT`), volume root (`PLATFORM_DATA_DIR`), internal URLs and `RUNNER_TOKEN` are deployment bootstrap settings; changes need coordinated container recreation. `PLATFORM_PROJECT` is a shell override for the deployment script's Compose project name. Do not change existing deployment paths casually.
 
 Changing the `.env` after initialization does not replace saved live values. Change those through Admin/management MCP. API credentials are write-only in settings responses. Keep the runtime directory private even though credentials are hidden in the UI.

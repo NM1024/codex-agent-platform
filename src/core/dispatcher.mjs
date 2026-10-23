@@ -1,4 +1,5 @@
 import {runtimeSettings} from '../configuration/execution.mjs';
+import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 export class Dispatcher {
   constructor({store, registry, runner, config, deliver = async () => {}}) {
     Object.assign(this, {store, registry, runner, config, deliver});
@@ -49,7 +50,7 @@ export class Dispatcher {
           this.blocked.set(item.task_id, error.code ?? 'MODULE_VERSION_UNAVAILABLE'); continue;
         }
         if (!run) continue;
-        run.execution=runtimeSettings(this.config);
+        run.execution=resolveAgentSettings(runtimeSettings(this.config),run.definition?.execution);
         this.store.recordExecutionSettings(run.run_id,run.execution,run.generation);
         this.reserve(run);
         this.active.get(run.run_id).launching = true;

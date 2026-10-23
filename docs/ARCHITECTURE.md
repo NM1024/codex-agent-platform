@@ -28,6 +28,7 @@ flowchart LR
 | `configuration/` | Persistent module-owned settings with write-only credentials and application hooks. |
 | `operations/` | Preset task/plugin/configuration operations and persistent cron plans. |
 | `manager/` | Independent management conversation, MCP adapter, Admin authentication and web console. |
+| `frontend/` | React + TypeScript + Ant Design Admin source. Vite bundles it into generated `src/manager/web-dist/`; Manager serves only those production assets. |
 | `contracts/`, `observability/` | Shared management schemas and bounded resource measurements. |
 
 The Manager accesses Gateway operations through an internal authenticated API. It does not import the task runtime or query an external business database. Both management and task Agents use preset MCP tools plus their explicitly permitted native Codex capabilities; arbitrary shell, code editing and foreign MCP tools are denied.
@@ -43,6 +44,8 @@ During restart, incomplete work is suspended, its files and known thread identif
 Accepted plugin contracts are stored with each request; editing or disabling a plugin affects new requests. Execution settings are selected per launch/resumption segment; current work keeps its model/timeout snapshot. External access credentials change immediately. Pending HTTP actions use current named targets.
 
 ## Persistence and trust
+
+Admin offers simple enable/disable controls for plugins and schedules, plus scalar/model/password settings. Complex plugin/plan definitions, HTTP target JSON and management instructions are displayed read-only and changed through the management Agent. The Agent retains all existing preset operations. Management replies use React Markdown with GFM, escaped raw HTML and links in place of external images. Message timestamps retain UTC epoch storage and use the browser's local locale/time zone for display. Codex thread names synchronize through response metadata and name notifications; an optional one-second metadata read follows durable successful completion. Missing names preserve the existing title, with no extra generation turn.
 
 Gateway owns `tasks.sqlite`; Manager owns `manager.sqlite`. Runner owns isolated work directories, Codex session state and artifacts. Gateway reads artifacts through a read-only workspace mount. Neither service has a Docker socket. Internal ports are not published; public ports bind loopback by default.
 

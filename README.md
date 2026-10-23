@@ -198,19 +198,21 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 - For the image example, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
 - Download an artifact through `GET /v2/tasks/{task_id}/artifacts/{artifact_id}` with API authentication, or open it in Admin.
-- For final-result callbacks, configure a named HTTP destination in **Settings**, then choose it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
+- For final-result callbacks, ask the management Agent to configure a named HTTP destination and select it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
 
 ## Add your own work and schedules
 
-In **Business plugins**, create a JSON definition with its input fields, complete task instructions, result format and permitted tools. Validate and save it, then submit a small trial. Existing examples are starting points; do not add secrets to instructions or input.
+Model and reasoning selectors are available in **Settings** and above the **Management chat** composer. Ask the management Agent to configure a plugin's model and reasoning effort. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
 
-You can also ask the management Agent in **Management chat**, for example:
+**Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input.
+
+For example:
 
 > Create a text summary plugin. Accept a `text` field and return `summary` and `key_points`. Use no image generation or external HTTP tools. Save the plugin and tell me its request format; do not run a trial yet.
 
 The Agent can configure existing capabilities; it cannot implement a missing tool. Review the saved definition and use a trial before connecting it to a real system. A plugin's instructions and result contract are retained for accepted tasks; later edits apply to new requests.
 
-For scheduled work, use **Schedules**. Choose a task or a management inspection, supply a five-field cron expression and an explicit timezone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
+**Schedules** displays plans, their time zones, next-run times and details, with direct enable/disable switches. Ask the management Agent to create or edit plans; specify the task or inspection, frequency and time zone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
 
 ## Daily operation
 
@@ -234,7 +236,7 @@ For upgrades, back up first, fetch the intended release, build it, then start it
 
 Platform-owned system instructions and message templates live in [`prompts/`](prompts/README.md), with an index explaining each file, its placeholders and how changes take effect. They use plain Markdown and do not require bilingual copies. You can translate or adapt the wording without searching application code; Admin language selection does not rewrite prompts.
 
-For an existing deployment, change the management Agent's instructions under **Settings → Management Agent → Manager instructions**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
+For an existing deployment, ask the management Agent to update the `manager` scope's `instructions` through `configuration_update`; the current value is viewable in **Settings**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
 
 Business plugin `instructions` stay in plugin configuration. Users and the management Agent create and edit those through the plugin tools; they are separate from platform system prompts.
 
@@ -283,7 +285,7 @@ npm test
 npm run check:release
 ```
 
-Current checks pass 185 host tests and 15 browser checks, including Chinese/English switching, desktop/mobile workflows and system prompt loading. CI also builds all four release images and runs the isolated container suite. The initial snapshot also passed isolated Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
+The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. Validation covers 203 platform/deployment checks and 32 browser checks, including Chinese/English switching, desktop/mobile workflows, model selection and CSP. CI builds all four release targets. These checks use synthetic data and fake Codex transports; see [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration) for the exact commands and Docker coverage.
 
 | Document | Purpose |
 | --- | --- |

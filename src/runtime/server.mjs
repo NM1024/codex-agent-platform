@@ -4,10 +4,11 @@ import { fault } from "../core/registry.mjs";
 import { ResourceSampler } from '../observability/resources.mjs';
 import Ajv from 'ajv';
 import {executionProperties} from '../configuration/execution.mjs';
-const settingsProperties=Object.fromEntries(['concurrency','model','taskTimeoutMs','toolTimeoutMs'].map(key=>[key,executionProperties[key]]));
+import {createModelCatalog} from '../codex/models.mjs';
+const settingsProperties=Object.fromEntries(['concurrency','model','reasoningEffort','taskTimeoutMs','toolTimeoutMs'].map(key=>[key,executionProperties[key]]));
 const checkSettings=new Ajv({strict:true}).compile({type:'object',properties:settingsProperties,additionalProperties:false});
 
-export function createRuntimeServer({ runtime, registry, config, probe, onRestart }) {
+export function createRuntimeServer({ runtime, registry, config, probe, onRestart, models=createModelCatalog() }) {
   const metrics=new ResourceSampler({diskPath:config.workspace ?? '/workspace'});
   return createServer(async (req, res) => {
     try {
@@ -15,6 +16,7 @@ export function createRuntimeServer({ runtime, registry, config, probe, onRestar
       if (req.method === "GET" && path === "/healthz")
         return json(res, 200, { alive: true });
       requireAuth(req, config.runnerToken);
+      if(req.method==='GET'&&path==='/internal/models')return json(res,200,await models());
       if(req.method==='GET'&&path==='/internal/metrics')return json(res,200,await metrics.sample());
       if (req.method === "GET" && path === "/readyz")
         return json(res, 200, runtime.closed || runtime.recovering ? {ready: false, reason: runtime.closed ? "RUNNER_STOPPING" : "RUNNER_RECOVERING"} : await probe());

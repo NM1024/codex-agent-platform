@@ -8,6 +8,8 @@ import { runtimeConfig } from '../codex/config.mjs';
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
 import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
+import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
+import {validateModelEffort} from '../codex/models.mjs';
 
 const hash=token=>createHash('sha256').update(token).digest('hex');
 export class ManagementAgent {
@@ -31,8 +33,11 @@ export class ManagementAgent {
     }
   }
   async execute(message) {
-    const settings={model:this.model,timeoutMs:this.timeoutMs,toolTimeoutMs:this.toolTimeoutMs,instructions:this.instructions};
     const conversation=this.store.getConversation(message.conversation_id),recovering=message.status==='interrupted';
+    const settings=message.execution ?? resolveAgentSettings({model:this.model,...(this.reasoningEffort!==undefined?{reasoningEffort:this.reasoningEffort}:{}),timeoutMs:this.timeoutMs,toolTimeoutMs:this.toolTimeoutMs},conversation.execution);
+    // An omitted legacy global effort must clear an earlier conversation override.
+    if(settings.reasoningEffort===undefined && conversation.thread_id && conversation.messages.some(item=>item.execution?.reasoningEffort!==undefined))settings.reasoningEffort=null;
+    this.store.recordMessageExecution(message.id,settings);
     const marker=`[management_message_id:${message.id}]`;
     this.store.markRunning(message.id);
     const token=randomBytes(32).toString('base64url');this.tokens.set(hash(token),conversation.id);
@@ -45,13 +50,15 @@ export class ManagementAgent {
       client=this.createClient({cwd:workDir,env});state.client=client;
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=settings.instructions ?? readSystemPrompt('manager');
+      const prompt=this.instructions ?? readSystemPrompt('manager');
       const config=runtimeConfig({native:{},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),
         model:settings.model,cwd:workDir,approvalPolicy:'never',sandbox:'read-only',developerInstructions:prompt,config,
       });
       const threadId=response.thread.id;this.store.thread(conversation.id,threadId);
+      const syncTitle=name=>this.store.syncTitle(conversation.id,safeDiagnostic(name,[token],{maxLength:null}));
+      syncTitle(response.thread.name);
       // Reconcile the original submission before deciding whether a continuation is needed.
       // turn/start may have reached Codex even when its acknowledgement was not persisted.
       const turns=response.thread.turns ?? [];
@@ -68,17 +75,29 @@ export class ManagementAgent {
       unsubscribe=client.subscribe(event=>{
         if(event.method==='transport/closed'){state.disconnected=true;state.resolve({interrupted:true});return;}
         const params=event.params ?? {};if(params.threadId!==threadId)return;
+        if(event.method==='thread/name/updated')syncTitle(params.threadName);
         if(event.method==='item/completed'&&params.item?.type==='agentMessage')state.text=safeDiagnostic(params.item.text,[token],{maxLength:null}) ?? '';
         if(event.method==='turn/completed')state.resolve({error:params.turn?.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(params.turn?.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'}});
       });
       timer=setTimeout(()=>state.resolve({error:{code:'MANAGEMENT_TIMEOUT',message:'管理轮次超过配置的执行时间。'}}),settings.timeoutMs);
       const text=continuation?renderSystemPrompt('manager-resume',{recorded_actions_json:JSON.stringify(this.store.actions(conversation.id))}):message.text;
       if(this.closed){this.store.interrupted(message.id);return;}
-      const started=await client.request('turn/start',{threadId,input:[{type:'text',text:marker+'\n'+text}]});
+      const effort=await validateModelEffort(client,settings);
+      const started=await client.request('turn/start',{threadId,model:settings.model,effort,input:[{type:'text',text:marker+'\n'+text}]});
       this.store.turn(message.id,started.turn.id);
       const result=await outcome;
       if(result.interrupted||this.closed){this.store.interrupted(message.id);return 'interrupted';}
-      else this.store.finish(message,result.error,state.text);
+      else {
+        this.store.finish(message,result.error,state.text);
+        if(!result.error) {
+          // Title metadata is optional. Persist completion before this bounded lookup
+          // so a transport timeout cannot interrupt or replay completed operations.
+          try {
+            const metadata=await client.request('thread/read',{threadId,includeTurns:false},1000);
+            if(metadata.thread?.id===threadId)syncTitle(metadata.thread.name);
+          }catch{}
+        }
+      }
     }catch(error) {
       if(this.closed||state.disconnected||['CODEX_EXIT','CODEX_TIMEOUT'].includes(error.message)) {
         this.store.interrupted(message.id);return 'interrupted';

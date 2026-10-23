@@ -1,11 +1,13 @@
 import Ajv from 'ajv';
 import { HttpError } from '../errors.mjs';
+import {agentOverridesSchema} from '../configuration/agent-settings.mjs';
 export const pluginDefinitionSchema = {
   type:'object', required:['type','name','instructions','input_schema','result_schema','capabilities','delivery'], additionalProperties:false,
   properties:{
     type:{type:'string',pattern:'^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)+$'},
     name:{type:'string',minLength:1},description:{type:'string'},instructions:{type:'string',minLength:1},
     input_schema:{type:'object'},result_schema:{type:'object'},enabled:{type:'boolean'},
+    execution:agentOverridesSchema,
     capabilities:{type:'object',additionalProperties:false,properties:{tools:{type:'array',uniqueItems:true,items:{type:'string'}},image_generation:{type:'boolean'},web_search:{type:'boolean'}}},
     resources:{type:'array',uniqueItems:true,items:{type:'string'}},
     routes:{type:'array',uniqueItems:true,items:{type:'string',pattern:'^/hooks/[a-zA-Z0-9][a-zA-Z0-9/_-]*$'}},

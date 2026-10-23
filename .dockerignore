@@ -9,3 +9,6 @@
 !scripts/**
 !tests/
 !tests/**
+!frontend/
+!frontend/**
+src/manager/web-dist/

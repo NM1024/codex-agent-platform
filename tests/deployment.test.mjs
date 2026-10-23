@@ -89,22 +89,28 @@ test('init adds an initial Admin password to an existing installation without ch
   assert.equal(await readFile(join(dir,'.env'),'utf8'),'EXISTING_CONFIG=retained\n');assert.ok((await readFile(join(dir,'manager/initial-password'),'utf8')).trim().length>=24);
 });
 test('release validates dynamic plugin JSON and manager web resources',async t=>{
-  const {cp,unlink,writeFile}=await import('node:fs/promises');
+  const {cp,unlink,writeFile,mkdir}=await import('node:fs/promises');
   const dir=await mkdtemp(join(tmpdir(),'aw-platform-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});await cp(join(root,'prompts'),join(dir,'prompts'),{recursive:true});
   const run=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs')],{cwd:dir,encoding:'utf8'});
   assert.equal(run().status,0);
   const definition=join(dir,'src/plugins/examples/novel.illustrated.json');const original=await readFile(definition);
   await unlink(definition);const missing=run();assert.notEqual(missing.status,0);assert.match(missing.stderr,/novel\.illustrated/);
-  await writeFile(definition,original);await unlink(join(dir,'src/manager/web/app.js'));
-  const web=run();assert.notEqual(web.status,0);assert.match(web.stderr,/app\.js/);
-  await cp(join(root,'src/manager/web/app.js'),join(dir,'src/manager/web/app.js'));
+  const bundleIndex=join(dir,'src/manager/web-dist/index.html');
+  const script=(await readFile(bundleIndex,'utf8')).match(/src="\/admin\/(assets\/[^\"]+\.js)"/)[1];
+  const bundle='src/manager/web-dist/'+script;
+  await writeFile(definition,original);await unlink(join(dir,bundle));
+  const web=run();assert.notEqual(web.status,0);assert.ok(web.stderr.includes(script));
+  await cp(join(root,bundle),join(dir,bundle));
   for(const name of ['manager','task','task-resume','manager-resume','task-investigation']) {
     const file=join(dir,'prompts',name+'.md'),text=await readFile(file);
-    await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes('prompts/'+name+'.md'),missingPrompt.stderr);
+    await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes(join('prompts',name+'.md')),missingPrompt.stderr);
     await writeFile(file,text);
   }
   assert.equal(run().status,0);
+  await mkdir(join(dir,'src/manager/web'));
+  await writeFile(join(dir,'src/manager/web','leftover.css'),'body { color: red; }');
+  const obsolete=run();assert.notEqual(obsolete.status,0);assert.match(obsolete.stderr,/Obsolete Admin source directory/);
 });
 
 test("release ignore rules retain Codex source modules and exclude runtime authentication", async (t) => {

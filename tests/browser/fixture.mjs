@@ -103,7 +103,7 @@ const agent = {
     store.finish(
       m,
       null,
-      '本地验收：系统中有 3 个任务等待处理，1 个历史失败。<img src=x onerror="window.injected=true">',
+      '# 运行报告\n\n**队列**\n\n本地验收：系统中有 3 个任务等待处理，1 个历史失败。\n\n```js\nconst count = 3;\n```\n\n| 等待 |\n| --- |\n| 3 |\n\n[文档](https://example.com/docs) [危险](javascript:alert(1))\n\n![远程图片](https://example.com/tracking.png)\n\n<img src=x onerror="window.injected=true">',
     );
     return m;
   },
@@ -118,6 +118,7 @@ const settings = createManagerConfiguration({ store, agent, auth }),
     }),
   };
 const operations = createManagerOperations({
+  models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
     execute: (...args) => platform.execute(...args),
     async artifact(taskId, id) {

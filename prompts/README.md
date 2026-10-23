@@ -20,7 +20,7 @@ These files contain platform-owned instructions and message templates. They have
 
 ### Management Agent instructions
 
-For an **existing installation**, open **Admin → Settings → Management Agent → Manager instructions**, edit the text and save that group. You can paste the contents of `manager.md`, translated or adapted as needed. The next management turn uses the saved instructions; no image rebuild or service restart is needed. The same change is available through `configuration_update` with scope `manager` and patch field `instructions`.
+For an **existing installation**, ask the management Agent to save the desired instructions through `configuration_update` (scope `manager`, patch field `instructions`). Admin Settings shows the current value without a prompt editor. You can supply the contents of `manager.md`, translated or adapted as needed. The next management turn uses the saved instructions; no image rebuild or service restart is needed. The same change is available through `configuration_update` with scope `manager` and patch field `instructions`.
 
 `manager.md` supplies the first-install default and the fallback when an Agent is used without saved configuration. The platform persists that initial default too. Editing the file or upgrading the image **does not replace instructions already stored in the Manager database**, even if you never changed them yourself. This protects operator changes; use Admin to apply a revised prompt to an existing installation.
 

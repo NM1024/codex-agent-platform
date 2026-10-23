@@ -25,6 +25,7 @@ export class OperationsService {
     const check=this.checks.get(action);
     if (!check) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','未知管理操作。');
     if (!check(args)) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT',`${check.errors[0].instancePath || '/'} ${check.errors[0].message} ${JSON.stringify(check.errors[0].params)}`);
+    if(action==='models')return this.runner.models();
     if(action==='configuration_list')return {groups:this.configuration.list(),bootstrap:bootstrapSettings};
     if(action==='configuration_get')return this.configuration.get(args.scope);
     if(action==='configuration_update') {

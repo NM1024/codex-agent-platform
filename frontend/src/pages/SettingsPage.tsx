@@ -1,0 +1,135 @@
+import {useCallback, useEffect, useState} from 'react';
+import {Alert, Button, Checkbox, Form, Input, InputNumber, Spin, Typography} from 'antd';
+import {AgentPicker, CatalogNote, JsonView, Panel} from '../components';
+import {useConsole} from '../context';
+import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
+
+interface ConfigurationList {
+  groups: ConfigGroup[];
+  gateway_unavailable?: boolean;
+  bootstrap?: {names:string[]; description:string}[];
+}
+type FieldDraft = string | boolean | number | null;
+const structured = (schema: Schema) => schema.type === 'object' || schema.type === 'array';
+const complex = (key:string,schema:Schema) => structured(schema) || key === 'instructions';
+const fieldValue = (schema: Schema, value: Json | undefined): FieldDraft => {
+  if (schema.writeOnly) return '';
+  if (schema.type === 'boolean') return value === true;
+  if (schema.type === 'integer') return typeof value === 'number' ? value : null;
+  return typeof value === 'string' ? value : '';
+};
+
+function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promise<void>}) {
+  const {operation, act, notify, t, navigate} = useConsole();
+  const [drafts, setDrafts] = useState<Record<string, FieldDraft>>({});
+  const [clears, setClears] = useState<Record<string, boolean>>({});
+  const [agent, setAgent] = useState<AgentSettings>();
+  const [saving, setSaving] = useState(false);
+  const properties = group.schema.properties ?? {};
+  const simpleFields=Object.entries(properties).filter(([key,schema])=>!complex(key,schema));
+  const complexFields=Object.entries(properties).filter(([key,schema])=>complex(key,schema));
+  const savedAgent: AgentSettings = {
+    ...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
+    ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {}),
+  };
+  const update = (key:string, value:FieldDraft) => setDrafts(current => ({...current, [key]:value}));
+  const save = async () => {
+    setSaving(true);
+    await act(async () => {
+      const patch: Values = {};
+      if (agent) {
+        if (agent.model !== savedAgent.model) patch.model = agent.model;
+        if (agent.reasoningEffort !== savedAgent.reasoningEffort) patch.reasoningEffort = agent.reasoningEffort ?? null;
+      }
+      for (const [key, schema] of Object.entries(properties)) {
+        if (complex(key,schema)) continue;
+        if (properties.model && (key === 'model' || key === 'reasoningEffort')) continue;
+        if (schema.writeOnly) {
+          if (clears[key]) patch[key] = '';
+          else if (typeof drafts[key] === 'string' && drafts[key]) patch[key] = drafts[key];
+          continue;
+        }
+        if (!Object.hasOwn(drafts, key)) continue;
+        const raw = drafts[key];
+        const value: Json = schema.type === 'integer' ? Number(raw) : raw;
+        if (JSON.stringify(value) !== JSON.stringify(group.values[key])) patch[key] = value;
+      }
+      if (!Object.keys(patch).length) {notify(t('没有需要保存的修改。')); return;}
+      const result = await operation<{synchronization?:{runner?:string}}>('configuration_update', {scope:group.scope, patch});
+      await reload();
+      setDrafts({}); setClears({}); setAgent(undefined);
+      notify(t(result.synchronization?.runner === 'pending' ? '已保存，Runner 暂时不可用，恢复后自动同步。' : '已保存，配置按本组说明生效。'));
+    });
+    setSaving(false);
+  };
+
+  return <Panel title={t(group.title)}>
+    <Form id={'configuration-' + group.scope} layout="vertical" onFinish={() => {void save();}}>
+      <Typography.Paragraph>{t(group.description)}</Typography.Paragraph>
+      {group.error && <Alert type="error" showIcon title={t(group.error.message)}/>}
+      {properties.model && <><CatalogNote/><AgentPicker id={'setting-' + group.scope} value={agent ?? savedAgent} onChange={value => {if (!saving) setAgent(value);}}/></>}
+      <div className="form-grid">
+        {simpleFields.filter(([key]) => !properties.model || (key !== 'model' && key !== 'reasoningEffort')).map(([key, schema]) => {
+          const id = 'setting-' + group.scope + '-' + key;
+          const value = Object.hasOwn(drafts, key) ? drafts[key] : fieldValue(schema, group.values[key]);
+          const label = t(schema.title ?? key);
+          return <Form.Item key={key} label={label} htmlFor={id}>
+            {schema.type === 'boolean'
+              ? <Checkbox id={id} checked={value === true} disabled={saving} onChange={event => update(key, event.target.checked)}/>
+              : schema.type === 'integer'
+                  ? <InputNumber id={id} value={typeof value === 'number' ? value : null} min={schema.minimum} max={schema.maximum} precision={0} disabled={saving} onChange={number => update(key, number)}/>
+                  : schema.writeOnly
+                    ? <Input.Password id={id} autoComplete="new-password" value={String(value ?? '')} disabled={saving || clears[key]} placeholder={t(group.configured_secrets.includes('/' + key) ? '已配置，留空保持原值' : '尚未配置')} onChange={event => update(key, event.target.value)}/>
+                    : <Input id={id} value={String(value ?? '')} disabled={saving} onChange={event => update(key, event.target.value)}/>}
+            {schema.writeOnly && !schema.minLength && <Checkbox id={id + '-clear'} aria-label={t('清除 ') + label} checked={clears[key] ?? false} disabled={saving} onChange={event => setClears(current => ({...current, [key]:event.target.checked}))}>{t(' 清除已保存凭证')}</Checkbox>}
+          </Form.Item>;
+        })}
+      </div>
+      {!!complexFields.length&&<div className="complex-settings">
+        <Typography.Paragraph type="secondary">{t('请通过管理 Agent 修改复杂配置。')}</Typography.Paragraph>
+        {complexFields.map(([key,schema])=><div key={key}>
+          <Typography.Title level={3}>{t(schema.title??key)}</Typography.Title>
+          {typeof group.values[key]==='string'?<Typography.Paragraph className="literal-text">{String(group.values[key])}</Typography.Paragraph>:<JsonView value={group.values[key]??{}}/>}
+        </div>)}
+        <Button onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button>
+      </div>}
+      {!!group.configured_secrets.length && <Typography.Paragraph type="secondary">{t('已配置凭证：') + group.configured_secrets.join('、') + t('。省略字段保留原值，显式空值表示清除。')}</Typography.Paragraph>}
+      {!!simpleFields.length&&<Button type="primary" htmlType="submit" loading={saving}>{t('保存配置')}</Button>}
+    </Form>
+  </Panel>;
+}
+
+export default function SettingsPage() {
+  const {api, operation, act, notify, t, refresh, setAuthenticated, setChatId} = useConsole();
+  const [data, setData] = useState<ConfigurationList>();
+  const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const reload = useCallback(async () => {setData(await operation<ConfigurationList>('configuration_list'));}, [operation]);
+  useEffect(() => {let active=true; void operation<ConfigurationList>('configuration_list').then(value => {if(active)setData(value);}).catch(error => {if(active)notify(t(error instanceof Error ? error.message : String(error)));}); return () => {active=false;};}, [operation, refresh]);
+  const changePassword = async () => {
+    setSavingPassword(true);
+    await act(async () => {
+      if (password !== confirmation) throw new Error(t('两次密码不一致。'));
+      if (password.length < 12 || password.length > 1024) throw new Error(t('密码须为12至1024个字符。'));
+      await api('/password', {password});
+      setPassword(''); setConfirmation(''); setChatId(null); setAuthenticated(false);
+      notify(t('密码已修改，请重新登录。'));
+    });
+    setSavingPassword(false);
+  };
+  return <>
+    <Typography.Paragraph>{t('配置持久保存在服务端，页面和管理 Agent 使用相同接口。修改无需重启，正在执行的任务保留自己的参数。密钥只写不读。')}</Typography.Paragraph>
+    {!data && <Spin tip={t('正在读取…')}/>}
+    {data?.gateway_unavailable && <Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
+    {data?.groups.map(group => <ConfigurationForm key={group.scope} group={group} reload={reload}/>)}
+    <Panel title={t('Admin 密码')}>
+      <Form layout="vertical" onFinish={() => {void changePassword();}}>
+        <Typography.Paragraph>{t('修改后所有网页会话退出，请使用新密码重新登录。业务入口密钥保持独立。')}</Typography.Paragraph>
+        <Form.Item label={t('新密码（至少12个字符）')} htmlFor="new-admin-password"><Input.Password id="new-admin-password" autoComplete="new-password" minLength={12} maxLength={1024} required value={password} disabled={savingPassword} onChange={event => setPassword(event.target.value)}/></Form.Item>
+        <Form.Item label={t('再次输入新密码')} htmlFor="confirm-admin-password"><Input.Password id="confirm-admin-password" autoComplete="new-password" required value={confirmation} disabled={savingPassword} onChange={event => setConfirmation(event.target.value)}/></Form.Item>
+        <Button type="primary" htmlType="submit" loading={savingPassword}>{t('修改 Admin 密码')}</Button>
+      </Form>
+    </Panel>
+    <Panel title={t('部署配置')}>{data?.bootstrap?.map(item => <Typography.Paragraph key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><br/>{t(item.description)}</Typography.Paragraph>)}</Panel>
+  </>;
+}

@@ -1,6 +1,26 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
-const english = {
+const english: Record<string, string> = {
+  '请通过管理 Agent 修改复杂配置。':'Ask the management Agent to change complex configuration.',
+  '定时计划配置':'Schedule configuration',
+  '业务插件配置':'Business plugin configuration',
+  '可在此启用或停用。新增和编辑定时任务，请通过管理 Agent 操作。':'Enable or disable schedules here. Ask the management Agent to create or edit them.',
+  '可在此启用或停用。新增、编辑和试运行请通过管理 Agent 操作。':'Enable or disable plugins here. Ask the management Agent to create, edit or test them.',
+  '启停业务插件：{name}':'Enable or disable plugin: {name}',
+  '启停定时计划：{name}':'Enable or disable schedule: {name}',
+  '触发受阻':'Trigger blocked',
+  '计划详情':'Schedule details',
+  '运行说明':'How schedules work',
+  '下次触发':'Next run',
+  '时间按每个计划设置的时区显示；新增或编辑请在管理对话中说明。':'Times use each schedule’s configured time zone. Ask in management chat to create or edit a schedule.',
+  '前往管理对话':'Open management chat',
+  '查看详情':'View details',
+  '无效插件':'Invalid plugins',
+  '继承默认设置':'Inherited defaults',
+  '消息时间按此浏览器的本地时区显示。':'Message times use this browser’s local time zone.',
+  '定时任务按 Cron 周期自动执行：业务任务调用指定插件处理固定输入；管理巡检把巡检要求交给管理 Agent，并在管理对话中保存结果。':'Schedules run automatically on a Cron cycle. Business tasks invoke a plugin with fixed input; inspections send instructions to the management Agent and save the results in management chat.',
+  '例如：每天 09:00 检查队列与失败任务，Cron 为 0 9 * * *。触发时间以计划填写的时区为准；启用后实际执行会使用模型额度。':'For example, use 0 9 * * * to check queues and failed tasks daily at 09:00. The schedule’s configured time zone determines when it runs. Executions use model quota.',
+  '部分产物暂时无法读取。':'Some artifacts are temporarily unavailable.',
   "Agent · 运行工作台": "Agent · Operations console",
   "从这里，了解并管理运行。": "Understand and manage your system.",
   "使用独立 Admin 密码登录，初始密码由部署时生成。":
@@ -128,33 +148,15 @@ const english = {
     "HTTP accepted means the endpoint received the request. Check the receiving system to confirm any asynchronous save.",
   任务图片: "Task image",
   下载文本产物: "Download text artifact",
-  新业务: "New business",
-  "根据输入完成业务，并通过 complete_task 提交最终结果。":
-    "Complete the business task from the input and submit the final result through complete_task.",
-  "检查服务健康、任务积压、执行错误和交付情况，给出有证据的报告。":
-    "Check service health, task backlog, execution errors and delivery status, and provide an evidence-based report.",
-  "插件 JSON 定义": "Plugin JSON definition",
   编辑: "Edit",
   停用: "Disable",
   启用: "Enable",
-  试运行输入: "Trial input",
-  校验并保存: "Validate and save",
-  "插件已保存。已接收的任务继续使用原定义。":
-    "Plugin saved. Previously accepted tasks keep their original definition.",
-  查看可用能力: "View available capabilities",
-  提交试运行: "Submit trial",
-  "已提交试运行：": "Trial submitted: ",
-  "每个插件定义输入、完整任务要求、可用能力和最终输出。也可以直接在管理对话中描述需求，让 Agent 创建配置。":
-    "Each plugin defines input, complete task instructions, available capabilities and final output. You can also describe your needs in management chat and ask the Agent to create the configuration.",
   已注册业务: "Registered plugins",
   业务: "Business",
   状态: "Status",
   说明: "Description",
-  新建插件: "New plugin",
   插件定义: "Plugin definition",
-  "试运行输入 JSON": "Trial input JSON",
   "兼容模块：": "Compatibility modules: ",
-  "例如：每天检查运行情况": "For example: daily system check",
   管理巡检: "Management inspection",
   业务任务: "Business task",
   业务类型: "Task type",
@@ -162,19 +164,11 @@ const english = {
   巡检要求: "Inspection instructions",
   计划名称: "Schedule name",
   触发对象: "Trigger type",
-  "Cron（分 时 日 月 周）": "Cron (minute hour day month weekday)",
   时区: "Time zone",
-  启用计划: "Enable schedule",
-  保存计划: "Save schedule",
-  新建计划: "New schedule",
-  "定时计划已保存。": "Schedule saved.",
   "停机期间错过的计划在恢复后执行一次，再进入下个正常时刻。每次触发都是独立任务，执行受统一并发设置控制。":
     "A schedule missed during downtime runs once on recovery, then returns to its normal timetable. Each trigger is an independent task subject to the shared concurrency setting.",
   计划: "Schedule",
   规则: "Rule",
-  "下次触发（北京时间）": "Next trigger (UTC+8)",
-  编辑计划: "Edit schedule",
-  创建计划: "Create schedule",
   "已配置，留空保持原值": "Configured; leave blank to keep",
   尚未配置: "Not configured",
   "清除 ": "Clear ",
@@ -272,6 +266,15 @@ const english = {
   "找不到业务插件。": "Business plugin not found.",
   "该类型由现有兼容模块提供。":
     "This type is reserved by a compatibility module.",
+  '模型':'Model',
+  '思考程度':'Reasoning effort',
+  '继承全局设置':'Inherit global settings',
+  '模型默认':'Model default',
+  '所选模型默认':'Selected model default',
+  '当前保存值：{value}':'Saved value: {value}',
+  '保存对话配置':'Save conversation settings',
+  '对话配置已保存':'Conversation settings saved',
+  '模型列表暂不可用，保留当前配置。请检查 Codex 登录和服务连接后刷新。':'Model list unavailable. Current settings are preserved. Check Codex login and connectivity, then refresh.',
 };
 let locale = "zh-CN";
 try {
@@ -280,14 +283,14 @@ try {
 export function getLocale() {
   return locale;
 }
-export function setLocale(value) {
+export function setLocale(value: string) {
   locale = value === "en" ? "en" : "zh-CN";
   try {
     localStorage.setItem("agent-console-language", locale);
   } catch {}
   return locale;
 }
-export function t(key, parameters = {}) {
+export function t(key: string, parameters: Record<string, string | number> = {}) {
   const prefixed =
     typeof key === "string" ? key.match(/^([A-Z_]+): (.*)$/s) : null;
   const text =

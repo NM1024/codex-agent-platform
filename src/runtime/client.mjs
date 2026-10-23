@@ -40,6 +40,7 @@ export class RuntimeClient {
   ready() {
     return this.request("/readyz");
   }
+  models() {return this.request('/internal/models',undefined,30000);}
   configure(settings) {return this.request('/internal/config',settings);}
   metrics() {return this.request('/internal/metrics');}
   restart() {return this.request('/internal/restart',{});}

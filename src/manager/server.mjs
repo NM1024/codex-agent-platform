@@ -1,20 +1,27 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import {randomBytes} from 'node:crypto';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 
-const assets=new Map([['/admin/',['index.html','text/html; charset=utf-8']],['/admin/app.js',['app.js','text/javascript; charset=utf-8']],['/admin/i18n.js',['i18n.js','text/javascript; charset=utf-8']],['/admin/style.css',['style.css','text/css; charset=utf-8']],['/admin/favicon.svg',['favicon.svg','image/svg+xml']]]);
+const webRoot=new URL('./web-dist/index.html',import.meta.url);
+const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
 export function createManagerServer({store,agent,operations,auth,metrics}) {
   return createServer(async(req,res)=>{
     try {
       const url=new URL(req.url,'http://local'),path=url.pathname;
       if(req.method==='GET'&&path==='/healthz')return json(res,200,{alive:true});
       if(req.method==='GET'&&path==='/admin'){res.writeHead(308,{location:'/admin/'});return res.end();}
-      if(req.method==='GET'&&assets.has(path)) {
-        const [file,type]=assets.get(path),data=await readFile(new URL(`./web/${file}`,import.meta.url));
-        res.writeHead(200,{'content-type':type,'cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",'referrer-policy':'no-referrer'});return res.end(data);
+      if((req.method==='GET'||req.method==='HEAD')&&(path==='/admin/'||assetPath.test(path))) {
+        const index=path==='/admin/',file=index?'index.html':path.slice('/admin/'.length),nonce=randomBytes(18).toString('base64');
+        let data;
+        try {data=await readFile(new URL(file,webRoot));}
+        catch(error){if(error.code==='ENOENT')throw new HttpError(404,'NOT_FOUND','找不到接口。');throw error;}
+        const type=file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.md')?'text/plain; charset=utf-8':'image/svg+xml';
+        if(index)data=Buffer.from(data.toString('utf8').replace('__CSP_NONCE__',nonce));
+        res.writeHead(200,{'content-type':type,'cache-control':index?'no-store':file.startsWith('assets/')?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'});return res.end(req.method==='HEAD'?undefined:data);
       }
       if(!path.startsWith('/admin/api/'))throw new HttpError(404,'NOT_FOUND','找不到接口。');
       if(req.method==='POST'&&req.headers.origin) {
@@ -37,8 +44,10 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         if(req.method==='GET')return json(res,200,store.list());
         if(req.method==='POST') {
           const body=await readJson(req);
+          store.validateExecution(body.execution ?? {});
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
           const conversation=store.createConversation(body.title,body.task_id?'task:'+body.task_id:null);
+          if(body.execution)store.setConversationExecution(conversation.id,body.execution);
           if(body.investigate===true&&body.task_id&&!conversation.messages.length)
             agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
           return json(res,201,store.getConversation(conversation.id));
@@ -47,6 +56,7 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       const conversation=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})(\/messages)?$/);
       if(conversation) {
         if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversation(conversation[1]));
+        if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
         if(req.method==='POST'&&conversation[2]) {const body=await readJson(req);return json(res,202,agent.enqueue(conversation[1],body.text));}
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {
