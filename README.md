@@ -2,7 +2,7 @@
 
 **Turn repeatable AI work into a service that your application can call.** Send a task, let a Codex Agent do the work, and get a result in the format you agreed on.
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [Simplified Chinese](README.zh-CN.md)
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
@@ -148,7 +148,7 @@ On **your own computer**, keep this SSH tunnel open:
 ssh -N -L 3007:127.0.0.1:3007 user@your-server
 ```
 
-Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Use the initial password, go to **系统配置** (System settings), and set a new Admin password. Password changes sign out existing web sessions. The initial-password file does not override a password already saved in the Manager database.
+Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Admin password** and set a new Admin password. Password changes sign out existing web sessions. The initial-password file does not override a password already saved in the Manager database.
 
 A public domain, HTTPS certificates and the external access gateway are managed by the deployment operator using their own infrastructure. This tutorial uses private SSH access. Keep internal service ports private; connection requirements for an existing gateway are described in the [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access).
 
@@ -181,7 +181,7 @@ curl --fail-with-body -sS "http://127.0.0.1:3004/v2/tasks/$TASK_ID" \
 unset INGRESS_TOKEN TASK_ID
 ```
 
-Repeat the query if the task is still queued or running; do not resubmit the POST just to check progress. Admin's **任务记录** (Task records) shows the same task and its details.
+Repeat the query if the task is still queued or running; do not resubmit the POST just to check progress. Admin's **Task history** shows the same task and its details.
 
 | Status | Meaning |
 | --- | --- |
@@ -198,19 +198,19 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 - For the image example, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
 - Download an artifact through `GET /v2/tasks/{task_id}/artifacts/{artifact_id}` with API authentication, or open it in Admin.
-- For final-result callbacks, configure a named HTTP destination in System settings, then choose it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
+- For final-result callbacks, configure a named HTTP destination in **Settings**, then choose it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
 
 ## Add your own work and schedules
 
-In **业务插件** (Plugins), create a JSON definition with its input fields, complete task instructions, result format and permitted tools. Validate and save it, then submit a small trial. Existing examples are starting points; do not add secrets to instructions or input.
+In **Business plugins**, create a JSON definition with its input fields, complete task instructions, result format and permitted tools. Validate and save it, then submit a small trial. Existing examples are starting points; do not add secrets to instructions or input.
 
-You can also ask the management Agent in **管理对话** (Management chat), for example:
+You can also ask the management Agent in **Management chat**, for example:
 
 > Create a text summary plugin. Accept a `text` field and return `summary` and `key_points`. Use no image generation or external HTTP tools. Save the plugin and tell me its request format; do not run a trial yet.
 
 The Agent can configure existing capabilities; it cannot implement a missing tool. Review the saved definition and use a trial before connecting it to a real system. A plugin's instructions and result contract are retained for accepted tasks; later edits apply to new requests.
 
-For scheduled work, use **定时计划** (Schedules). Choose a task or a management inspection, supply a five-field cron expression and an explicit timezone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
+For scheduled work, use **Schedules**. Choose a task or a management inspection, supply a five-field cron expression and an explicit timezone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
 
 ## Daily operation
 
@@ -262,13 +262,13 @@ Admin password, API ingress token, internal `RUNNER_TOKEN` and ChatGPT login are
 | Device login fails before printing a code | Check outbound HTTPS and trusted CA access **inside the Runner container**, then account/workspace device-login permissions. Host `ping` alone does not test login. Do not disable TLS verification. |
 | `invalid_auth_step` or an expired code | Stop that login attempt, generate a fresh code and use the printed link in a fresh browser session. Make sure you use the intended account/workspace. |
 | `CHATGPT_LOGIN_REQUIRED` | Run the login command again and verify you are using the same runtime directory. Do not share or manually edit login tokens. |
-| `RATE_LIMITED` or a model/tool access error | Check account usage, workspace restrictions and model availability. Lower concurrency or choose a model you can access in System settings. A readiness probe does not guarantee access to every model. |
+| `RATE_LIMITED` or a model/tool access error | Check account usage, workspace restrictions and model availability. Lower concurrency or choose a model you can access in **Settings**. A readiness probe does not guarantee access to every model. |
 | Image readiness is unavailable | Check the selected plugin's native image capability and your account's availability. Text-only work can be tested separately. There is no substitute image-provider fallback. |
 | A task stays `queued` | Check queue pause, Runner readiness, active work and concurrency in Admin. Repeated POSTs create more tasks. |
 | A tool reports that approval is required | Check that you are using the pinned build and its supplied MCP configuration. Account login and tool approval are different controls; do not enable unrestricted permissions as a workaround. |
 | `RESULT_NOT_SUBMITTED` | The Agent turn ended without an accepted `complete_task` result. Inspect the final Agent message, tool errors and plugin instructions before deciding whether to retry. |
 | Task completed but a callback failed or is `unknown` | Inspect delivery details and the receiving system. Completion and delivery are separate; HTTP 2xx only proves HTTP acceptance, not downstream storage. |
-| Changes to `.env` appear ignored | Live settings have already been saved. Change them in System settings; bootstrap settings such as ports still require container recreation. |
+| Changes to `.env` appear ignored | Live settings have already been saved. Change them in **Settings**; bootstrap settings such as ports still require container recreation. |
 | Permission denied under `/data` | Match volume access to container UID/GID `1000:1000`. Root initialization assigns newly created directories accordingly; avoid making the whole data directory world-writable. |
 
 Account and protocol probes are available in the [deployment guide](docs/DEPLOYMENT.md#health-and-diagnostics). They do not start a model turn. Real tasks and management messages do.
