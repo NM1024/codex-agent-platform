@@ -9,6 +9,7 @@ These files contain platform-owned instructions and message templates. They have
 | File | Purpose | Variables supplied by the platform |
 | --- | --- | --- |
 | [manager.md](manager.md) | Default system instructions for the management Agent: its role, tool boundaries, configuration, investigations and reporting. Passed as Codex developer instructions. | None |
+| [manager-connections.md](manager-connections.md) | Platform connection policy appended to every management start/resume, including installations with saved custom instructions. Requires human-only per-plugin setup and creation guidance. | None |
 | [task.md](task.md) | Platform wrapper for a task's initial message. Includes the plugin's own instructions, request data and required result schema. | `{{plugin_instructions}}`, `{{input_json}}`, `{{result_schema_json}}` |
 | [task-resume.md](task-resume.md) | Continue an unfinished task after a service restart in its existing Codex conversation. | None |
 | [manager-resume.md](manager-resume.md) | Continue an interrupted management turn with the recorded actions, so the Agent can inspect their outcomes. | `{{recorded_actions_json}}` |
@@ -23,6 +24,8 @@ These files contain platform-owned instructions and message templates. They have
 For an **existing installation**, ask the management Agent to save the desired instructions through `configuration_update` (scope `manager`, patch field `instructions`). Admin Settings shows the current value without a prompt editor. You can supply the contents of `manager.md`, translated or adapted as needed. The next management turn uses the saved instructions; no image rebuild or service restart is needed. The same change is available through `configuration_update` with scope `manager` and patch field `instructions`.
 
 `manager.md` supplies the first-install default and the fallback when an Agent is used without saved configuration. The platform persists that initial default too. Editing the file or upgrading the image **does not replace instructions already stored in the Manager database**, even if you never changed them yourself. This protects operator changes; use Admin to apply a revised prompt to an existing installation.
+
+The separate `manager-connections.md` policy is always appended to the selected instructions. Rebuilding and upgrading applies this connection policy to the next management turn even when custom instructions were saved previously. Tool authorization and human-only connection endpoints enforce the credential boundary independently of prompt wording.
 
 ### Other platform message templates
 

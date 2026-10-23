@@ -50,7 +50,7 @@ export class ManagementAgent {
       client=this.createClient({cwd:workDir,env});state.client=client;
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=this.instructions ?? readSystemPrompt('manager');
+      const prompt=(this.instructions ?? readSystemPrompt('manager'))+'\n\n'+readSystemPrompt('manager-connections');
       const config=runtimeConfig({native:{},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),

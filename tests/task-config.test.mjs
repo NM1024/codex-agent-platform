@@ -22,9 +22,9 @@ test("only the task-scoped business MCP is preapproved for unattended execution"
   assert.equal(config["features.apply_patch_freeform"], false);
 });
 
-test("foundation gateway configuration needs only platform credentials", () => {
-  const config = loadConfig("gateway", { RUNNER_TOKEN: "test-runner", INGRESS_TOKEN: "test-ingress" });
-  assert.equal(config.ingressToken, "test-ingress");
+test("foundation gateway configuration needs only internal credentials; entry keys belong to plugins", () => {
+  const config = loadConfig("gateway", { RUNNER_TOKEN: "test-runner" });
+  assert.equal(config.ingressToken, undefined);
   assert.equal(config.callbackUrl, undefined);
   assert.equal(config.callbackToken, undefined);
   assert.equal(config.reference, undefined);

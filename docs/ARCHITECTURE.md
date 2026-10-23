@@ -11,7 +11,7 @@ flowchart LR
     Codex --> MCP[Task-scoped MCP]
     MCP --> Gateway
     MCP --> Artifacts[Task artifacts]
-    Gateway --> Callback[Named HTTP destination]
+    Gateway --> Callback[Per-plugin callback receiver]
 ```
 
 ## Responsibilities
@@ -33,7 +33,7 @@ flowchart LR
 
 Admin pages load on demand. The build generates Brotli and gzip variants of every hashed JS/CSS resource; Manager negotiates `Accept-Encoding` and returns `Vary: Accept-Encoding` with immutable caching. Nonce HTML and authenticated API responses are not compressed by this path. Release validation requires the complete manifest graph and both compressed variants, including deferred pages.
 
-The Manager accesses Gateway operations through an internal authenticated API. It does not import the task runtime or query an external business database. Both management and task Agents use preset MCP tools plus their explicitly permitted native Codex capabilities; arbitrary shell, code editing and foreign MCP tools are denied.
+The Manager accesses Gateway operations through an internal API authenticated only by `RUNNER_TOKEN`. Its operations client does not use a public plugin entry key. It does not import the task runtime or query an external business database. Both management and task Agents use preset MCP tools plus their explicitly permitted native Codex capabilities; arbitrary shell, code editing and foreign MCP tools are denied.
 
 ## Lifecycle
 
@@ -43,15 +43,15 @@ Normal execution sends one initial message. `complete_task` validates the plugin
 
 During restart, incomplete work is suspended, its files and known thread identifiers persist, and the dispatcher resumes it under the configured concurrency. A resumed task receives an extra continuation turn in its existing thread. Lost or unusable thread state cannot guarantee successful continuation. Completed/failed tasks require an explicit new request or retry to run again.
 
-Accepted plugin contracts are stored with each request; editing or disabling a plugin affects new requests. Execution settings are selected per launch/resumption segment; current work keeps its model/timeout snapshot. External access credentials change immediately. Pending HTTP actions use current named targets.
+Accepted plugin contracts are stored with each request; editing or disabling a plugin affects new requests. Missing human connection configuration blocks admission, trials, schedules and queued/recovered launches. Execution settings are selected per launch/resumption segment; current work keeps its model/timeout snapshot. Per-plugin entry credentials change immediately. Pending callbacks resolve the current human callback configuration; ordinary HTTP capability calls use deployment-provided named targets.
 
 ## Persistence and trust
 
-Admin offers simple enable/disable controls for plugins and schedules, plus scalar/model/password settings. Complex plugin/plan definitions, HTTP target JSON and management instructions are displayed read-only and changed through the management Agent. The Agent retains all existing preset operations. Management replies use React Markdown with GFM, escaped raw HTML and links in place of external images. Message timestamps retain UTC epoch storage and use the browser's local locale/time zone for display. Codex thread names synchronize through response metadata and name notifications; an optional one-second metadata read follows durable successful completion. Missing names preserve the existing title, with no extra generation turn.
+Admin offers simple enable/disable controls for plugins and schedules, plus scalar/model/password settings. Plugin/plan definitions and management instructions are changed through the management Agent. Each plugin row's Configure connection modal is available only to a human's authenticated browser session; a dedicated internal Gateway endpoint persists its values and is absent from Agent tool contracts. Agents see connection readiness, entry path and missing field names, and must direct humans to finish configuration. Saving a connection does not enable a plugin. Named HTTP capability targets are deployment bootstrap configuration, not live management settings. Management replies use React Markdown with GFM, escaped raw HTML and links in place of external images. Message timestamps retain UTC epoch storage and use the browser's local locale/time zone for display. Codex thread names synchronize through response metadata and name notifications; an optional one-second metadata read follows durable successful completion. Missing names preserve the existing title, with no extra generation turn.
 
 Gateway owns `tasks.sqlite`; Manager owns `manager.sqlite`. Runner owns isolated work directories, Codex session state and artifacts. Gateway reads artifacts through a read-only workspace mount. Neither service has a Docker socket. Internal ports are not published; public ports bind loopback by default.
 
-Admin uses its own password hash and expiring hashed cookie sessions. Every remote password update, including the management operation, requires the current password; a version-conditional update prevents concurrent verification against an outdated hash. Failure preserves sessions and success revokes all sessions. Trusted local recovery over stdin remains separate. API credentials and named destination tokens are separate. Persisted destination secrets remain deployment data; configuration reads return only configured-secret flags. Deployments must protect runtime volumes and backups.
+Admin uses its own password hash and expiring hashed cookie sessions. Every remote password update, including the management operation, requires the current password; a version-conditional update prevents concurrent verification against an outdated hash. Failure preserves sessions and success revokes all sessions. Trusted local recovery over stdin remains separate. Gateway keeps each plugin's unique entry path/key and optional callback URL/token in a private SQLite connection table, separate from business JSON and task snapshots. Entry keys are hashed; callback tokens are private and write-only. Human reads return configured-secret flags. Public authentication binds the key to one plugin for submission, task queries and artifact downloads. Entry addresses may be absolute HTTP(S) URLs or `/hooks/...` paths; human changes survive Agent edits. Deployments must protect runtime volumes and backups.
 
 The Admin shell bounds scrolling to each workspace. Chat has a desktop conversation sidebar/mobile drawer, separate user and Agent bubbles, a scrolling transcript and a persistent composer with compact model/effort controls. Existing conversation selections save automatically in request order; new conversations apply selections when sending. Configuration categories use separate tabs with retained drafts; password changes live in the security tab.
 

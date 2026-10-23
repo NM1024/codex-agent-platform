@@ -111,3 +111,14 @@ Verified with Node.js 24 and synthetic data:
 - Independent review found a directory/file existence mismatch in the release guard; it was fixed, regression-tested and re-reviewed successfully. No remaining implementation findings.
 
 No real credentials, account/model tasks or local platform deployment were used. Temporary evidence is under .tmp/readonly-ui/ and is excluded from distributable source.
+
+## Human-owned per-plugin connections
+
+Verified on 2026-10-23 using Node.js 24 and synthetic data:
+
+- 217 isolated Linux `npm test` checks plus the host Compose configuration check passed (218 total). Coverage includes unique paths/keys, cross-plugin submission/query/artifact denial, retired global-key rejection, credential rotation, human-only transport, secret-free Agent views and task snapshots, persistence, legacy migration, readiness gates and callback delivery. Unconfigured Agent-created plugins cannot enable, trial or execute scheduled work; saving connection settings does not enable them automatically.
+- All 49 production-bundle browser checks passed. The frontend passes TypeScript, bundle budgets and release validation (79 modules, 3 JSON resources). Connection dialogs provide field guidance, cryptographic random values, write-only secret edits, safe examples and independent state across cancellation and delayed loads. Responsive probes cover 320/390/768/1440 widths and English on phones.
+- Independent review found that default call examples incorrectly used the Admin origin in split-port deployments. Regression tests first reproduced the defect, then verified relative-path display/copy and explicit Gateway placeholders, plus absolute URL examples. A separate regression verifies that fixed connection guidance applies to existing saved custom Agent instructions on both thread start and resume.
+- All four isolated Docker packaging targets built from both the working source and a clean staged-source export; both non-root, read-only, network-disabled test images passed 212 tests. The temporary Dockerfile uses the same apt/network and unchanged verified production dependency-layer accommodations described above. Exported dependency manifests were verified semantically identical and given the working copy's line endings to reuse the already validated dependency installation. A fresh unmodified production Docker build remains unverified in this environment.
+
+Upgrades deliberately retire the global `access`/`http` settings groups. Humans must configure each plugin's entry key and optional callback; old credentials are not copied automatically. Ordinary HTTP capability targets use server bootstrap configuration. These checks do not use real login credentials, start account/model work or deploy the platform locally. Temporary evidence stays under `.tmp/plugin-connections/` and is excluded from source distribution.

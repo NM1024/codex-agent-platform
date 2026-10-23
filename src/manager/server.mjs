@@ -39,6 +39,11 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
       if(req.method==='POST'&&path==='/admin/api/logout'){auth.logout(req);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{logged_out:true});}
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}
+      const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
+      if(pluginConnection&&(req.method==='GET'||req.method==='POST')) {
+        const type=decodeURIComponent(pluginConnection[1]);
+        return json(res,200,await operations.pluginConnection(type,req.method==='POST'?await readJson(req):undefined));
+      }
       if(req.method==='GET'&&path==='/admin/api/overview') {
         let platform;try{platform=await operations.execute('overview',{});}catch(error){platform={unavailable:true,error:{code:error.code ?? 'GATEWAY_UNAVAILABLE',message:error.message}};}
         return json(res,200,{sampled_at:Date.now(),manager:{alive:true},platform,resources:platform.resources ?? await metrics.sample(),investigations:store.investigations()});

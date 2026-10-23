@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {configurePlugin} from './helpers/plugin-connections.mjs';
 import assert from 'node:assert/strict';
 import {resolveAgentSettings} from '../src/configuration/agent-settings.mjs';
 import {readModels,validateModelEffort,createModelCatalog} from '../src/codex/models.mjs';
@@ -64,6 +65,7 @@ test('accepted plugin model overrides survive plugin edits and are recorded in e
   const store=new RequestStore(':memory:',{registry:app.registry});t.after(()=>store.close());
   const definition={type:'fixture.model',name:'Fixture',instructions:'Submit a result',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'},execution:{model:'fixture-b',reasoningEffort:'low'}};
   store.plugins.save(definition);
+  configurePlugin(store,definition.type);
   const task=store.accept('fixture',{type:definition.type,input:{},request_id:'snapshot'});
   store.plugins.save({...definition,execution:{model:'fixture-c',reasoningEffort:'high'}});
   const launched=[],dispatcher=new Dispatcher({store,registry:app.registry,config:{model:'fixture-a',reasoningEffort:'high',concurrency:1},runner:{ready:async()=>({ready:true}),launch:async run=>{launched.push(run);return {status:'running'};}}});

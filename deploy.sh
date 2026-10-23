@@ -32,7 +32,7 @@ case "$agent_action" in
     if [[ -e "$agent_deploy_dir/.env" ]]; then echo 'Existing configuration retained.'; exit 0; fi
     agent_temp="$(mktemp "$agent_deploy_dir/.env.XXXXXX")"
     trap 'rm -f -- "$agent_temp"' EXIT
-    for agent_key in INGRESS_TOKEN RUNNER_TOKEN; do
+    for agent_key in RUNNER_TOKEN; do
       agent_random="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
       printf '%s=%s\n' "$agent_key" "$agent_random" >> "$agent_temp"
     done

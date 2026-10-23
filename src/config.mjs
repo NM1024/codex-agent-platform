@@ -55,9 +55,6 @@ export function loadConfig(role, env = process.env) {
     model: env.CODEX_MODEL?.trim() || "gpt-6.1-sol",
   };
   if (role === "gateway") {
-    config.ingressToken = required(env, "INGRESS_TOKEN");
-    if (config.ingressToken === runnerToken)
-      throw new Error("Configuration tokens must be distinct");
     config.runnerUrl = validateUrl(
       env.RUNNER_URL ?? "http://runner:3005",
       "RUNNER_URL",

@@ -26,7 +26,7 @@ export function validateDefinition(definition,catalog={}, {snapshot=false}={}) {
   for (const name of definition.resources ?? [])
     if (!Object.hasOwn(catalog.resources ?? {},name)) throw new HttpError(400,'RESOURCE_UNAVAILABLE',`RESOURCE_UNAVAILABLE: ${name}`);
   if (definition.delivery.mode==='callback_once' && !definition.delivery.target) throw new HttpError(400,'INVALID_PLUGIN','INVALID_PLUGIN: callback_once requires target.');
-  if (!snapshot && definition.delivery.mode === 'callback_once' && !Object.hasOwn(catalog.targets ?? {},definition.delivery.target))
+  if (!snapshot && !catalog.requirePluginConnections && definition.delivery.mode === 'callback_once' && !Object.hasOwn(catalog.targets ?? {},definition.delivery.target))
     throw new HttpError(400,'TARGET_UNAVAILABLE',`TARGET_UNAVAILABLE: ${definition.delivery.target}`);
   if (!snapshot && definition.delivery.mode!=='none' && !profile?.delivery && typeof catalog.delivery!=='function') throw new HttpError(400,'DELIVERY_UNAVAILABLE',`DELIVERY_UNAVAILABLE: ${definition.delivery.mode}`);
   return structuredClone({...definition,enabled:definition.enabled ?? true,resources:definition.resources ?? []});

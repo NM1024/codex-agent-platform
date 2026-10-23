@@ -16,7 +16,10 @@ export function createDeliveryWorker({ store, config }) {
           .all();
         for (const row of rows) {
           const module = store.moduleFor(store.raw(row.task_id));
-          if (!module.delivery?.execute) continue;
+          if (!module.delivery?.execute) {
+            if(store.pluginConnections&&module.definition)store.db.prepare("UPDATE agent_deliveries SET status='not_required' WHERE task_id=? AND status IN ('pending','blocked_configuration')").run(row.task_id);
+            continue;
+          }
           store.db
             .prepare(
               "UPDATE agent_deliveries SET status='pending' WHERE task_id=? AND status='blocked_configuration'",

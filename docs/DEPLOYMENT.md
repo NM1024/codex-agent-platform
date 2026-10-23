@@ -12,7 +12,7 @@ Use a Linux host with Docker Engine, Compose v2 and outbound HTTPS access to the
 ./deploy.sh status /data/codex-agent-platform
 ```
 
-`init` generates distinct API/internal tokens and an independent initial Admin password. Repeating it retains existing configuration and data. The default containers run as UID/GID `1000:1000`; when initializing as root, the script assigns new volume directories to that identity. Otherwise ensure the chosen directory is writable by that UID. Source scripts use Bash and Linux utilities.
+`init` generates the internal `RUNNER_TOKEN` and an independent initial Admin password. Public entry keys are configured separately for each plugin in Admin. Repeating initialization retains existing configuration and data. The default containers run as UID/GID `1000:1000`; when initializing as root, the script assigns new volume directories to that identity. Otherwise ensure the chosen directory is writable by that UID. Source scripts use Bash and Linux utilities.
 
 `login` prints a device URL and code. Open that URL yourself, sign in and authorize only the login you started. Do not give another person the code. Successful login is retained in the deployment's `codex/` directory. Do not commit or copy it into source or images.
 
@@ -31,11 +31,21 @@ Use a separate data directory for a fresh installation. This standalone distribu
 
 ## Live settings
 
-Admin and management MCP can update execution model, concurrency, pause, queue limit, task/tool timeout, ingress token, named HTTP targets, Manager model/prompt/timeout and Admin session TTL. Settings persist in SQLite and override first-start environment defaults.
+Admin and management MCP can update execution model, concurrency, pause, queue limit, task/tool timeout, Manager model/prompt/timeout and Admin session TTL. Settings persist in SQLite and override first-start environment defaults. There are no global ingress-access or HTTP-target settings groups. Each plugin's entry and optional callback connection is configured only by a human in Admin.
 
 Pausing queues new accepted tasks without interrupting running ones. Current execution keeps its launch settings. Resuming dispatches queued work under the configured capacity. Increasing concurrency starts more independent task conversations and can increase account usage.
 
-Admin keeps simple controls such as model/reasoning selection, pause/resume, concurrency and passwords. Schedules provides viewing and enable/disable switches; creation and editing use management chat. Rule times and next-run values use the plan's configured zone. Structured JSON, HTTP targets and management instructions are read-only with a chat shortcut. The Agent retains every preset operation, including those directly available in Admin.
+Admin keeps simple controls such as model/reasoning selection, pause/resume, concurrency and passwords. Schedules provides viewing and enable/disable switches; creation and editing use management chat. Rule times and next-run values use the plan's configured zone. Business JSON and management instructions use management chat. The Agent cannot read or write plugin connection credentials; it can report readiness and ask a human to configure them.
+
+### Plugin connections
+
+Open **Business plugins → Configure connection** on the relevant row. The entry address and entry key are mandatory. A new plugin defaults to `/hooks/{type}` with dots replaced by slashes, or the Agent's suggested `/hooks/...` route. Humans may replace it with another `/hooks/...` path or an absolute HTTP(S) URL using such a path. The public domain and proxy route must be configured by the operator; saving a URL does not provision either. Entry paths and keys must be unique across plugins. Generate keys in the modal or supply a suitable private key, then retain it in your calling application's secret store. Saved secrets cannot be read back.
+
+The callback URL and receiver Bearer token are optional and belong to that plugin. These human values control final-result delivery independently of the Agent's business JSON. Leaving the callback URL blank disables callbacks and clears its stored token. When editing, blank secret inputs preserve existing values. Never put credentials in management chat or task input.
+
+Save the connection and enable the plugin separately. New and upgraded plugins without complete entry configuration remain disabled, and cannot accept tasks, run trials or execute scheduled work. Queued or recovered work also waits for connection readiness. Upgrades do not reuse a legacy global ingress token as a plugin key. Use each plugin's own key for public submissions, result queries and artifact downloads; `POST /v2/tasks` must name the matching plugin type. Manager-to-Gateway operations use the internal `RUNNER_TOKEN` only.
+
+Legacy global `access` and `http` settings are no longer applied after upgrade. Humans must reconfigure any former global callback destination and its receiver credential on each relevant plugin. Old Agent-managed destination credentials are not copied into plugin connections. For ordinary `http_request` capability targets, an operator must configure `PLATFORM_HTTP_TARGETS_JSON` on the server and recreate Gateway; an old saved `http` settings group does not restore those targets.
 
 ### Model and reasoning selection
 
@@ -47,7 +57,7 @@ The **Business plugins** page displays saved definitions and model overrides wit
 
 **Inherit global settings** leaves that override unset. **Model default** stores a null reasoning effort. A different model selected without an explicit effort uses that model's default rather than inheriting an effort from the global model. An explicit effort is checked against the selected model before a model turn starts.
 
-Older saved settings and plugins continue to work. If the catalog is unavailable, the console preserves saved values and allows unrelated settings to be edited; restore Codex login/connectivity and refresh before selecting new models. Existing deployments should use Admin rather than changing the first-start `CODEX_MODEL` environment value.
+Older saved model settings and plugin definitions are retained; plugin connections still require the human setup described above. If the model catalog is unavailable, the console preserves saved values and allows unrelated settings to be edited; restore Codex login/connectivity and refresh before selecting new models. Existing deployments should use Admin rather than changing the first-start `CODEX_MODEL` environment value.
 
 To upgrade for these controls, rebuild the images and run `start` with the same runtime directory. The Manager adds optional execution columns to its existing database; keep your normal backup before upgrading.
 
@@ -59,7 +69,7 @@ Conversation titles prefer Codex `thread.name` from start/resume responses, `thr
 
 Ports (`PLATFORM_PORT`, `MANAGER_PORT`), volume root (`PLATFORM_DATA_DIR`), internal URLs and `RUNNER_TOKEN` are deployment bootstrap settings; changes need coordinated container recreation. `PLATFORM_PROJECT` is a shell override for the deployment script's Compose project name. Do not change existing deployment paths casually.
 
-Changing the `.env` after initialization does not replace saved live values. Change those through Admin/management MCP. API credentials are write-only in settings responses. Keep the runtime directory private even though credentials are hidden in the UI.
+Changing the `.env` after initialization does not replace saved live values. Change those through Admin/management MCP. Ordinary `http_request` capability destinations are supplied at deployment bootstrap through `PLATFORM_HTTP_TARGETS_JSON`; they are separate from per-plugin result callbacks and are not editable through global settings or the Agent. Recreate the Gateway after changing that bootstrap configuration. Plugin connection credentials remain write-only through their human-only modal. Keep the runtime directory private even though credentials are hidden in the UI.
 
 ## HTTPS and remote console access
 
@@ -79,7 +89,7 @@ curl -sS 'http://127.0.0.1:3004/readyz?type=content.review'
 docker compose --env-file /data/codex-agent-platform/.env logs --tail=100 gateway runner manager
 ```
 
-`/healthz` reports process liveness. `/readyz` also checks account/capability readiness and queue pause. Admin task details show structured errors, execution diagnostics and separate delivery outcomes. A completed request may still contain negative business decisions; callback `accepted` means HTTP acceptance only.
+`/healthz` reports process liveness. `/readyz?type=content.review` also checks that plugin's human connection configuration, account/capability readiness and queue pause. Complete its connection configuration before expecting it to become ready. Admin task details show structured errors, execution diagnostics and separate delivery outcomes. A completed request may still contain negative business decisions; callback `accepted` means HTTP acceptance only.
 
 Explicitly run protocol/account probes inside your installation when needed:
 

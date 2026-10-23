@@ -22,6 +22,101 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#workspace")).toBeVisible();
 });
 
+test('plugin connection modal is human-only, explains fields and generates independent secrets',async({page,context})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write']);
+  const type='browser.connections';
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name:'独立接入测试业务'}});
+  await navigate(page,'plugins');
+  const row=page.getByRole('row').filter({hasText:'独立接入测试业务'});
+  await expect(row.getByRole('switch')).toBeDisabled();
+  await expect(row).toContainText('待配置接入');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await row.getByRole('button',{name:'配置接入',exact:true}).click();
+  const modal=page.getByRole('dialog');await expect(modal).toBeVisible();
+  await expect(modal).toContainText('入口');await expect(modal).toContainText('回调');
+  const defaultPath='/hooks/browser/connections',adminOrigin=new URL(page.url()).origin;
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(defaultPath);
+  await expect(modal.locator('.connection-call-url code')).toHaveText(defaultPath);
+  await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(defaultPath);
+  await expect(modal).toContainText('调用地址 / 路径');
+  await expect(modal.locator('.connection-example')).toContainText('https://<gateway-host>'+defaultPath);
+  await expect(modal.locator('.connection-example')).not.toContainText(adminOrigin);
+  await expect(modal).toContainText('Admin 端口不是业务入口');
+  const absolute='https://gateway.example:3004/hooks/browser-absolute';
+  await page.locator('#plugin-entry-address').fill(absolute);
+  await expect(modal.locator('.connection-call-url code')).toHaveText(absolute);
+  await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(absolute);
+  await expect(modal.locator('.connection-example')).toContainText(absolute);
+  await modal.getByRole('button',{name:'生成入口密钥',exact:true}).click();
+  const entry=await page.locator('#plugin-entry-key').inputValue();expect(entry.length).toBeGreaterThanOrEqual(32);
+  await modal.getByRole('button',{name:'生成回调凭证',exact:true}).click();
+  const callback=await page.locator('#plugin-callback-token').inputValue();expect(callback.length).toBeGreaterThanOrEqual(32);expect(callback).not.toBe(entry);
+  await expect(modal.locator('.connection-example')).toContainText('<入口密钥>');
+  await expect(modal.locator('.connection-example')).not.toContainText(entry);
+  await expect(modal.locator('.connection-example')).not.toContainText(callback);
+  await page.locator('#plugin-entry-address').fill('/hooks/browser-human-connections');
+  await page.locator('#plugin-callback-url').fill('https://example.invalid/browser-callback');
+  await modal.getByRole('button',{name:'保存接入配置',exact:true}).click();
+  await expect(modal).toBeHidden();
+  const configured=await (await page.request.get('/admin/api/plugins/'+type+'/connection')).json();
+  expect(configured.entryPath).toBe('/hooks/browser-human-connections');expect(configured.entryKeyConfigured).toBe(true);expect(configured.callbackTokenConfigured).toBe(true);
+  expect(JSON.stringify(configured)).not.toContain(entry);expect(JSON.stringify(configured)).not.toContain(callback);
+  const agentView=JSON.stringify(await operation(page,'plugin_get',{type}));expect(agentView).not.toContain(entry);expect(agentView).not.toContain(callback);expect(agentView).not.toContain('https://example.invalid/browser-callback');
+  await row.getByRole('button',{name:'配置接入',exact:true}).click();
+  await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(page.locator('#plugin-callback-token')).toHaveValue('');
+  await expect(modal.locator('.connection-call-url code')).toHaveText('/hooks/browser-human-connections');
+  await modal.getByRole('button',{name:'取消',exact:true}).click();
+  await choose(page,'#app-language','en');
+  await row.getByRole('button',{name:'Configure connection',exact:true}).click();
+  await expect(modal).toContainText('Request address / path');await expect(modal).toContainText('The Admin port is not the business entry point');
+  await expect(modal.locator('.connection-example')).toContainText('https://<gateway-host>/hooks/browser-human-connections');
+  await expect(modal.locator('.connection-example')).not.toContainText(adminOrigin);
+});
+
+test('pending plugins cannot be enabled or trialed before a human configures their connection',async({page})=>{
+  const type='browser.pending';
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name:'等待人工配置的业务'}});
+  await navigate(page,'plugins');
+  const row=page.getByRole('row').filter({hasText:'等待人工配置的业务'});
+  await expect(row).toContainText('待配置接入');await expect(row.getByRole('switch')).toBeDisabled();
+  const enable=await page.request.post('/admin/api/operations',{data:{action:'plugin_enable',args:{type,enabled:true}}});
+  expect(enable.status()).toBe(409);expect((await enable.json()).error.code).toBe('PLUGIN_CONNECTION_NOT_READY');
+  const trial=await page.request.post('/admin/api/operations',{data:{action:'submit_task',args:{type,input:{}}}});
+  expect(trial.status()).toBe(409);expect((await trial.json()).error.code).toBe('PLUGIN_CONNECTION_NOT_READY');
+  const response=await page.request.post('/admin/api/plugins/'+type+'/connection',{data:{entryKey:'synthetic-pending-human-entry-key-0123456789'}});
+  expect(response.ok()).toBeTruthy();
+  await page.getByRole('button',{name:'刷新',exact:true}).click();await expect(row.getByRole('switch')).toBeEnabled();
+  await row.getByRole('switch').click();await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','true');
+});
+
+test('closing or switching connection dialogs clears secrets and ignores a late load from another plugin',async({page})=>{
+  const first='browser.isolation.first',second='browser.isolation.second';
+  for(const [type,name] of [[first,'接入隔离甲'],[second,'接入隔离乙']])await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name}});
+  await navigate(page,'plugins');
+  const firstRow=page.getByRole('row').filter({hasText:'接入隔离甲'}),secondRow=page.getByRole('row').filter({hasText:'接入隔离乙'}),modal=page.getByRole('dialog');
+  await firstRow.getByRole('button',{name:'配置接入',exact:true}).click();
+  await modal.getByRole('button',{name:'生成入口密钥',exact:true}).click();
+  await expect(page.locator('#plugin-entry-key')).not.toHaveValue('');
+  await modal.getByRole('button',{name:'取消',exact:true}).click();
+  const config=await (await page.request.get('/admin/api/plugins/'+first+'/connection')).json();expect(config.entryKeyConfigured).toBe(false);
+  let release,started;
+  const held=new Promise(resolve=>{release=resolve;}),start=new Promise(resolve=>{started=resolve;});
+  await page.route('**/admin/api/plugins/'+first+'/connection',async route=>{started();await held;await route.continue();});
+  try{
+    await firstRow.getByRole('button',{name:'配置接入',exact:true}).click();await start;
+    await modal.getByRole('button',{name:'取消',exact:true}).click();
+    await secondRow.getByRole('button',{name:'配置接入',exact:true}).click();
+    await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser/isolation/second');
+    await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(page.locator('#plugin-callback-token')).toHaveValue('');
+    const loaded=page.waitForResponse(response=>response.url().endsWith('/plugins/'+first+'/connection'));
+    release();await loaded;
+    await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser/isolation/second');
+    await expect(modal).toHaveAccessibleName('配置接入：接入隔离乙');
+  }finally{release();}
+});
+
 test('settings show one category at a time and keep drafts across tabs',async({page})=>{
   await navigate(page,'settings');await settingsTab(page,'manager');
   await page.locator('#setting-manager-timeoutMs').fill('7654321');
@@ -227,7 +322,7 @@ test('production React console loads local Ant Design assets without CSP errors'
   await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
   await page.screenshot({path:'.tmp/react-admin/screenshots/settings-desktop.png',fullPage:true,animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
-  await navigate(page,'plugins');await expect(page.getByText('可在此启用或停用。新增、编辑和试运行请通过管理 Agent 操作。',{exact:true})).toBeVisible();
+  await navigate(page,'plugins');await expect(page.getByText('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。接入地址和凭证请点击「配置接入」由管理员填写，勿发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。',{exact:true})).toBeVisible();
   await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
   await page.screenshot({path:'.tmp/react-admin/screenshots/plugins-mobile.png',fullPage:true,animations:'disabled'});
   expect(errors,JSON.stringify(await page.locator('style').evaluateAll(nodes=>nodes.filter(node=>!node.nonce).map(node=>node.textContent?.slice(0,500))))).toEqual([]);
@@ -689,7 +784,11 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
 });
 
 for(const view of ['plugins','schedules'])test(`${view} supports one-step toggles without duplicate requests`,async({page})=>{
-  if(view==='plugins')await operation(page,'plugin_save',{definition:{...pluginDefinition,enabled:false}});
+  if(view==='plugins'){
+    await operation(page,'plugin_save',{definition:{...pluginDefinition,enabled:false}});
+    const configured=await page.request.post('/admin/api/plugins/'+pluginDefinition.type+'/connection',{data:{entryKey:'synthetic-summary-toggle-entry-key-0123456789'}});
+    expect(configured.ok()).toBeTruthy();
+  }
   const name=view==='plugins'?pluginDefinition.name:'每日运行巡检';
   const action=view==='plugins'?'plugin_enable':'schedule_enable';
   let calls=0;
@@ -717,15 +816,16 @@ test('complex settings are readable without JSON or prompt editors and Agent ope
   await page.locator('#configuration-manager').getByText('管理提示词',{exact:true}).click();
   await expect(page.locator('#configuration-manager')).toContainText(text);
   await expect(page.locator('#setting-manager-model')).toBeVisible();
-  await settingsTab(page,'http');
-  await expect(page.locator('#configuration-http')).toContainText('请通过管理 Agent 修改复杂配置。');
-  await expect(page.locator('#configuration-http').getByRole('button',{name:'保存配置',exact:true})).toHaveCount(0);
+  await expect(page.locator('[data-settings-tab="http"], [data-settings-tab="access"]')).toHaveCount(0);
+  await expect(page.locator('#configuration-http, #configuration-access')).toHaveCount(0);
   await settingsTab(page,'execution');
   await expect(page.locator('#setting-execution-concurrency')).toBeVisible();
 });
 
 test('a failed enable operation preserves state and can be tried again',async({page})=>{
   await operation(page,'plugin_save',{definition:{...pluginDefinition,enabled:false}});
+  const configured=await page.request.post('/admin/api/plugins/'+pluginDefinition.type+'/connection',{data:{entryKey:'synthetic-summary-failed-toggle-key-0123456789'}});
+  expect(configured.ok()).toBeTruthy();
   let fail=true;
   await page.route('**/admin/api/operations',async route=>{
     if(fail&&route.request().postDataJSON()?.action==='plugin_enable')await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_TOGGLE_FAILURE',message:'Synthetic toggle failure'}}});

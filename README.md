@@ -32,7 +32,7 @@ This self-hosted platform is for developers and small, trusted teams that want t
 
 For example, a content system sends an article and review criteria. The Agent reviews it, then submits an approval decision and reasons. Your application consumes that JSON result without parsing a conversational reply.
 
-The current release assumes one operator or a trusted team sharing administrative access and an API credential. It does not provide separate customer accounts, tenant isolation, role-based access control or customer billing. Plan a separate access layer before serving unrelated users.
+The current release assumes one operator or a trusted team sharing administrative access. Each plugin has its own API entry key; that key can access only that plugin's tasks and artifacts. It does not provide separate customer accounts, tenant isolation, role-based access control or customer billing. Plan a separate access layer before serving unrelated users.
 
 ## What it does
 
@@ -40,7 +40,7 @@ The current release assumes one operator or a trusted team sharing administrativ
 - **Makes the input and output predictable.** A plugin declares its input fields, instructions, available capabilities and result schema. The service checks submitted data against that contract.
 - **Keeps work and results on record.** Tasks have durable status, errors, execution details and downloadable image/text artifacts.
 - **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations.
-- **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts, API credentials, HTTP destinations and management instructions are persisted and configurable.
+- **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts and management instructions are persisted and configurable. Humans configure each plugin's entry and optional callback connection in Admin.
 - **Resumes incomplete work after a restart.** Recovery uses the existing task and Codex thread when their saved state is available. It may send an additional continuation message; completed or failed tasks do not automatically run again.
 
 ```mermaid
@@ -90,9 +90,9 @@ cd codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
 
-`init` creates two distinct random tokens, an independent initial Admin password and persistent data directories. It does not sign in, build images or run a model. Repeating it retains existing configuration and data.
+`init` creates the internal `RUNNER_TOKEN`, an independent initial Admin password and persistent data directories. It does not sign in, build images or run a model. Repeating it retains existing configuration and data.
 
-Before first start, review `/data/codex-agent-platform/.env` locally. The generated defaults are enough for the bundled text example; no callback URL is required. Never use `.env.example` placeholder credentials in a deployment.
+Before first start, review `/data/codex-agent-platform/.env` locally. After opening Admin, configure a plugin's entry address and entry key before enabling it or submitting work. A callback URL is optional. Never use `.env.example` placeholder credentials in a deployment.
 
 ### 2. Build the three service images
 
@@ -132,7 +132,7 @@ curl -sS http://127.0.0.1:3004/healthz
 curl -sS 'http://127.0.0.1:3004/readyz?type=content.review'
 ```
 
-`start` uses the images already built. `/healthz` should return `{"alive":true}`. A successful readiness response includes `"ready":true`; otherwise read `reason` and the [troubleshooting table](#troubleshooting). Liveness, account readiness and successful completion of a real task are different checks.
+`start` uses the images already built. `/healthz` should return `{"alive":true}`. A successful readiness response includes `"ready":true`; otherwise read `reason` and the [troubleshooting table](#troubleshooting). New plugins require human connection configuration before they become ready. Liveness, account readiness and successful completion of a real task are different checks.
 
 ### 5. Open Admin and change the initial password
 
@@ -158,12 +158,14 @@ This step starts real model work and uses your account's allowance. Start with o
 
 ### 1. Submit
 
-Read the current `INGRESS_TOKEN` value from your runtime `.env` privately, or use the value you subsequently saved in Admin. Run this in Bash **on the server** and paste only that token at the hidden prompt:
+In Admin, open **Business plugins → content.review → Configure connection**. Keep the generated `/hooks/content/review` entry path or enter your public HTTP(S) URL with a `/hooks/...` path. Generate an entry key and copy it to your application's private configuration before saving: the platform will not display the saved key again. Save the connection, then enable the plugin separately. Missing entry configuration blocks API submissions, trials and schedules; the management Agent cannot configure these fields for you.
+
+Run this in Bash **on the server** and paste that plugin's key at the hidden prompt:
 
 ```bash
-read -r -s -p 'Ingress token: ' INGRESS_TOKEN; printf '\n'
+read -r -s -p 'Plugin entry key: ' PLUGIN_ENTRY_KEY; printf '\n'
 curl --fail-with-body -sS http://127.0.0.1:3004/v2/tasks \
-  -H "Authorization: Bearer $INGRESS_TOKEN" \
+  -H "Authorization: Bearer $PLUGIN_ENTRY_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"type":"content.review","request_id":"review-demo-1","input":{"content":"Our support team answers every message within one minute.","criteria":"Identify claims that need evidence. Explain your decision."}}'
 ```
@@ -177,8 +179,8 @@ In the same terminal, replace the placeholder below with that ID:
 ```bash
 TASK_ID='replace-with-returned-task-id'
 curl --fail-with-body -sS "http://127.0.0.1:3004/v2/tasks/$TASK_ID" \
-  -H "Authorization: Bearer $INGRESS_TOKEN"
-unset INGRESS_TOKEN TASK_ID
+  -H "Authorization: Bearer $PLUGIN_ENTRY_KEY"
+unset PLUGIN_ENTRY_KEY TASK_ID
 ```
 
 Repeat the query if the task is still queued or running; do not resubmit the POST just to check progress. Admin's **Task history** shows the same task and its details.
@@ -196,15 +198,15 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 ### 3. Try other capabilities
 
-- For the image example, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
+- For the image example, configure and enable `novel.illustrated` with its own entry key, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
 - Download an artifact through `GET /v2/tasks/{task_id}/artifacts/{artifact_id}` with API authentication, or open it in Admin.
-- For final-result callbacks, ask the management Agent to configure a named HTTP destination and select it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
+- For final-result callbacks, enter that plugin's callback URL and optional receiver Bearer token in **Configure connection**. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
 
 ## Add your own work and schedules
 
 Model and reasoning selectors are available in **Settings** and above the **Management chat** composer. Ask the management Agent to configure a plugin's model and reasoning effort. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
 
-**Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input.
+**Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
 
 For example:
 
@@ -255,7 +257,7 @@ Business plugin `instructions` stay in plugin configuration. Users and the manag
 
 The containers run as a non-root user with read-only root filesystems and no Docker socket. Tool policy restricts arbitrary shell, file editing and unrelated tools. These are useful boundaries, not a security audit or strong isolation between hostile tenants. Docker operators and server administrators remain trusted.
 
-Admin password, API ingress token, internal `RUNNER_TOKEN` and ChatGPT login are different credentials. Changing one does not revoke the others. Put secrets into the relevant private configuration fields, not management chat messages; chat history and task records are persistent. If a credential leaks, revoke or rotate the affected credential and investigate its use. See [SECURITY.md](SECURITY.md) for reporting issues privately.
+Admin password, per-plugin entry keys, callback receiver tokens, internal `RUNNER_TOKEN` and ChatGPT login are different credentials. Changing one does not revoke the others. Entry keys are stored as hashes; callback tokens are stored privately and are write-only in Admin. Put secrets into the relevant private configuration fields, not management chat messages; chat history and task records are persistent. If a credential leaks, revoke or rotate the affected credential and investigate its use. See [SECURITY.md](SECURITY.md) for reporting issues privately.
 
 ## Troubleshooting
 

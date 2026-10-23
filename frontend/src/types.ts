@@ -5,7 +5,9 @@ export interface Model {model:string;displayName:string;defaultReasoningEffort?:
 export interface Catalog {models:Model[];unavailable?:boolean}
 export interface Schema {type?:string|string[];title?:string;writeOnly?:boolean;minLength?:number;minimum?:number;maximum?:number;properties?:Record<string,Schema>}
 export interface ConfigGroup {scope:string;title:string;description:string;schema:Schema;values:Values;configured_secrets:string[];revision:number;updated_at:number;error?:{message:string}}
-export interface Plugin {type:string;name:string;description?:string;instructions:string;enabled?:boolean;execution?:AgentSettings;input_schema:Json;result_schema:Json;capabilities:Json;delivery:Json;resources?:string[];revision?:number;updated_at?:number}
+export interface PluginConnectionStatus {ready:boolean;entryPath:string|null;callbackConfigured:boolean;missingFields:string[]}
+export interface PluginConnection {type:string;entryAddress:string|null;entryPath:string|null;entryKeyConfigured:boolean;callbackUrl:string|null;callbackTokenConfigured:boolean;ready:boolean;missingFields:string[];revision:number}
+export interface Plugin {type:string;name:string;description?:string;instructions:string;enabled?:boolean;connection?:PluginConnectionStatus;execution?:AgentSettings;input_schema:Json;result_schema:Json;capabilities:Json;delivery:Json;resources?:string[];revision?:number;updated_at?:number}
 export interface PluginList {configured:Plugin[];builtin?:{type:string;version:string}[];invalid?:Json[]}
 export interface Task {task_id:string;type:string;status:string;request_id?:string;error?:{code:string;message?:string};created_at:number;updated_at:number;input?:Json;artifacts?:Artifact[]}
 export interface Artifact {artifact_id:string;filename?:string;mime?:string}

@@ -40,6 +40,8 @@ test("Compose separates credentials, persists volumes and only binds gateway loo
   assert.equal(gateway.environment.CODEX_HOME, undefined);
   assert.equal(runner.environment.PLATFORM_HTTP_TARGETS_JSON, undefined);
   assert.equal(runner.environment.INGRESS_TOKEN, undefined);
+  assert.equal(gateway.environment.INGRESS_TOKEN, undefined);
+  assert.equal(config.services.manager.environment.INGRESS_TOKEN, undefined);
   assert.equal(
     gateway.volumes.find((v) => v.target === "/workspace").read_only,
     true,
@@ -53,7 +55,7 @@ test("Compose separates credentials, persists volumes and only binds gateway loo
     undefined,
   );
 });
-test("init creates private, distinct tokens, retains configuration and never destroys data", async (t) => {
+test("init creates a private internal token and independent Admin password, retains configuration and data", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "aw-deploy-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const command = ["init", dir];
@@ -64,11 +66,11 @@ test("init creates private, distinct tokens, retains configuration and never des
   const env = await readFile(join(dir, ".env"), "utf8");
   const tokens = [
     ...env.matchAll(
-      /^(?:INGRESS_TOKEN|RUNNER_TOKEN)=(.+)$/gm,
+      /^RUNNER_TOKEN=(.+)$/gm,
     ),
   ].map((m) => m[1]);
-  assert.equal(tokens.length, 2);
-  assert.equal(new Set(tokens).size, 2);
+  assert.equal(tokens.length, 1);
+  assert.ok(!env.includes('INGRESS_TOKEN='));
   assert.ok(tokens.every((x) => x.length >= 48));
   assert.equal((await stat(join(dir, ".env"))).mode & 0o777, 0o600);
   const initialPassword=await readFile(join(dir,'manager/initial-password'),'utf8');
@@ -109,7 +111,7 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
       await unlink(join(dir,name));const absent=run();assert.notEqual(absent.status,0);assert.ok(absent.stderr.includes(resource),absent.stderr);
       await cp(join(root,name),join(dir,name));
     }
-  for(const name of ['manager','task','task-resume','manager-resume','task-investigation']) {
+  for(const name of ['manager','manager-connections','task','task-resume','manager-resume','task-investigation']) {
     const file=join(dir,'prompts',name+'.md'),text=await readFile(file);
     await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes(join('prompts',name+'.md')),missingPrompt.stderr);
     await writeFile(file,text);

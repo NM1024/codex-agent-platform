@@ -131,7 +131,13 @@ test('management changes model, prompt and tool timeout on its next turn in the 
   agent.model='configured-manager';agent.instructions='更新后的管理职责';agent.toolTimeoutMs=3200;
   agent.enqueue(conversation.id,'第二轮');await agent.idle(conversation.id);
   const next=calls.find(call=>call.method==='thread/resume');assert.equal(next.params.model,'configured-manager');
-  assert.equal(next.params.developerInstructions,'更新后的管理职责');assert.equal(next.params.config.mcp_servers.agent_task.tool_timeout_sec,4);
+  assert.ok(next.params.developerInstructions.startsWith('更新后的管理职责\n\n'));
+  for(const start of calls.filter(call=>['thread/start','thread/resume'].includes(call.method))){
+    assert.match(start.params.developerInstructions,/平台接入规则/);
+    assert.match(start.params.developerInstructions,/配置接入/);
+    assert.match(start.params.developerInstructions,/不得.*读取.*生成.*修改/);
+  }
+  assert.equal(next.params.config.mcp_servers.agent_task.tool_timeout_sec,4);
   assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
 });
 

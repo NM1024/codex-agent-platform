@@ -18,6 +18,11 @@ const app = createApplication("gateway", {
 });
 const business = new RequestStore(":memory:", { registry: app.registry }),
   configuration = app.configuration(business);
+// Human setup is simulated here without routing secrets through Agent operations.
+for(const plugin of business.plugins.list()) {
+  business.pluginConnections.update(plugin.type,{entryKey:'synthetic-browser-key-'+plugin.type.replaceAll('.','-')+'-0123456789'});
+  business.plugins.setEnabled(plugin.type,true);
+}
 configuration.update("execution", { paused: true });
 const dispatcher = { drain: async () => {}, blocked: new Map() },
   runner = {
@@ -120,6 +125,7 @@ const settings = createManagerConfiguration({ store, agent, auth }),
 const operations = createManagerOperations({
   models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
+    pluginConnection(type,patch){return patch===undefined?business.pluginConnections.get(type):business.pluginConnections.update(type,patch);},
     execute: (...args) => platform.execute(...args),
     async artifact(taskId, id) {
       const file = await app.registry.catalog.readArtifact(

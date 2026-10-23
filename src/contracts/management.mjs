@@ -12,7 +12,7 @@ export const managementTools=[
   tool('plugins','List configured plugins, builtin compatibility modules and configuration errors.'),
   tool('plugin_get','Read a complete plugin definition.',{type:string},['type']),
   tool('plugin_validate','Validate a JSON plugin definition and its capability references without saving.',{definition:{type:'object'}},['definition']),
-  tool('plugin_save','Create/update a JSON-only plugin. Read capabilities first. No code, scripts or executable hooks.',{definition:{type:'object'}},['definition']),
+  tool('plugin_save','Create/update JSON-only business logic. Read capabilities first. A default entry path is generated; tell the user to open the plugin row Configure connection dialog and manually set its entry key and optional callback. Only humans may configure connections; never request credentials in chat. Missing entry setup blocks enabling, trials and scheduled runs. No code, scripts or executable hooks.',{definition:{type:'object'}},['definition']),
   tool('plugin_enable','Enable or disable new requests for a plugin. Existing tasks keep their snapshots.',{type:string,enabled:{type:'boolean'}},['type','enabled']),
   tool('capabilities','List available tools with schemas, resource IDs and configured target names; credentials are never returned.'),
   tool('schedules','List persistent schedules and blocked reasons.'),

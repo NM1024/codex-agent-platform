@@ -6,6 +6,7 @@ import { createTaskApi } from '../src/api.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {configurePlugin} from './helpers/plugin-connections.mjs';
 
 const environment = { INGRESS_TOKEN: 'local-external', RUNNER_TOKEN: 'local-internal', WORKSPACE_DIR: '/tmp' };
 
@@ -14,7 +15,8 @@ test('a fresh installation exposes only generic examples and configuration scope
   const store = new RequestStore(':memory:', { registry: app.registry });
   t.after(() => store.close());
   assert.deepEqual(store.plugins.list().map(p => p.type).sort(), ['content.review', 'novel.illustrated']);
-  assert.deepEqual(app.configuration(store).list().map(g => g.scope).sort(), ['access', 'execution', 'http']);
+  assert.deepEqual(app.configuration(store).list().map(g => g.scope).sort(), ['execution']);
+  assert.ok(store.plugins.list().every(plugin=>plugin.enabled===false));
   assert.deepEqual(Object.keys(app.registry.catalog.resources ?? {}), []);
   assert.equal(app.config.clientId, 'default');
 });
@@ -24,6 +26,7 @@ test('generic ingress accepts independent requests and uses live credential rota
   const store = new RequestStore(':memory:', { registry: app.registry });
   t.after(() => store.close());
   const settings = app.configuration(store);
+  const key=configurePlugin(store,'content.review');
   const dispatcher = { drain: async () => {}, runner: {} };
   const server = createTaskApi({ ...app, store, dispatcher, runner: {} });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -32,12 +35,13 @@ test('generic ingress accepts independent requests and uses live credential rota
     method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'content.review', request_id: 'same', input: { content: 'Example article.' } }),
   });
-  const first = await post(environment.INGRESS_TOKEN), second = await post(environment.INGRESS_TOKEN);
+  const first = await post(key), second = await post(key);
   assert.equal(first.status, 202); assert.equal(second.status, 202);
   assert.notEqual((await first.json()).task_id, (await second.json()).task_id);
-  settings.update('access', { ingressToken: 'rotated-external' });
-  assert.equal((await post(environment.INGRESS_TOKEN)).status, 401);
-  assert.equal((await post('rotated-external')).status, 202);
+  store.pluginConnections.update('content.review',{entryKey:'rotated-external-plugin-key-12345678'});
+  assert.equal((await post(key)).status, 401);
+  assert.equal((await post('rotated-external-plugin-key-12345678')).status, 202);
+  assert.equal((await post(environment.INGRESS_TOKEN)).status,401);
 });
 
 for (const type of ['text.callback', 'content.review']) {
@@ -49,9 +53,9 @@ for (const type of ['text.callback', 'content.review']) {
     let store = new RequestStore(path, { registry: app.registry });
     try {
       const settings = app.configuration(store);
-      settings.update('http', { targets: { destination: { url: 'https://example.invalid/callback', token: 'local-target' } } });
       const { revision, updated_at, ...definition } = store.plugins.get('content.review');
       store.plugins.save({ ...definition, type, delivery: { mode: 'callback_once', target: 'destination' } });
+      configurePlugin(store,type,{callbackUrl:'https://example.invalid/callback',callbackToken:'local-target'});
     } finally { store.close(); }
     app = createApplication('gateway', environment);
     store = new RequestStore(path, { registry: app.registry });

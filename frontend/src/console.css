@@ -220,3 +220,32 @@ button, input, textarea { font: inherit; }
   .mobile-navigation .ant-btn-icon { display: none; }
   .mobile-navigation .ant-btn { font-size: 11px; }
 }
+
+/* Human-managed plugin connections. Modal content is independent of chat state. */
+.plugin-row-actions { display: flex; align-items: flex-start; gap: 8px; }
+.plugin-row-actions .ant-btn { height: auto; min-height: 32px; white-space: normal; }
+.plugin-connection-status { display: grid; gap: 4px; }
+.plugin-connection-status > .ant-typography { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-connection-modal { top: 32px; max-width: calc(100vw - 24px); padding-bottom: 32px; }
+.plugin-connection-modal .ant-modal-title { padding-right: 24px; overflow-wrap: anywhere; }
+.plugin-connection-modal .ant-modal-body { max-height: calc(100dvh - 200px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 4px; }
+.plugin-connection-modal .ant-form { margin-top: 18px; }
+.plugin-connection-modal .ant-form-item { margin-bottom: 20px; }
+.plugin-connection-modal .connection-field-help { margin: 8px 0; font-size: 12px; line-height: 1.65; }
+.plugin-connection-modal .connection-secret-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
+.plugin-connection-modal .connection-secret-actions .ant-btn { height: auto; min-height: 32px; white-space: normal; }
+.plugin-connection-modal .connection-call-url { display: grid; justify-items: start; gap: 6px; min-width: 0; }
+.plugin-connection-modal .connection-call-url .ant-typography { max-width: 100%; overflow-wrap: anywhere; }
+.plugin-connection-modal .connection-call-url code { white-space: normal; overflow-wrap: anywhere; }
+.plugin-connection-modal .connection-example { max-width: 100%; padding: 12px; border-radius: 8px; background: #f5f7f6; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 767px) {
+  .plugin-row-actions { flex-direction: column; align-items: stretch; }
+  .plugin-row-actions .ant-btn { width: 100%; padding-inline: 4px; }
+}
+@media (max-width: 600px) {
+  .plugin-connection-modal { top: 16px; padding-bottom: 16px; }
+  .plugin-connection-modal .ant-modal-container { padding: 16px; }
+  .plugin-connection-modal .ant-modal-body { max-height: calc(100dvh - 160px); }
+  .plugin-connection-modal .ant-modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+  .plugin-connection-modal .ant-modal-footer .ant-btn { height: auto; min-height: 32px; margin-inline-start: 0; white-space: normal; }
+}

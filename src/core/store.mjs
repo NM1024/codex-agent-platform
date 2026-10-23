@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { removeTableUniqueness } from "./sqlite.mjs";
 import { digest, fault } from "./registry.mjs";
 import { PluginStore } from '../plugins/store.mjs';
+import { PluginConnectionStore } from '../plugins/connections.mjs';
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 const active = "'dispatching','running','completing','suspended'";
 
@@ -32,6 +33,10 @@ export class RequestStore {
     }
     if (!this.requestColumns.has('retry_of')) {
       this.db.exec('ALTER TABLE agent_requests ADD COLUMN retry_of TEXT');this.requestColumns.add('retry_of');
+    }
+    if(this.registry.catalog.requirePluginConnections===true) {
+      this.pluginConnections=new PluginConnectionStore(this.db,this.registry);
+      this.registry.pluginConnections=this.pluginConnections;
     }
     this.plugins = new PluginStore(this.db,this.registry);
     for (const definition of this.registry.initialDefinitions ?? [])
@@ -145,6 +150,7 @@ export class RequestStore {
     this.db.prepare('INSERT INTO platform_errors VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),run.task_id,run.run_id,run.generation ?? 0,'tool',tool,error.code,error.message?.slice(0,4096) ?? null,Date.now());
   }
   accept(client, body, { prepared: imported } = {}) {
+    if(body?.type&&this.registry.modules.get(body.type)?.definition)this.pluginConnections?.assertReady(body.type);
     const { module, input } = this.registry.normalize(body);
     // Only trusted legacy imports supply prepared data; new admissions use the
     // module's configuration check without preventing historical queue migration.
@@ -195,6 +201,7 @@ export class RequestStore {
   claim(id) {
     return this.transaction(() => {
       const row = this.raw(id);
+      if(row&&['queued','suspended'].includes(row.status)&&(row.definition||this.registry.modules.get(row.type)?.definition))this.pluginConnections?.assertReady(row.type);
       if (row?.status === "suspended") {
         const token = randomBytes(32).toString("base64url");
         this.db.prepare("UPDATE agent_runs SET token_hash=?,generation=generation+1,launch_status='intent' WHERE run_id=?").run(tokenHash(token), row.run_id);

@@ -20,6 +20,7 @@ export class OperationsService {
     const ajv=new Ajv({strict:true});this.checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
   }
   async execute(action,args={}) {
+    const pluginView=definition=>this.store.pluginConnections?{...definition,connection:this.store.pluginConnections.status(definition.type)}:definition;
     if(action==='inspection_list')return this.schedules.pendingInspections();
     if(action==='inspection_ack')return this.schedules.acknowledgeInspection(args.id,args.conversation_id);
     const check=this.checks.get(action);
@@ -56,11 +57,14 @@ export class OperationsService {
       const next=this.store.retry(args.task_id,{itemIds:args.item_ids});
       setImmediate(()=>void this.dispatcher.drain());return next;
     }
-    if (action==='plugins') return {configured:this.store.plugins.list(),builtin:[...this.registry.modules.values()].filter(module=>!module.definition).map(module=>({type:module.type,version:module.version})),invalid:[...this.store.plugins.invalid,...this.registry.configurationErrors()]};
-    if (action==='plugin_get') return this.store.plugins.get(args.type);
-    if (action==='plugin_validate') {this.registry.compileDefinition(args.definition);return {valid:true};}
-    if (action==='plugin_save') return this.store.plugins.save(args.definition);
-    if (action==='plugin_enable') return this.store.plugins.setEnabled(args.type,args.enabled);
+    if (action==='plugins') return {configured:this.store.plugins.list().map(pluginView),builtin:[...this.registry.modules.values()].filter(module=>!module.definition).map(module=>({type:module.type,version:module.version})),invalid:[...this.store.plugins.invalid,...this.registry.configurationErrors()]};
+    if (action==='plugin_get') return pluginView(this.store.plugins.get(args.type));
+    if (action==='plugin_validate') {this.registry.compileDefinition(args.definition);return {valid:true,...(this.store.pluginConnections?{human_connection_required:true}: {})};}
+    if (action==='plugin_save') {
+      const saved=pluginView(this.store.plugins.save(args.definition));
+      return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'请到业务插件列表的“配置接入”手动填写入口地址和入口密钥，保存后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未配置前不能启用、提交任务、试运行或执行定时计划。'}:saved;
+    }
+    if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
     if (action==='capabilities') return {plugin_schema:pluginDefinitionSchema,delivery_modes:['none','callback_once'],tools:Object.entries(this.registry.catalog.tools ?? {}).map(([name,tool])=>({name,description:tool.description,inputSchema:tool.inputSchema})),native:['image_generation','web_search'],resources:Object.entries(this.registry.catalog.resources ?? {}).map(([id,resource])=>({id,kind:resource.kind})),targets:Object.keys(this.registry.catalog.targets ?? {}),compatibility_profiles:Object.entries(this.registry.catalog.profiles ?? {}).map(([type,module])=>({type,tools:Object.keys(module.tools),contract:'Input/output/callback are fixed for the existing integration. Instructions may be edited.'}))};
     if (action==='schedules') return this.schedules.list();
     if (action==='schedule_save') return this.schedules.save(args.schedule);
