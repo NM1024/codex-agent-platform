@@ -7,6 +7,7 @@ import { initialize } from '../codex/session.mjs';
 import { runtimeConfig } from '../codex/config.mjs';
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
 import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
+import {DEFAULT_CONCURRENCY} from '../config.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 import {validateModelEffort} from '../codex/models.mjs';
@@ -52,7 +53,7 @@ export class ManagementAgent {
       client=this.createClient({cwd:workDir,env});state.client=client;
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=(this.instructions ?? readSystemPrompt('manager'))+'\n\n'+readSystemPrompt('manager-connections');
+      const prompt=[this.instructions ?? readSystemPrompt('manager'),renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY}),readSystemPrompt('manager-connections')].join('\n\n');
       const config=runtimeConfig({native:{},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),

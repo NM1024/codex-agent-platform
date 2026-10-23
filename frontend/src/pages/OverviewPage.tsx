@@ -4,7 +4,7 @@ import {useConsole} from '../context';
 import {AsyncButton,DataLoading,bytes,Panel,Status,time,useLoad} from '../components';
 import type {Conversation,Overview,Task} from '../types';
 export default function OverviewPage(){
-  const {api,operation,t,refresh,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(1),alive=useRef(true);
+  const {api,operation,t,refresh,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(5),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const screens=Grid.useBreakpoint();
   const {data,loading}=useLoad(()=>api<Overview>('/overview'),[api,refresh,tick]);

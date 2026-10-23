@@ -1,5 +1,5 @@
 import {renderSystemPrompt} from '../prompts.mjs';
-import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
+import { DEFAULT_TOOL_TIMEOUT_MS, DEFAULT_CONCURRENCY } from "../config.mjs";
 import { join } from "node:path";
 import { readFile, symlink, lstat, rm, readdir } from "node:fs/promises";
 import { runtimeConfig } from "../codex/config.mjs";
@@ -38,7 +38,7 @@ export class AgentRuntime {
     taskTimeoutMs = 2400000,
     toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS,
     closingTimeoutMs = 30000,
-    concurrency = 1,
+    concurrency = DEFAULT_CONCURRENCY,
     createClient = (options) => new CodexRpcClient(options),
     onExit = () => {},
     onDiagnostic = () => {},

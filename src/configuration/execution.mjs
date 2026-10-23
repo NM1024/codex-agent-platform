@@ -1,4 +1,4 @@
-import {MAX_TIMER_DELAY_MS,DEFAULT_TOOL_TIMEOUT_MS} from '../config.mjs';
+import {MAX_TIMER_DELAY_MS,DEFAULT_TOOL_TIMEOUT_MS,DEFAULT_CONCURRENCY} from '../config.mjs';
 import {reasoningEffortSchema} from './agent-settings.mjs';
 export const executionProperties={
   model:{type:'string',minLength:1,title:'业务模型'},concurrency:{type:'integer',minimum:1,title:'业务并发'},
@@ -13,6 +13,6 @@ export function executionScope({store,config}) {
   const legacy=store.db.prepare("SELECT 1 FROM sqlite_master WHERE name='platform_settings'").get()?store.db.prepare("SELECT value FROM platform_settings WHERE key='runtime'").get():null;
   return {name:'execution',title:'业务执行',schema:executionSchema,
     description:'调度设置立即生效。模型和超时用于下一次启动/恢复，不中断当前执行。',
-    defaults:{...runtimeSettings(config),concurrency:config.concurrency ?? 1,paused:config.paused ?? false,queueLimit:config.queueLimit ?? 10000,...(legacy?JSON.parse(legacy.value):{})},
+    defaults:{...runtimeSettings(config),concurrency:config.concurrency ?? DEFAULT_CONCURRENCY,paused:config.paused ?? false,queueLimit:config.queueLimit ?? 10000,...(legacy?JSON.parse(legacy.value):{})},
     apply(values){Object.assign(config,values);store.queueLimit=values.queueLimit;}};
 }

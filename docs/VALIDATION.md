@@ -1,5 +1,18 @@
 # Validation
 
+## Default business concurrency and management project knowledge
+
+Verified on 2026-10-24 with Node.js 24 and synthetic data:
+
+- New configuration, Compose services, deploy initialization, execution settings, dispatcher/Runner capacity and the overview fallback default to five business tasks. Explicit or persisted values, including one, remain authoritative. Tests check real capacity reservations and dispatch rather than only inspecting constants.
+- Every management thread start/resume receives versioned project operating rules in addition to saved editable instructions and the fixed human connection policy. Coverage checks both new and resumed threads with changed custom instructions, the shared default interpolation and release rejection when the new prompt resource is absent. Rules cover lifecycle/request independence, plugin/capability contracts, model inheritance, schedules, deployment and current chat behavior. Tool discovery remains authoritative for live state; no repository, shell, SQL or credential access was added.
+- Production capability discovery advertises only Agent-editable delivery mode `none` and exposes safe human connection policy metadata. Existing human-only endpoints and callback enforcement remain unchanged; generic library catalogs retain their delivery behavior.
+- Complete verification passed: 238 isolated Linux npm checks plus two host Compose checks (240 total), 70 production-bundle browser checks, TypeScript/production build and release validation (80 modules, 3 JSON resources). Lifecycle hooks were skipped only for the read-only Linux npm run after the frontend build ran separately. Original single-slot runtime scenarios now explicitly request concurrency one; their implicit-default failure was reproduced before correcting the fixture. Separate coverage verifies default capacity five.
+- All four Docker packaging targets built from clean staged source. The final non-root, read-only, network-disabled test image passed 233 checks. Validation used the previously documented temporary Dockerfile without the blocked apt step and with the unchanged verified production dependency layer; a fresh unmodified production Docker build remains unverified here.
+- Independent review found one inaccurate schedule explanation: admission failures belong to `schedules.blocked_reason`, while waits after acceptance require `overview` and `tasks/task`. The wording was corrected and re-reviewed with no remaining findings. Prompt and tool descriptions must be updated alongside future behavior changes; first-install prompt or README changes alone do not inform saved installations.
+
+No real model/account tasks, credentials or local platform deployment were used. Temporary evidence is under `.tmp/manager-context/`. Synthetic transport tests verify what instructions are sent; they do not establish that a real model will always follow them.
+
 ## Admin workspace, settings tabs and verified password changes
 
 Verified on 2026-10-23 with Node.js 24 and synthetic data:

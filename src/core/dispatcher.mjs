@@ -1,4 +1,5 @@
 import {runtimeSettings} from '../configuration/execution.mjs';
+import {DEFAULT_CONCURRENCY} from '../config.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 export class Dispatcher {
   constructor({store, registry, runner, config, deliver = async () => {}}) {
@@ -29,7 +30,7 @@ export class Dispatcher {
   async loop() {
     while (this.again && !this.closed) {
       this.again = false;
-      if (this.config.paused || this.active.size >= (this.config.concurrency ?? 1)) return;
+      if (this.config.paused || this.active.size >= (this.config.concurrency ?? DEFAULT_CONCURRENCY)) return;
       const queued = this.store.queued();
       if (!queued.length) return;
       // Before issuing a continuation, adopt any process that survived a lost ack
@@ -40,7 +41,7 @@ export class Dispatcher {
       const state = await this.runner.ready().catch(() => ({ready:false, reason:'RUNNER_UNAVAILABLE'}));
       const launches = [];
       for (const item of this.store.queued()) {
-        if (this.closed || this.config.paused || this.active.size >= (this.config.concurrency ?? 1)) break;
+        if (this.closed || this.config.paused || this.active.size >= (this.config.concurrency ?? DEFAULT_CONCURRENCY)) break;
         const module = this.store.moduleFor(this.store.raw(item.task_id));
         const available = module.availability?.(state) ?? state;
         if (!available.ready) {this.blocked.set(item.task_id, available.reason ?? 'RUNTIME_NOT_READY'); continue;}
@@ -97,7 +98,7 @@ export class Dispatcher {
   async syncRuntime() {
     if (!this.runner.active) return false;
     let inventory;
-    try {await this.runner.configure?.({concurrency:this.config.concurrency ?? 1,...runtimeSettings(this.config)});inventory = await this.runner.active();} catch {return false;}
+    try {await this.runner.configure?.({concurrency:this.config.concurrency ?? DEFAULT_CONCURRENCY,...runtimeSettings(this.config)});inventory = await this.runner.active();} catch {return false;}
     if (this.closed) return false;
     const live = new Set(inventory.runs ?? []);
     const details = new Map((inventory.details ?? []).map(run => [run.run_id, run]));

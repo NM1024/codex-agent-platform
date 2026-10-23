@@ -40,6 +40,8 @@ async function setup(t, overrides = {}) {
     model: "gpt-6.1-sol",
     taskTimeoutMs: 1000,
     closingTimeoutMs: 15,
+    // Slot-reservation scenarios below intentionally use one slot; platform defaults have separate coverage.
+    concurrency: 1,
     createClient: (options) => {
       clientOptions = options;
       return rpc;

@@ -88,3 +88,9 @@ test('Agent-created plugins require human setup before enable, trial or schedule
   assert.equal(operations.schedules.get(plan.id).blocked_reason,null);
   assert.equal(store.listTasks({type:saved.type}).length,1);
 });
+
+test('Agent capability discovery describes the human connection policy without advertising editable callbacks',async t=>{
+  const {operations}=await setup(t),capabilities=await operations.execute('capabilities');
+  assert.deepEqual(capabilities.delivery_modes,['none']);
+  assert.deepEqual(capabilities.connection_policy,{agent_writable:false,entry_address_generated:true,required_for_activation:['entryAddress','entryKey'],human_owned_fields:['entryAddress','entryKey','callbackUrl','callbackToken'],callback_optional:true});
+});

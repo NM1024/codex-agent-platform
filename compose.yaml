@@ -21,7 +21,7 @@ services:
       TASK_DB_PATH: /data/tasks.sqlite
       WORKSPACE_DIR: /workspace
       QUEUE_LIMIT: ${QUEUE_LIMIT:-10000}
-      CONCURRENCY: ${CONCURRENCY:-1}
+      CONCURRENCY: ${CONCURRENCY:-5}
       EXECUTION_PAUSED: ${EXECUTION_PAUSED:-false}
       CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
       PLATFORM_HTTP_TARGETS_JSON: ${PLATFORM_HTTP_TARGETS_JSON:-}
@@ -62,7 +62,7 @@ services:
       HOME: /codex
       CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
       WORKSPACE_DIR: /workspace
-      CONCURRENCY: ${CONCURRENCY:-1}
+      CONCURRENCY: ${CONCURRENCY:-5}
       TASK_TIMEOUT_MS: ${TASK_TIMEOUT_MS:-2400000}
       TOOL_TIMEOUT_MS: ${TOOL_TIMEOUT_MS:-180000}
     volumes:

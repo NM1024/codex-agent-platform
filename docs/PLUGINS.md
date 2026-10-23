@@ -41,6 +41,8 @@ Save the connection, then enable the plugin separately. Missing entry configurat
 
 ## Capabilities
 
+The management `capabilities` operation returns the current plugin schema, tool schemas and available resource/target names. In the deployed platform it also returns `connection_policy` describing human-owned fields and activation requirements, and advertises only delivery mode `none` for Agent-authored definitions. A final callback still comes exclusively from the human connection dialog.
+
 - `register_image`: store an image generated in the current task; optionally convert/resize it and return an image preview and `artifact_id`.
 - `write_text_artifact`: save supplied UTF-8 text under a task-owned artifact identity.
 - `read_artifact`: read metadata for an artifact belonging to this task.

@@ -1,6 +1,7 @@
 // Node timers accept at most a signed 32-bit delay; this is a runtime limit.
 export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 export const DEFAULT_TOOL_TIMEOUT_MS = 180000;
+export const DEFAULT_CONCURRENCY = 5;
 import { resolve } from "node:path";
 function required(env, name) {
   if (
@@ -44,7 +45,7 @@ export function loadConfig(role, env = process.env) {
     runnerToken,
     workspace: resolve(env.WORKSPACE_DIR ?? "/workspace"),
     port: integer(env, "PORT", role === "gateway" ? 3004 : 3005, 1, 65535),
-    concurrency: integer(env, "CONCURRENCY", 1, 1),
+    concurrency: integer(env, "CONCURRENCY", DEFAULT_CONCURRENCY, 1),
     taskTimeoutMs: integer(env, "TASK_TIMEOUT_MS", 2400000, 1, MAX_TIMER_DELAY_MS - 5000),
     toolTimeoutMs: integer(env, "TOOL_TIMEOUT_MS", DEFAULT_TOOL_TIMEOUT_MS, 1, MAX_TIMER_DELAY_MS),
     gatewayInternalUrl: validateUrl(

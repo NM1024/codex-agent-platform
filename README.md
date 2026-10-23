@@ -222,7 +222,7 @@ Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into
 
 ## Daily operation
 
-- **Start small.** Default task concurrency is `1`. Increase gradually after measuring task duration, account limits and disk use. A request containing several items still has one root conversation; the Agent can use permitted internal collaboration.
+- **Start small.** New installations default to `5` simultaneous business tasks across all plugins. Explicit or previously saved values are retained on upgrade; adjust **Settings → Business execution → Concurrency** to change an existing deployment. For a cautious trial, select `1` and increase after measuring task duration, account limits and disk use. A request containing several items still has one root conversation; the Agent can use permitted internal collaboration.
 - **Use pause for maintenance.** Pausing stops new dispatches while accepted requests queue up and current work continues. Inspect active tasks before a restart. Restore service access and saved files so incomplete conversations can resume.
 - **Change ordinary settings in Admin or management MCP.** Saved values override initial `.env` defaults. Active execution keeps its launch settings; later work uses updated model/timeouts. Ports, mounts, runtime paths and internal credentials need deployment changes.
 - **Treat retries as new work.** An explicit retry creates a related new task and preserves the old record. It may repeat model calls or external effects. An `unknown` delivery outcome needs investigation before another attempt.
@@ -245,6 +245,8 @@ Platform-owned system instructions and message templates live in [`prompts/`](pr
 For an existing deployment, ask the management Agent to update the `manager` scope's `instructions` through `configuration_update`; the current value is viewable in **Settings**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
 
 Business plugin `instructions` stay in plugin configuration. Users and the management Agent create and edit those through the plugin tools; they are separate from platform system prompts.
+
+Versioned project operating rules and the human-only plugin connection policy are appended to every management start/resume, including existing customized conversations. They cover task lifecycle, capabilities, model inheritance, schedules and deployment boundaries. The Agent queries tools for current settings and schemas; it does not automatically read the repository README. Update these fixed rules alongside later platform behavior changes.
 
 ## Security risks and recommendations
 
