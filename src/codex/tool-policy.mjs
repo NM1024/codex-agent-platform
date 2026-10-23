@@ -5,6 +5,7 @@ import { resolve, relative, sep } from "node:path";
 export function allowedTool(name, input = {}, scope = {}) {
   if (/^mcp__agent_task__/.test(name ?? "")) return true;
   const native = (name ?? "").replace(/^(?:multi_agent_v1|task_agents)/, "");
+  if(/^(?:functions[._]?)?request_user_input$/.test(native))return scope.allowUserInput===true;
   if (native === "view_image") {
     try {
       if (typeof input.path !== "string" || input.environment_id) return false;
@@ -64,6 +65,7 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
       cwd: process.env.AGENT_TASK_WORK_DIR,
       readRoots: JSON.parse(process.env.AGENT_TASK_READ_ROOTS ?? "[]"),
       referenceFiles: JSON.parse(process.env.AGENT_TASK_REFERENCE_FILES ?? "[]"),
+      allowUserInput: process.env.AGENT_ALLOW_USER_INPUT === '1',
     };
   } catch {
     process.exit(2);

@@ -1,7 +1,7 @@
 import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
 import { fileURLToPath } from "node:url";
 
-export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS } = {}) {
+export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS, userInput = false } = {}) {
   const hook = fileURLToPath(new URL("./tool-policy.mjs", import.meta.url));
   return {
     "features.shell_tool": false,
@@ -15,7 +15,7 @@ export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TO
     "features.hooks": true,
     "features.image_generation": agentPackage.native.imageGeneration === true,
     "multi_agent_v2.tool_namespace": "task_agents",
-    "features.default_mode_request_user_input": false,
+    "features.default_mode_request_user_input": userInput === true,
     web_search: agentPackage.native.webSearch ? "live" : "disabled",
     project_doc_max_bytes: 0,
     mcp_servers: {

@@ -155,6 +155,18 @@ button, input, textarea { font: inherit; }
 .chat-pending li { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .message-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; margin-top: 6px; }
 .message-footer > .message-activity { flex-basis: 100%; min-width: 0; margin-top: 0; }
+.question-card { width: 100%; min-width: 0; flex-basis: 100%; padding: 16px; border: 1px solid #dbe7df; border-radius: 10px; background: #f8fbf9; font-size: 13px; color: #202923; }
+.question-card fieldset { min-width: 0; margin: 14px 0; padding: 0; border: 0; }
+.question-card legend { width: auto; margin: 0 0 4px; color: #738078; font-size: 12px; }
+.question-card p { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-card .ant-radio-group { display: grid; width: 100%; gap: 8px; margin-bottom: 10px; }
+.question-card .ant-radio-wrapper { align-items: flex-start; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.question-card .ant-radio { margin-top: 4px; }
+.question-option-description { display: block; font-size: 12px; color: #738078; }
+.question-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.question-footer .ant-typography { flex: 1 1 160px; min-width: 0; font-size: 12px; }
+.question-card .ant-alert { margin-top: 12px; }
+.question-card .question-answer { margin: 0; }
 .message-progress { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 4px 10px; margin: 7px 0; color: #738078; font-size: 10px; }
 .message-progress[data-status="failed"] > span:first-child { color: #b42318; }
 .message-progress[data-status="running"] > span:first-child, .message-progress[data-status="recovering"] > span:first-child { color: #345e4f; font-weight: 600; }

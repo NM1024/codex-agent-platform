@@ -1,7 +1,7 @@
 import {createContext,useContext,useEffect,useState,useCallback,useRef,type ReactNode} from 'react';
 import {request,ApiError} from './api';
 import {getLocale,setLocale,t} from './i18n';
-import type {Catalog,View,ChatImage} from './types';
+import type {Catalog,View,ChatImage,QuestionDraft} from './types';
 interface ConsoleContext {
   locale:string;changeLocale:(locale:string)=>void;t:typeof t;pending:number;notice:string;notify:(text:string)=>void;
   authenticated:boolean;setAuthenticated:(value:boolean)=>void;view:View;navigate:(view:View)=>void;
@@ -12,6 +12,9 @@ interface ConsoleContext {
   chatSendBusy:boolean;beginChatSend:(text:string,imageIds:string[])=>{accepted:()=>void;release:()=>void}|null;
   catalog:Catalog;refreshCatalog:()=>Promise<void>;
   serializeConversation:<T>(id:string,work:()=>Promise<T>)=>Promise<T>;
+  questionDrafts:Record<string,QuestionDraft>;
+  updateQuestionDraft:(id:string,change:(current:QuestionDraft)=>QuestionDraft)=>void;
+  beginQuestionAnswer:(id:string)=>{accepted:()=>void;failed:(message:string,expired?:boolean)=>void;release:()=>void}|null;
 }
 const Context=createContext<ConsoleContext|null>(null);
 export const useConsole=()=>{const value=useContext(Context);if(!value)throw new Error('Console context missing');return value;};
@@ -21,8 +24,21 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   const [chatDraft,updateChatDraft]=useState('');
   const [chatImages,setChatImages]=useState<ChatImage[]>([]);
   const [chatSendBusy,setChatSendBusy]=useState(false);
+  const [questionDrafts,setQuestionDrafts]=useState<Record<string,QuestionDraft>>({});
+  const questionLocks=useRef(new Set<string>());
   const conversationWrites=useRef(new Map<string,Promise<void>>()),sessionGeneration=useRef(0);
   const draftVersion=useRef(0),chatSendLock=useRef<symbol|null>(null);
+  const updateQuestionDraft=useCallback((id:string,change:(current:QuestionDraft)=>QuestionDraft)=>setQuestionDrafts(current=>({...current,[id]:change(current[id]??{choices:{},texts:{}})})),[]);
+  const beginQuestionAnswer=useCallback((id:string)=>{
+    if(questionLocks.current.has(id))return null;
+    questionLocks.current.add(id);const generation=sessionGeneration.current;
+    updateQuestionDraft(id,current=>({...current,pending:true,error:''}));
+    return {
+      accepted:()=>{if(generation===sessionGeneration.current)updateQuestionDraft(id,current=>({...current,answered:true}));},
+      failed:(message:string,expired=false)=>{if(generation===sessionGeneration.current)updateQuestionDraft(id,current=>({...current,error:message,expired}));},
+      release:()=>{if(generation===sessionGeneration.current){questionLocks.current.delete(id);updateQuestionDraft(id,current=>({...current,pending:false}));}},
+    };
+  },[]);
   const setChatDraft=useCallback((value:string|((previous:string)=>string))=>{draftVersion.current++;updateChatDraft(value);},[]);
   const beginChatSend=useCallback((text:string,imageIds:string[])=>{
     if(chatSendLock.current)return null;
@@ -37,7 +53,7 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
       release:()=>{if(chatSendLock.current===lease){chatSendLock.current=null;setChatSendBusy(false);}},
     };
   },[]);
-  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatId(null);notify('');setCatalog({models:[]});}},[]);
+  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatId(null);notify('');setCatalog({models:[]});}},[]);
   // Writes must remain ordered even when ChatPage unmounts during navigation.
   const serializeConversation=useCallback(<T,>(id:string,work:()=>Promise<T>):Promise<T>=>{
     const generation=sessionGeneration.current;
@@ -66,5 +82,5 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   useEffect(()=>{document.documentElement.lang=locale;document.title='Codex Agent Platform';},[locale]);
   const changeLocale=(value:string)=>{setLocale(value);updateLocale(getLocale());};
   const navigate=(next:View)=>{notify('');setView(next);};
-  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation}}>{children}</Context.Provider>;
+  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer}}>{children}</Context.Provider>;
 }

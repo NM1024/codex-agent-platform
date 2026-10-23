@@ -43,6 +43,8 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
       if(req.method==='POST'&&path==='/admin/api/logout'){auth.logout(req);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{logged_out:true});}
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}
+      const questionAnswer=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/questions\/([a-f0-9-]{36})\/answer$/);
+      if(req.method==='POST'&&questionAnswer){const body=await readJson(req);return json(res,200,agent.answerQuestion(questionAnswer[1],questionAnswer[2],body.answers));}
       const events=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/events$/);
       if(req.method==='GET'&&events){if(eventsClosed)throw new HttpError(503,'SERVER_SHUTTING_DOWN','服务正在重启，请稍后重连。');const close=streamConversation({req,res,store,auth,id:events[1],onClose:closed=>streams.delete(closed)});if(!res.writableEnded)streams.add(close);return;}
       const chatImage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/images\/([a-f0-9-]{36})$/);

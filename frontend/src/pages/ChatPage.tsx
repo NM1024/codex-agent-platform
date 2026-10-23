@@ -8,6 +8,7 @@ import {isPending, MessageProgress, messageStatuses} from '../ChatActivity';
 import {DraftImages, MessageImages} from '../ImageAttachments';
 import {compressChatImage} from '../chatImages';
 import {Icon} from '../Icon';
+import {QuestionCard} from '../QuestionCard';
 import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
@@ -67,11 +68,17 @@ export default function ChatPage() {
   const queued=pending.filter(message=>message.status==='queued');
   const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
   // Associate the public reply with its request so completion retains the live bubble's identity.
-  const transcript=messages.flatMap(message=>{
+  const transcript=messages.flatMap<{message:Message;key:string;live:boolean;tail?:boolean}>(message=>{
     if(message.role!=='user')return message.reply_to&&messages.some(user=>user.id===message.reply_to)?[]:[{message,key:message.id,live:false}];
     const reply=messages.find(item=>item.role==='assistant'&&item.reply_to===message.id);
+    if(message.replies?.length) {
+      const parts:{message:Message;key:string;live:boolean;tail:boolean}[]=message.replies.map(item=>({message:{...item,id:'reply:'+message.id+':'+item.id,reply_to:message.id,role:'assistant'},key:'reply:'+message.id+':'+item.id,live:item.status==='running'&&isPending(message.status),tail:false}));
+      if(reply&&parts.at(-1)?.message.text!==reply.text)parts.push({message:reply,key:'reply:'+message.id,live:false,tail:false});
+      parts[parts.length-1].tail=true;
+      return [{message,key:message.id,live:false},...parts];
+    }
     const partial=message.partial_text??message.activity?.filter(item=>item.kind==='assistant_message').map(item=>item.text).filter(Boolean).join('\n\n')??'';
-    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false}]:['running','interrupted','recovering'].includes(message.status)?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:true}]:[])];
+    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false,tail:true}]:['running','interrupted','recovering'].includes(message.status)?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:true,tail:true}]:[])];
   });
 
   const forgetConversation=(id:string)=>{
@@ -339,18 +346,18 @@ export default function ChatPage() {
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
         {!!loadingId && loadingId===chatId && !visibleConversation && <div className="chat-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
         {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
-        {transcript.map(({message,key,live}) => {
+        {transcript.map(({message,key,live,tail}) => {
           const source=message.role==='assistant'?messages.find(item=>item.role==='user'&&item.id===message.reply_to):undefined;
           return <article key={key} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
-            <div className="message-label"><span>{message.role === 'user' ? t('你 · ') + t(messageStatuses[message.status] ?? message.status) : t('管理 AGENT')}</span><MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t('回复中')}</span>}</div>
+            <div className="message-label"><span>{message.role === 'user' ? t('你 · ') + t(messageStatuses[message.status] ?? message.status) : t('管理 AGENT')}</span><MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t(source?.questions?.some(q=>q.status==='pending')?'等待回答':'回复中')}</span>}</div>
             <div className="message-bubble">{message.role === 'assistant' ? live?<div className="message-partial" aria-live="off">{message.text?<AgentMessage text={message.text}/>:<Spin size="small"/>}</div>:<AgentMessage text={message.text}/> : <div className="message-text">{message.text}</div>}
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
             {message.role==='assistant' && <div className="message-footer">
               {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
-              {source && <MessageProgress message={source} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/>}
+              {source && tail && <>{source.questions?.map(request=><QuestionCard key={request.id} request={request} conversationId={chatId!}/>)}<MessageProgress message={source} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/></>}
             </div>}
           </div>
         </article>;})}

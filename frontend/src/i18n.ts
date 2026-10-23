@@ -1,6 +1,17 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  'Agent 提问':'Agent question',
+  '等待你的回答':'Your answer is needed',
+  '等待回答':'Waiting for answer',
+  '已回答':'Answered',
+  '提问已失效':'Question expired',
+  '请等待 Agent 重新提问。':'Wait for the Agent to ask again.',
+  '其他':'Other',
+  '补充回答':'Additional answer',
+  '提交回答':'Submit answer',
+  '回答会交回当前轮次，不会新建任务。请勿填写密钥或密码。':'Answers return to this turn without creating a task. Do not enter keys or passwords.',
+  '回答提交失败，请保留内容并在连接恢复后重试。':'The answer could not be submitted. Keep your input and retry when the connection is restored.',
   '入口配置':'Entry settings',
   '结果回调':'Result callback',
   '可选':'Optional',

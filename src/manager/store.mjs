@@ -5,6 +5,7 @@ import Ajv from 'ajv';
 import {agentOverridesSchema} from '../configuration/agent-settings.mjs';
 import {publicChatText} from './chat-progress.mjs';
 import {EventEmitter} from 'node:events';
+import {validateAnswers} from './questions.mjs';
 const checkExecution=new Ajv({strict:true}).compile(agentOverridesSchema);
 const conversationRow=row=>({...row,execution:JSON.parse(row.execution ?? '{}')});
 const messageRow=row=>({...row,execution:row.execution?JSON.parse(row.execution):null});
@@ -20,6 +21,8 @@ export class ManagerStore {
       CREATE TABLE IF NOT EXISTS manager_observations(key TEXT PRIMARY KEY,value TEXT NOT NULL,observed_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS manager_chat_images(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,conversation_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,width INTEGER NOT NULL,height INTEGER NOT NULL,size INTEGER NOT NULL,bytes BLOB NOT NULL);
       CREATE TABLE IF NOT EXISTS manager_message_activity(message_id TEXT NOT NULL,id TEXT NOT NULL,kind TEXT NOT NULL,label TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(message_id,id));
+      CREATE TABLE IF NOT EXISTS manager_reply_items(message_id TEXT NOT NULL,id TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(message_id,id));
+      CREATE TABLE IF NOT EXISTS manager_questions(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,questions TEXT NOT NULL,answers TEXT,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
     `);
     for(const table of ['manager_conversations','manager_messages'])
       if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(column=>column.name==='execution'))this.db.exec(`ALTER TABLE ${table} ADD COLUMN execution TEXT`);
@@ -30,7 +33,9 @@ export class ManagerStore {
   watch(id,listener){const handler=change=>{if(change.conversationId===id)listener(change);};this.events.on('change',handler);return()=>this.events.off('change',handler);}
   changed(conversationId,messageId,deleted=false){queueMicrotask(()=>this.events.emit('change',{conversationId,messageId,deleted}));}
   changedMessage(id){const row=this.db.prepare('SELECT conversation_id FROM manager_messages WHERE id=?').get(id);if(row)this.changed(row.conversation_id,id);}
-  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),activity:this.db.prepare('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
+  replies(id){return this.db.prepare('SELECT id,text,status,created_at,updated_at FROM manager_reply_items WHERE message_id=? ORDER BY created_at,rowid').all(id);}
+  questions(id){return this.db.prepare('SELECT * FROM manager_questions WHERE message_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,questions:JSON.parse(row.questions),answers:row.answers?JSON.parse(row.answers):null}));}
+  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.db.prepare('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
   message(id){const row=this.db.prepare('SELECT * FROM manager_messages WHERE id=?').get(id);return row?this.publicMessage(row):null;}
   metadata(id){const row=this.db.prepare('SELECT * FROM manager_conversations WHERE id=?').get(id);if(!row)throw new HttpError(404,'CONVERSATION_NOT_FOUND','找不到管理会话。');return conversationRow(row);}
   observe(key,value){this.db.prepare('INSERT OR REPLACE INTO manager_observations VALUES(?,?,?)').run(key,JSON.stringify(value),Date.now());}
@@ -49,6 +54,8 @@ export class ManagerStore {
     try {
       if(this.db.prepare("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','running','interrupted') LIMIT 1").get(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
       this.db.prepare('DELETE FROM manager_message_activity WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
+      this.db.prepare('DELETE FROM manager_reply_items WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
+      this.db.prepare('DELETE FROM manager_questions WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       for(const table of ['manager_chat_images','manager_actions','manager_messages'])this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(id);
       this.db.prepare('DELETE FROM manager_conversations WHERE id=?').run(id);
       this.db.exec('COMMIT');
@@ -103,8 +110,37 @@ export class ManagerStore {
     if(title){const result=this.db.prepare('UPDATE manager_conversations SET title=?,updated_at=? WHERE id=? AND title<>?').run(title,Date.now(),conversationId,title);if(result.changes)this.changed(conversationId);}
   }
   turn(messageId,turnId){this.db.prepare('UPDATE manager_messages SET turn_id=? WHERE id=?').run(turnId,messageId);}
-  interrupted(id){const now=Date.now();this.db.prepare("UPDATE manager_messages SET status='interrupted',updated_at=? WHERE id=? AND status='running'").run(now,id);this.db.prepare("UPDATE manager_message_activity SET status='unknown',updated_at=? WHERE message_id=? AND status='running'").run(now,id);this.changedMessage(id);}
+  interrupted(id){const now=Date.now();this.db.prepare("UPDATE manager_messages SET status='interrupted',updated_at=? WHERE id=? AND status='running'").run(now,id);this.db.prepare("UPDATE manager_message_activity SET status='unknown',updated_at=? WHERE message_id=? AND status='running'").run(now,id);this.db.prepare("UPDATE manager_reply_items SET status='unknown',updated_at=? WHERE message_id=? AND status='running'").run(now,id);this.expireQuestions(id);this.changedMessage(id);}
+  addQuestion(messageId,questions) {
+    const m=this.db.prepare('SELECT status FROM manager_messages WHERE id=?').get(messageId);
+    if(m?.status!=='running'||this.db.prepare('SELECT count(*) AS n FROM manager_questions WHERE message_id=?').get(messageId).n>=20)throw new HttpError(409,'QUESTION_EXPIRED','此提问已结束，请等待 Agent 重新提问。');
+    const id=randomUUID(),now=Date.now();this.db.prepare("INSERT INTO manager_questions VALUES(?,?,?,NULL,'pending',?,?)").run(id,messageId,JSON.stringify(questions),now,now);this.changedMessage(messageId);
+    return this.questions(messageId).find(q=>q.id===id);
+  }
+  answerQuestion(conversationId,id,answers) {
+    const q=this.db.prepare('SELECT q.*,m.conversation_id,m.status AS message_status FROM manager_questions q JOIN manager_messages m ON m.id=q.message_id WHERE q.id=? AND m.conversation_id=?').get(id,conversationId);
+    if(!q)throw new HttpError(404,'QUESTION_NOT_FOUND','找不到此对话的提问。');
+    if(q.status!=='pending'||q.message_status!=='running')throw new HttpError(409,'QUESTION_EXPIRED','此提问已结束，请等待 Agent 重新提问。');
+    const value=validateAnswers(JSON.parse(q.questions),answers);
+    const saved=Object.fromEntries(Object.entries(value).map(([key,answer])=>[key,{answers:answer.answers.map(text=>publicChatText(text,[],false,4000))}]));
+    const changed=this.db.prepare("UPDATE manager_questions SET answers=?,status='answered',updated_at=? WHERE id=? AND status='pending'").run(JSON.stringify(saved),Date.now(),id);
+    if(!changed.changes)throw new HttpError(409,'QUESTION_EXPIRED','此提问已结束，请等待 Agent 重新提问。');
+    this.changedMessage(q.message_id);return {...this.questions(q.message_id).find(item=>item.id===id),response:{answers:value}};
+  }
+  expireQuestions(messageId,id) {
+    this.db.prepare("UPDATE manager_questions SET status='expired',updated_at=? WHERE message_id=? AND status='pending'"+(id?' AND id=?':'')).run(Date.now(),messageId,...(id?[id]:[]));this.changedMessage(messageId);
+  }
   reply(id,text){const result=this.db.prepare("UPDATE manager_messages SET partial_text=?,updated_at=? WHERE id=? AND status='running'").run(publicChatText(text,[],false,1048576),Date.now(),id);if(result.changes)this.changedMessage(id);}
+  replyItem(messageId,id,text,status) {
+    if(typeof id!=='string'||id.length>200||!['running','completed'].includes(status))return;
+    if(this.db.prepare('SELECT status FROM manager_messages WHERE id=?').get(messageId)?.status!=='running')return;
+    const old=this.db.prepare('SELECT text FROM manager_reply_items WHERE message_id=? AND id=?').get(messageId,id);
+    const total=this.db.prepare('SELECT count(*) AS count,COALESCE(sum(length(text)),0) AS size FROM manager_reply_items WHERE message_id=?').get(messageId);
+    if(!old&&total.count>=100)return;
+    const value=publicChatText(text,[],false,Math.max(0,1048576-total.size+(old?.text.length??0))),now=Date.now();
+    this.db.prepare('INSERT INTO manager_reply_items VALUES(?,?,?,?,?,?) ON CONFLICT(message_id,id) DO UPDATE SET text=excluded.text,status=excluded.status,updated_at=excluded.updated_at').run(messageId,id,value,status,now,now);
+    this.changedMessage(messageId);
+  }
   progress(messageId,entry) {
     const message=this.db.prepare('SELECT status FROM manager_messages WHERE id=?').get(messageId);
     if(message?.status!=='running'||!['reasoning_summary','assistant_message','tool','status'].includes(entry.kind)||typeof entry.id!=='string')return;
@@ -122,6 +158,8 @@ export class ManagerStore {
       const now=Date.now(),changed=this.db.prepare("UPDATE manager_messages SET status=?,error=?,completed_at=?,updated_at=?,partial_text=NULL WHERE id=? AND status IN ('queued','running','interrupted')").run(error?'failed':'completed',error?JSON.stringify(error):null,now,now,message.id);
       if(!changed.changes){this.db.exec('COMMIT');return;}
       this.db.prepare("UPDATE manager_message_activity SET status=?,updated_at=? WHERE message_id=? AND status='running'").run(error?'failed':'completed',now,message.id);
+      this.db.prepare("UPDATE manager_reply_items SET status=?,updated_at=? WHERE message_id=? AND status='running'").run(error?'failed':'completed',now,message.id);
+      this.expireQuestions(message.id);
       const replyId=randomUUID();
       this.db.prepare("INSERT INTO manager_messages(id,conversation_id,role,text,status,turn_id,error,created_at,reply_to,completed_at,updated_at) VALUES(?,?,'assistant',?,'completed',NULL,?,?,?,?,?)").run(replyId,message.conversation_id,publicChatText(text,[],false,null) || (error?error.message:'本轮已结束，请查看操作记录。'),error?JSON.stringify(error):null,now,message.id,now,now);
       this.db.prepare('UPDATE manager_conversations SET updated_at=? WHERE id=?').run(Date.now(),message.conversation_id);

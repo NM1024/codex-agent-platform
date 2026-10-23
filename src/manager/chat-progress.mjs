@@ -20,10 +20,11 @@ export function publicChatText(text,secrets=[],streaming=false,maxLength=MAX_TEX
 // reasoning deltas or serializes tool arguments/results.
 export class ChatProgress {
   constructor({store,messageId,secrets=[]}) {Object.assign(this,{store,messageId,secrets});this.items=new Map();this.text='';this.closed=false;this.replyId=null;this.replyText='';}
-  reply(id,text,delta=false,streaming=false) {
+  reply(id,text,delta=false,streaming=false,completed=false) {
     if(this.replyId!==id){this.replyId=id;this.replyText='';}
     this.replyText=(delta?this.replyText+text:text).slice(0,1048576);
     this.store.reply?.(this.messageId,publicChatText(this.replyText,this.secrets,streaming,null));
+    this.store.replyItem?.(this.messageId,id,publicChatText(this.replyText,this.secrets,streaming,null),completed?'completed':'running');
   }
   save(id,kind,label,text,status='running',streaming=false) {
     this.store.progress(this.messageId,{id,kind,label:publicChatText(label,this.secrets,false,120),text:publicChatText(text,this.secrets,streaming),status});
@@ -52,7 +53,7 @@ export class ChatProgress {
         this.items.set(id,value);this.save(id,value.kind,value.label,value.text,value.status,!completed);
       }
     }else if(item.type==='agentMessage') {
-      this.reply(item.id,typeof item.text==='string'?item.text:this.replyId===item.id?this.replyText:'',false,!completed);
+      this.reply(item.id,typeof item.text==='string'?item.text:this.replyId===item.id?this.replyText:'',false,!completed,completed);
       // Final replies are independent of the bounded activity budget.
       if(completed)this.text=publicChatText(item.text,this.secrets,false,null);
       const id='assistant:'+item.id;
@@ -68,7 +69,10 @@ export class ChatProgress {
   }
   finish(status='completed') {
     if(this.closed)return;
-    if(!this.text&&this.replyText)this.text=publicChatText(this.replyText,this.secrets,false,null);
+    if(this.replyText) {
+      this.text=publicChatText(this.replyText,this.secrets,false,null);
+      this.store.replyItem?.(this.messageId,this.replyId,this.text,status==='completed'?'completed':'running');
+    }
     for(const [id,item] of this.items)if(item.status==='running') {
       this.save(id,item.kind,item.label,item.text,status,false);
       if(item.kind==='assistant_message'&&!this.text)this.text=publicChatText(item.text,this.secrets,false,null);
