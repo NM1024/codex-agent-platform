@@ -38,7 +38,7 @@ export default function HttpTargetsPanel({group,onSaved,reload}:{group:ConfigGro
   };
   return <Panel title={t('HTTP 目标')} extra={<Button type="primary" onClick={()=>open()}>{t('新增 HTTP 目标')}</Button>}>
     <Typography.Paragraph>{t(group.description)}</Typography.Paragraph>
-    <Typography.Paragraph type="secondary">{t('例如将 nvda_health 指向 https://nvda.chat，业务 Agent 可通过该名称调用 HTTP 工具。凭证请在此填写，不要发送到管理对话。')}</Typography.Paragraph>
+    <Typography.Paragraph type="secondary">{t('例如将 health_check 指向 https://example.invalid/health，业务 Agent 可通过该名称调用 HTTP 工具。凭证请在此填写，不要发送到管理对话。')}</Typography.Paragraph>
     <Table className="responsive-table" rowKey="name" dataSource={rows} pagination={false} tableLayout="auto" locale={{emptyText:t('暂无 HTTP 目标')}} columns={[
       {title:t('目标名称'),dataIndex:'name',className:'table-identity-cell',render:name=><div className="table-identity"><Typography.Text code title={name}>{name}</Typography.Text></div>},
       {title:t('目标地址'),dataIndex:'url',className:'table-text-cell',render:url=><div className="table-summary" title={url}>{url}</div>},
