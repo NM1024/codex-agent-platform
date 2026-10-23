@@ -366,6 +366,7 @@ export default function ChatPage() {
         <DraftImages images={images} remove={id=>setImages(current=>current.filter(image=>image.id!==id))}/>
         {imageError && <Alert type="error" className="chat-image-error" title={imageError} closable onClose={()=>setImageError('')}/>}
         {compressing && <div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在压缩图片…')}</div>}
+        <div className="composer-input-shell">
         <Input.TextArea id="message-input" aria-label={t('消息')} autoSize={{minRows:2, maxRows:6}} value={draft}
           placeholder={t('告诉我你想了解或处理什么，例如：查询失败任务并说明原因。')} onChange={event => setDraft(event.target.value)}
           onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();void addImages(files);}}}
@@ -379,6 +380,7 @@ export default function ChatPage() {
           <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
           <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
           <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}/>
+        </div>
         </div>
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>
           {draft.length>20000 && <span className="danger-text">{t('消息不能超过 20000 个字符。')}</span>}

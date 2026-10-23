@@ -64,7 +64,7 @@ test('manual connection transport requires internal auth and Admin cookies and i
   const visible=await operations.execute('plugin_get',{type:'content.review'});assert.equal(visible.connection.ready,true);
   assert.ok(!JSON.stringify(visible).includes('https://example.invalid/review-callback'));assert.ok(!JSON.stringify(visible).includes(keys.review));
   for(const action of ['plugin_connection_update','plugin_connection_get'])await assert.rejects(managerOperations.execute(action,{type:'content.review'}));
-  assert.ok(!managementTools.some(tool=>/connection/.test(tool.name)));
+  assert.deepEqual(managementTools.filter(tool=>/connection/.test(tool.name)).map(tool=>tool.name),['plugin_connection_initialize']);
   for(const scope of ['access','http'])await assert.rejects(operations.execute('configuration_get',{scope}));
   await assert.rejects(operations.execute('plugin_save',{definition:{type:'isolation.inject',connection:{entryKey:'agent-secret'}}}));
   assert.equal(store.pluginConnections.get('content.review').entryKeyConfigured,true);
@@ -92,5 +92,5 @@ test('Agent-created plugins require human setup before enable, trial or schedule
 test('Agent capability discovery describes the human connection policy without advertising editable callbacks',async t=>{
   const {operations}=await setup(t),capabilities=await operations.execute('capabilities');
   assert.deepEqual(capabilities.delivery_modes,['none']);
-  assert.deepEqual(capabilities.connection_policy,{agent_writable:false,entry_address_generated:true,required_for_activation:['entryAddress','entryKey'],human_owned_fields:['entryAddress','entryKey','callbackUrl','callbackToken'],callback_optional:true});
+  assert.deepEqual(capabilities.connection_policy,{agent_writable:false,agent_initialize_operation:'plugin_connection_initialize',entry_address_generated:true,entry_key_human_claim_required:true,entry_key_rotation:'human_only',required_for_activation:['entryAddress','entryKey'],human_owned_fields:['entryAddress','entryKey','callbackUrl','callbackToken'],callback_optional:true});
 });

@@ -59,16 +59,20 @@ export class OperationsService {
     }
     if (action==='plugins') return {configured:this.store.plugins.list().map(pluginView),builtin:[...this.registry.modules.values()].filter(module=>!module.definition).map(module=>({type:module.type,version:module.version})),invalid:[...this.store.plugins.invalid,...this.registry.configurationErrors()]};
     if (action==='plugin_get') return pluginView(this.store.plugins.get(args.type));
+    if (action==='plugin_connection_initialize') {
+      if(!this.store.pluginConnections)throw new HttpError(400,'PLUGIN_CONNECTION_UNAVAILABLE');
+      return this.store.pluginConnections.initialize(args.type);
+    }
     if (action==='plugin_validate') {this.registry.compileDefinition(args.definition);return {valid:true,...(this.store.pluginConnections?{human_connection_required:true}: {})};}
     if (action==='plugin_save') {
       const saved=pluginView(this.store.plugins.save(args.definition));
-      return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'请到业务插件列表的“配置接入”手动填写入口地址和入口密钥，保存后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未配置前不能启用、提交任务、试运行或执行定时计划。'}:saved;
+      return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'可调用 plugin_connection_initialize 初始化缺失入口信息；请到业务插件列表的“配置接入”领取生成的入口密钥或手动配置，完成后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未完成配置或密钥未领取前不能启用、提交任务、试运行或执行定时计划。'}:saved;
     }
     if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
     if (action==='capabilities') return {
       plugin_schema:pluginDefinitionSchema,
       delivery_modes:this.store.pluginConnections?['none']:['none','callback_once'],
-      ...(this.store.pluginConnections?{connection_policy:{agent_writable:false,entry_address_generated:true,required_for_activation:['entryAddress','entryKey'],human_owned_fields:['entryAddress','entryKey','callbackUrl','callbackToken'],callback_optional:true}}:{}),
+      ...(this.store.pluginConnections?{connection_policy:{agent_writable:false,agent_initialize_operation:'plugin_connection_initialize',entry_address_generated:true,entry_key_human_claim_required:true,entry_key_rotation:'human_only',required_for_activation:['entryAddress','entryKey'],human_owned_fields:['entryAddress','entryKey','callbackUrl','callbackToken'],callback_optional:true}}:{}),
       tools:Object.entries(this.registry.catalog.tools ?? {}).map(([name,tool])=>({name,description:tool.description,inputSchema:tool.inputSchema})),
       native:['image_generation','web_search'],
       resources:Object.entries(this.registry.catalog.resources ?? {}).map(([id,resource])=>({id,kind:resource.kind})),

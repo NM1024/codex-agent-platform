@@ -16,6 +16,19 @@ test.beforeEach(async({page})=>{
   await page.getByRole('button',{name:'登录工作台'}).click();await expect(page.locator('#workspace')).toBeVisible();
 });
 
+test('composer keeps one continuous focus frame while typing or choosing a model',async({page})=>{
+  await navigate(page,'chat');await page.locator('#message-input').fill('Synthetic focus check');
+  const frame=page.locator('.composer-input-shell');await expect(frame).toBeVisible();
+  for(const target of ['#message-input','#chat-model','#chat-reasoningEffort','.chat-image-picker','.composer-send']){
+    await page.locator(target).focus();
+    const borders=await frame.evaluate(element=>{const style=getComputedStyle(element);return ['Top','Right','Bottom','Left'].map(edge=>({width:style['border'+edge+'Width'],color:style['border'+edge+'Color']}));});
+    expect(new Set(borders.map(border=>border.color)).size).toBe(1);expect(borders.every(border=>border.width==='1px')).toBe(true);
+    await expect(frame.locator('#message-input')).toHaveCSS('border-top-width','0px');
+    await expect(frame.locator('#message-input')).toHaveCSS('outline-style','none');
+    await expect(frame.locator('.composer-toolbar')).toHaveCSS('border-bottom-width','0px');
+  }
+});
+
 test('running turns show partial replies, collapsed activity and FIFO pending messages',async({page})=>{
   const conversation={id:'progress-chat',title:'Synthetic progress',execution:{},messages:[
     {...user('first','running','First request'),activity:[{id:'summary',kind:'reasoning_summary',label:'Progress summary',text:'Inspecting synthetic queue',status:'running',created_at:stamp,updated_at:stamp+5000},{id:'partial',kind:'assistant_message',label:'Assistant',text:'Partial answer while working',status:'running',created_at:stamp,updated_at:stamp+5000}]},
@@ -54,6 +67,26 @@ test('completed replies appear once and assistant-only activity does not leave a
   const copy=page.getByRole('button',{name:'复制回复',exact:true});
   await expect(copy.locator('svg')).toBeVisible();
   await expect(copy).toHaveText('');
+});
+
+test.describe('localized live message header',()=>{
+test.use({locale:'zh-CN'});
+test('short live replies keep author time and reply status on one line without overflowing',async({page})=>{
+  await synthetic(page,{id:'short-header',title:'Short live reply',execution:{},messages:[{...user('request','running','Short reply please'),partial_text:'好'}],actions:[]});
+  for(const language of ['zh-CN','en']){
+  if(language==='en'){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();}
+  for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:568}]){
+    await page.setViewportSize(viewport);
+    const header=page.locator('.assistant .message-label');
+    await expect(header.locator('.partial-label')).toHaveText(language==='en'?'Replying':'回复中');
+    const boxes=await header.locator(':scope > *').evaluateAll(items=>items.map(item=>item.getBoundingClientRect().toJSON()));
+    const centers=boxes.map(box=>box.y+box.height/2);
+    expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
+    for(const box of boxes){expect(box.x).toBeGreaterThanOrEqual(0);expect(box.right).toBeLessThanOrEqual(viewport.width);}
+    await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
+  }
+  }
+});
 });
 
 test('image drafts and a pending queue leave readable transcript space on short phones',async({page})=>{

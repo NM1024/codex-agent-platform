@@ -14,35 +14,38 @@ function callAddress(address:string) {
   } catch {return '';}
 }
 
-export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:Plugin;onClose:()=>void;onSaved:(connection:PluginConnection)=>void}) {
+export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}:{plugin:Plugin;onClose:()=>void;onSaved:(connection:PluginConnection)=>void;onClaimed?:(connection:PluginConnection)=>void}) {
   const {api,t}=useConsole();
   const [connection,setConnection]=useState<PluginConnection>();
   const [entryAddress,setEntryAddress]=useState(''),[entryKey,setEntryKey]=useState('');
+  const [claimedEntryKey,setClaimedEntryKey]=useState(''),[claiming,setClaiming]=useState(false);
   const [callbackUrl,setCallbackUrl]=useState(''),[callbackToken,setCallbackToken]=useState(''),[clearCallbackToken,setClearCallbackToken]=useState(false);
   const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[loadVersion,setLoadVersion]=useState(0);
   const [error,setError]=useState(''),[conflict,setConflict]=useState(false),[copyNotice,setCopyNotice]=useState('');
   const [copying,setCopying]=useState<Record<string,boolean>>({}),copyLocks=useRef(new Set<string>());
-  const alive=useRef(true),saveLock=useRef(false);
+  const alive=useRef(true),generation=useRef(0),saveLock=useRef(false),claimLock=useRef(false);
   const path='/plugins/'+encodeURIComponent(plugin.type)+'/connection';
-  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;generation.current++;};},[]);
   useEffect(()=>{
-    let active=true;
+    let active=true;generation.current++;saveLock.current=false;claimLock.current=false;copyLocks.current.clear();
     setLoading(true);setError('');setConflict(false);setCopyNotice('');setConnection(undefined);
-    setEntryAddress('');setEntryKey('');setCallbackUrl('');setCallbackToken('');setClearCallbackToken(false);
+    setEntryAddress('');setEntryKey('');setClaimedEntryKey('');setCallbackUrl('');setCallbackToken('');setClearCallbackToken(false);setClaiming(false);setSaving(false);setCopying({});
     void api<PluginConnection>(path).then(value=>{
       if(!active)return;
       setConnection(value);setEntryAddress(value.entryAddress??'');setCallbackUrl(value.callbackUrl??'');
     }).catch(()=>{if(active)setError('接入配置暂时无法读取，请重试。');}).finally(()=>{if(active)setLoading(false);});
-    return()=>{active=false;};
+    return()=>{active=false;generation.current++;};
   },[api,path,loadVersion]);
+  const close=()=>{generation.current++;setEntryKey('');setClaimedEntryKey('');setCallbackToken('');setCopyNotice('');onClose();};
   const requestAddress=callAddress(entryAddress),relativeAddress=requestAddress.startsWith('/');
   const fullUrl=relativeAddress?'https://<gateway-host>'+requestAddress:requestAddress;
   const copy=async(key:string,value:string)=>{
     if(copyLocks.current.has(key))return;
+    const started=generation.current;
     copyLocks.current.add(key);setCopying(current=>({...current,[key]:true}));
-    try{await navigator.clipboard.writeText(value);if(alive.current)setCopyNotice('已复制，请妥善保管。');}
-    catch{if(alive.current)setCopyNotice('复制失败，请在字段中选择并复制。');}
-    finally{copyLocks.current.delete(key);if(alive.current)setCopying(current=>({...current,[key]:false}));}
+    try{await navigator.clipboard.writeText(value);if(alive.current&&started===generation.current)setCopyNotice('已复制，请妥善保管。');}
+    catch{if(alive.current&&started===generation.current)setCopyNotice('复制失败，请在字段中选择并复制。');}
+    finally{if(alive.current&&started===generation.current){copyLocks.current.delete(key);setCopying(current=>({...current,[key]:false}));}}
   };
   const generate=(setValue:(value:string)=>void)=>{
     try{
@@ -51,8 +54,23 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
       setCopyNotice('新凭证仅在本次编辑中可见，请在保存前复制。');
     }catch{setError('浏览器无法生成安全随机值，请使用可信的密码生成器。');}
   };
+  const claim=async()=>{
+    if(claimLock.current||saveLock.current||!connection?.entryKeyClaimable||conflict||entryKey)return;
+    const started=generation.current;
+    claimLock.current=true;setClaiming(true);setError('');setCopyNotice('');
+    try{
+      const value=await api<{entryKey:string;connection:PluginConnection}>(path+'/entry-key/claim',{revision:connection.revision});
+      if(!alive.current||started!==generation.current)return;
+      setConnection(value.connection);setClaimedEntryKey(value.entryKey);onClaimed?.(value.connection);
+    }catch(caught){
+      if(!alive.current||started!==generation.current)return;
+      const changed=caught instanceof ApiError&&caught.message.includes('PLUGIN_CONNECTION_REVISION_CONFLICT');
+      setConflict(true);setError(changed?'接入配置已被修改，请重新读取后再保存。':'领取失败或响应丢失，密钥可能已被领取。请重新读取；如果未保存密钥且已无法领取，请生成并保存新的入口密钥。');
+    }finally{if(alive.current&&started===generation.current){claimLock.current=false;setClaiming(false);}}
+  };
   const save=async()=>{
-    if(saveLock.current||!connection)return;
+    if(saveLock.current||claimLock.current||conflict||!connection)return;
+    const started=generation.current;
     setError('');setConflict(false);
     if(!requestAddress){setError('入口地址须为本平台的完整 HTTP(S) 地址或 /hooks/ 路径。');return;}
     if((!connection.entryKeyConfigured||entryKey)&&entryKey.length<24){setError('入口密钥为必填项，至少需要 24 个字符。');return;}
@@ -67,24 +85,24 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
         ...(entryKey?{entryKey}:{}),
         ...(clearCallbackToken?{callbackToken:null}:callbackToken&&callbackUrl.trim()?{callbackToken}:{}),
       });
-      if(!alive.current)return;
-      setEntryKey('');setCallbackToken('');onSaved(value);
+      if(!alive.current||started!==generation.current)return;
+      setEntryKey('');setClaimedEntryKey('');setCallbackToken('');onSaved(value);
     }catch(caught){
-      if(!alive.current)return;
+      if(!alive.current||started!==generation.current)return;
       const changed=caught instanceof ApiError&&caught.message.includes('PLUGIN_CONNECTION_REVISION_CONFLICT');
       const duplicate=caught instanceof ApiError&&caught.message.includes('PLUGIN_CONNECTION_CONFLICT');
       setConflict(changed);setError(changed?'接入配置已被修改，请重新读取后再保存。':duplicate?'入口地址或密钥已被其他插件使用，请修改后重试。':'接入配置保存失败，请检查字段后重试。');
-    }finally{saveLock.current=false;if(alive.current)setSaving(false);}
+    }finally{if(alive.current&&started===generation.current){saveLock.current=false;setSaving(false);}}
   };
   const example=fullUrl?`curl -X POST '${fullUrl}' \\\n  -H 'Authorization: Bearer <${t('入口密钥')}>' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"request_id":"example-1","input":{}}'`:'';
-  const locked=loading||saving;
-  return <Modal className="plugin-connection-modal" title={t('配置接入：{name}',{name:plugin.name})} open width={760} onCancel={onClose} footer={[
-    <Button key="cancel" onClick={onClose}>{t('取消')}</Button>,
-    <Button key="save" type="primary" htmlType="submit" form="plugin-connection-form" disabled={!connection||loading||conflict} loading={saving}>{t('保存接入配置')}</Button>,
+  const locked=loading||saving||claiming;
+  return <Modal className="plugin-connection-modal" title={t('配置接入：{name}',{name:plugin.name})} open width={760} onCancel={close} footer={[
+    <Button key="cancel" onClick={close}>{t('取消')}</Button>,
+    <Button key="save" type="primary" htmlType="submit" form="plugin-connection-form" disabled={!connection||loading||claiming||conflict} loading={saving}>{t('保存接入配置')}</Button>,
   ]}>
-    <Typography.Paragraph>{t('Agent 负责业务逻辑；接入地址和凭证由管理员在此配置，请勿发送到管理对话。完成必填项后才能启用业务、提交任务、试运行或执行定时计划。')}</Typography.Paragraph>
+    <Typography.Paragraph>{t('Agent 可初始化缺失的入口密钥，但不会读取密钥；只有管理员可在此领取一次或修改凭证。接入地址与回调由管理员配置，请勿将凭证发送到管理对话。完成必填项后才能启用业务、提交任务、试运行或执行定时计划。')}</Typography.Paragraph>
     {loading&&<div role="status"><Spin/> {t('正在读取…')}</div>}
-    {error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
+    {error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
     {connection&&<Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}>
       <Form.Item label={t('入口地址')} htmlFor="plugin-entry-address" required>
         <Input id="plugin-entry-address" value={entryAddress} required maxLength={4096} autoComplete="off" disabled={locked} aria-describedby="plugin-entry-address-help" onChange={event=>setEntryAddress(event.target.value)}/>
@@ -92,6 +110,8 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
         {requestAddress&&<div className="connection-call-url"><Typography.Text strong>{t(relativeAddress?'调用地址 / 路径':'完整调用 URL')}</Typography.Text><Typography.Text code>{requestAddress}</Typography.Text><Button aria-label={t('复制调用地址')} disabled={locked} loading={copying.address} onClick={()=>{void copy('address',requestAddress);}}>{t('复制调用地址')}</Button></div>}
       </Form.Item>
       <Form.Item label={t('入口密钥')} htmlFor="plugin-entry-key" required>
+        {connection.entryKeyClaimable&&<><Typography.Paragraph className="connection-field-help">{t('Agent 已请求初始化入口密钥，只有管理员可在此领取一次。领取前不能用于调用；领取成功后立即生效，无需再次保存。也可手动生成并保存替换密钥，未领取的密钥将失效。')}</Typography.Paragraph><div className="connection-secret-actions"><Button aria-label={t('领取入口密钥')} loading={claiming} disabled={loading||saving||conflict||!!entryKey} onClick={()=>{void claim();}}>{t('领取入口密钥')}</Button></div></>}
+        {claimedEntryKey&&<><Typography.Paragraph type="warning">{t('领取的密钥仅在关闭此窗口前可见，请立即复制并保存在调用方的私密配置中。关闭后无法再次读取；如遗失，请生成并保存新的入口密钥；保存后旧密钥立即失效，请同步更新调用方。')}</Typography.Paragraph><Input.Password id="plugin-claimed-entry-key" aria-label={t('已领取的入口密钥')} value={claimedEntryKey} readOnly autoComplete="off"/><div className="connection-secret-actions"><Button aria-label={t('复制领取的入口密钥')} loading={copying.claimed} onClick={()=>{void copy('claimed',claimedEntryKey);}}>{t('复制领取的入口密钥')}</Button></div></>}
         <Input.Password id="plugin-entry-key" value={entryKey} autoComplete="new-password" required={!connection.entryKeyConfigured} minLength={24} maxLength={1024} disabled={locked} placeholder={t(connection.entryKeyConfigured?'已配置，留空保持原值':'尚未配置')} aria-describedby="plugin-entry-key-help" onChange={event=>setEntryKey(event.target.value)}/>
         <Typography.Paragraph id="plugin-entry-key-help" type="secondary" className="connection-field-help">{t('必填，至少 24 个字符。调用方通过 Authorization: Bearer 携带它；仅授权当前插件的提交、查询与产物下载。已保存密钥不能读取，留空保留原值。')}</Typography.Paragraph>
         <div className="connection-secret-actions"><Button disabled={locked} onClick={()=>generate(setEntryKey)}>{t('生成入口密钥')}</Button><Button aria-label={t('复制入口密钥')} disabled={locked||!entryKey} loading={copying.entry} onClick={()=>{void copy('entry',entryKey);}}>{t('复制入口密钥')}</Button></div>

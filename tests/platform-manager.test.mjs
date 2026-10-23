@@ -137,7 +137,10 @@ test('management changes model, prompt and tool timeout on its next turn in the 
     for(const rule of ['request_id','complete_task','reasoningEffort','定时计划','消息队列','默认业务并发为 5'])assert.ok(start.params.developerInstructions.includes(rule),rule);
     assert.match(start.params.developerInstructions,/平台接入规则/);
     assert.match(start.params.developerInstructions,/配置接入/);
-    assert.match(start.params.developerInstructions,/不得.*读取.*生成.*修改/);
+    assert.match(start.params.developerInstructions,/plugin_connection_initialize/);
+    assert.match(start.params.developerInstructions,/不允许读取、领取、指定、覆盖或重置已有密钥/);
+    assert.match(start.params.developerInstructions,/不得通过管理对话索要、读取或展示入口密钥/);
+    assert.match(start.params.developerInstructions,/领取前密钥不生效/);
   }
   assert.equal(next.params.config.mcp_servers.agent_task.tool_timeout_sec,4);
   assert.equal(calls.filter(call=>call.method==='thread/start').length,1);

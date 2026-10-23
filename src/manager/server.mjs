@@ -52,6 +52,8 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         return res.end(Buffer.from(image.bytes));
       }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
+      const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);
+      if(req.method==='POST'&&pluginKeyClaim)return json(res,200,await operations.claimPluginEntryKey(decodeURIComponent(pluginKeyClaim[1]),await readJson(req)));
       const pluginIntegration=path.match(/^\/admin\/api\/plugins\/([^/]+)\/integration$/);
       if(req.method==='GET'&&pluginIntegration){
         const type=decodeURIComponent(pluginIntegration[1]);

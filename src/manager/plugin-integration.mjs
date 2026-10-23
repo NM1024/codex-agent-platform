@@ -26,7 +26,7 @@ export function buildPluginIntegration(definition,connection,{locale='zh-CN'}={}
     '',code(json(schemaDoc.schema)),
   ].join('\n');
   const curl=(url,body)=>`curl --request POST ${shell(url)} \\\n  --header "Authorization: Bearer \${PLUGIN_ENTRY_KEY}" \\\n  --header 'Content-Type: application/json' \\\n  --data-raw ${shell(json(body))}`;
-  const exampleNote=text('以下仅为合成示例，不会自动执行。实际调用会创建任务并消耗账户额度。用配置接入中人工保存的入口密钥设置 PLUGIN_ENTRY_KEY；请勿把密钥发给管理 Agent。','These are synthetic examples and are never executed automatically. A real call creates work and uses account allowance. Set PLUGIN_ENTRY_KEY to the human-configured entry key; do not send credentials to the management Agent.');
+  const exampleNote=text('以下仅为合成示例，不会自动执行。实际调用会创建任务并消耗账户额度。用配置接入中由管理员领取或保存的入口密钥设置 PLUGIN_ENTRY_KEY；请勿把密钥发给管理 Agent。','These are synthetic examples and are never executed automatically. A real call creates work and uses account allowance. Set PLUGIN_ENTRY_KEY to the entry key claimed or saved by an administrator; do not send credentials to the management Agent.');
   const unavailable=text('无法自动生成符合完整 Schema 的示例，请按 Schema 手动构造，或通过管理 Agent 补充可校验的 examples。','A schema-valid example is unavailable; construct it from the complete schema or ask the management Agent to supply valid examples.');
   const sections=[
     {key:'overview',title:text('对接概览','Overview'),markdown:[

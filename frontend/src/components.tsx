@@ -35,15 +35,17 @@ export function CatalogNote(){const {catalog,t}=useConsole();return catalog.unav
 export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact=false,disabled=false}:{id:string;value:AgentSettings;onChange:(value:AgentSettings)=>void;defaults?:AgentSettings;inherit?:boolean;compact?:boolean;disabled?:boolean}) {
   const {catalog,t}=useConsole(),chosen=value.model??defaults.model,model=catalog.models.find(item=>item.model===chosen);
   const inheritedModel=catalog.models.find(item=>item.model===defaults.model);
+  const differentModel=!!value.model&&value.model!==defaults.model;
+  const inheritedEffort=(!differentModel?defaults.reasoningEffort:undefined)??model?.defaultReasoningEffort??t('模型默认');
   const modelOptions=catalog.models.map(item=>({value:item.model,label:item.displayName}));
   if(inherit)modelOptions.unshift({value:'',label:compact?t('默认：{value}',{value:inheritedModel?.displayName??defaults.model??t('模型默认')}):t('继承全局设置')});
   if(value.model&&!modelOptions.some(item=>item.value===value.model))modelOptions.push({value:value.model,label:t('当前保存值：{value}',{value:value.model})});
-  const effortOptions=[...(inherit?[{value:'__inherit__',label:t(value.model&&value.model!==defaults.model?'所选模型默认':'继承全局设置')}]:[]),{value:'',label:t('模型默认')},...(model?.supportedReasoningEfforts??[]).map(item=>({value:item.reasoningEffort,label:item.reasoningEffort}))];
+  const effortOptions=[...(inherit?[{value:'__inherit__',label:t(differentModel?'所选模型默认：{value}':'继承全局设置：{value}',{value:inheritedEffort})}]:[]),{value:'',label:t('模型默认')},...(model?.supportedReasoningEfforts??[]).map(item=>({value:item.reasoningEffort,label:item.reasoningEffort}))];
   const effort=Object.hasOwn(value,'reasoningEffort')?(value.reasoningEffort??''):inherit?'__inherit__':'';
   if(effort&&!effortOptions.some(item=>item.value===effort))effortOptions.push({value:effort,label:t('当前保存值：{value}',{value:effort})});
   return <div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
     <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange({...(!inherit?{model}:model?{model}:{}),...(!inherit?{reasoningEffort:null}:{})})}/></Form.Item>
-    <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=>value==='__inherit__'?t('自动'):label:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
+    <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=>value==='__inherit__'?t('默认：{value}',{value:inheritedEffort}):label:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
   </div>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {

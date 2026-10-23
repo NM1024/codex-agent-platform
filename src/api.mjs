@@ -116,6 +116,8 @@ export function createPrivateApi({
     if (path === "/mcp") return mcp(req, res);
     try {
       requireAuth(req, config.runnerToken);
+      const keyClaim=path.match(/^\/internal\/plugin-connections\/([^/]+)\/entry-key\/claim$/);
+      if(keyClaim&&req.method==='POST'&&store.pluginConnections)return json(res,200,store.pluginConnections.claimEntryKey(decodeURIComponent(keyClaim[1]),await readJson(req)));
       const connection=path.match(/^\/internal\/plugin-connections\/([^/]+)$/);
       if(connection&&(req.method==='GET'||req.method==='POST')&&store.pluginConnections){
         const type=decodeURIComponent(connection[1]);

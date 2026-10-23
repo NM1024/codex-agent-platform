@@ -10,6 +10,7 @@ export function createManagerOperations({client,store,metrics,configuration,auth
     artifact:(...args)=>client.artifact(...args),
     // Browser-only transport: deliberately absent from execute/tool contracts.
     pluginConnection:(...args)=>client.pluginConnection(...args),
+    claimPluginEntryKey:(...args)=>client.claimPluginEntryKey(...args),
     async execute(action,args={}) {
       const check=checks.get(action);
       if(!check||!check(args))throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','管理操作或参数不正确。');

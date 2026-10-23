@@ -43,6 +43,8 @@ test('configuration labels and inputs share a row in desktop and phone layouts',
     const field=page.locator('#plugin-entry-address');await expect(field).toBeVisible();
     // Clicking waits for the modal to finish moving and proves the field is usable.
     await field.click();
+    // Finish dialog zoom before measuring the settled layout across rapid reopenings.
+    await page.getByRole('dialog').screenshot({animations:'disabled'});
     const {box,caption}=await field.evaluate(element=>({box:element.getBoundingClientRect().toJSON(),caption:document.querySelector('label[for="plugin-entry-address"]').getBoundingClientRect().toJSON()}));
     expect(Math.abs(box.y-caption.y)).toBeLessThan(8);expect(box.x).toBeGreaterThan(caption.x+caption.width);
     expect(box.width).toBeGreaterThan(100);expect(box.x+box.width).toBeLessThanOrEqual(viewport.width-8);
@@ -356,7 +358,7 @@ test('production React console loads local Ant Design assets without CSP errors'
   await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
   await page.screenshot({path:'.tmp/react-admin/screenshots/settings-desktop.png',fullPage:true,animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
-  await navigate(page,'plugins');await expect(page.getByText('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。接入地址和凭证请点击「配置接入」由管理员填写，勿发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。',{exact:true})).toBeVisible();
+  await navigate(page,'plugins');await expect(page.getByText('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。Agent 可初始化缺失的入口密钥；请点击「配置接入」由管理员领取一次、修改凭证或设置回调，勿将凭证发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。',{exact:true})).toBeVisible();
   await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
   await page.screenshot({path:'.tmp/react-admin/screenshots/plugins-mobile.png',fullPage:true,animations:'disabled'});
   expect(errors,JSON.stringify(await page.locator('style').evaluateAll(nodes=>nodes.filter(node=>!node.nonce).map(node=>node.textContent?.slice(0,500))))).toEqual([]);

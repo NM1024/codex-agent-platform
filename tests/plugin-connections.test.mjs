@@ -24,7 +24,7 @@ const tempRoot=()=>{const root=process.platform==='win32'?'.tmp/plugin-connectio
 test('unconfigured plugins cannot be enabled or admitted through any direct store caller',t=>{
   const {store,connections}=setup(t);
   assert.equal(store.plugins.get(body.type).enabled,false);
-  assert.deepEqual(connections.status(body.type),{ready:false,entryPath:'/hooks/story/generate',callbackConfigured:false,missingFields:['entryKey']});
+  assert.deepEqual(connections.status(body.type),{ready:false,entryAddress:'/hooks/story/generate',entryPath:'/hooks/story/generate',entryKeyClaimable:false,callbackConfigured:false,missingFields:['entryKey']});
   assert.throws(()=>store.plugins.setEnabled(body.type,true),{code:'PLUGIN_CONNECTION_NOT_READY'});
   assert.throws(()=>store.accept('trial',body),{code:'PLUGIN_CONNECTION_NOT_READY'});
   assert.equal(store.plugins.save(definition()).enabled,false);

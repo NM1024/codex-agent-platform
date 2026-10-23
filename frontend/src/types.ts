@@ -5,8 +5,8 @@ export interface Model {model:string;displayName:string;defaultReasoningEffort?:
 export interface Catalog {models:Model[];unavailable?:boolean}
 export interface Schema {type?:string|string[];title?:string;writeOnly?:boolean;minLength?:number;minimum?:number;maximum?:number;properties?:Record<string,Schema>}
 export interface ConfigGroup {scope:string;title:string;description:string;schema:Schema;values:Values;configured_secrets:string[];revision:number;updated_at:number;error?:{message:string}}
-export interface PluginConnectionStatus {ready:boolean;entryPath:string|null;callbackConfigured:boolean;missingFields:string[]}
-export interface PluginConnection {type:string;entryAddress:string|null;entryPath:string|null;entryKeyConfigured:boolean;callbackUrl:string|null;callbackTokenConfigured:boolean;ready:boolean;missingFields:string[];revision:number}
+export interface PluginConnectionStatus {ready:boolean;entryPath:string|null;entryAddress?:string|null;entryKeyClaimable?:boolean;callbackConfigured:boolean;missingFields:string[]}
+export interface PluginConnection {type:string;entryAddress:string|null;entryPath:string|null;entryKeyConfigured:boolean;entryKeyClaimable?:boolean;callbackUrl:string|null;callbackTokenConfigured:boolean;ready:boolean;missingFields:string[];revision:number}
 export interface Plugin {type:string;name:string;description?:string;instructions:string;enabled?:boolean;connection?:PluginConnectionStatus;execution?:AgentSettings;input_schema:Json;result_schema:Json;capabilities:Json;delivery:Json;resources?:string[];revision?:number;updated_at?:number}
 export interface PluginList {configured:Plugin[];builtin?:{type:string;version:string}[];invalid?:Json[]}
 export interface PluginIntegration {type:string;name:string;revision?:number;connectionRevision?:number;locale:'en'|'zh-CN';generated_at:number;ready:boolean;sections:{key:string;title:string;markdown:string}[];markdown:string}

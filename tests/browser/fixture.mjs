@@ -130,8 +130,9 @@ const settings = createManagerConfiguration({ store, agent, auth }),
     }),
   };
 const operations = createManagerOperations({
-  models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
+  models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'medium'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
+    claimPluginEntryKey(type,body){return business.pluginConnections.claimEntryKey(type,body);},
     pluginConnection(type,patch){return patch===undefined?business.pluginConnections.get(type):business.pluginConnections.update(type,patch);},
     execute: (...args) => platform.execute(...args),
     async artifact(taskId, id) {

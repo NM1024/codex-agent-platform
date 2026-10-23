@@ -158,7 +158,7 @@ This step starts real model work and uses your account's allowance. Start with o
 
 ### 1. Submit
 
-In Admin, open **Business plugins → content.review → Configure connection**. Keep the generated `/hooks/content/review` entry path or enter your public HTTP(S) URL with a `/hooks/...` path. Generate an entry key and copy it to your application's private configuration before saving: the platform will not display the saved key again. Save the connection, then enable the plugin separately. Missing entry configuration blocks API submissions, trials and schedules; the management Agent cannot configure these fields for you.
+In Admin, open **Business plugins → content.review → Configure connection**. Keep the generated `/hooks/content/review` entry path or enter your public HTTP(S) URL with a `/hooks/...` path. Generate an entry key and copy it to your application's private configuration before saving: the platform will not display the saved key again. Save the connection, then enable the plugin separately. Alternatively, ask the management Agent to initialize missing entry credentials with plugin_connection_initialize, then use Claim entry key in the same modal and copy it once. The Agent sees the entry address and status but never the key. Unclaimed keys cannot authenticate or enable the plugin; existing keys are never rotated by initialization. Missing entry configuration blocks API submissions, trials and schedules.
 
 Run this in Bash **on the server** and paste that plugin's key at the hidden prompt:
 
@@ -248,7 +248,7 @@ Business plugin `instructions` stay in plugin configuration. Users and the manag
 
 Use **Business plugins → Integration docs** for a plugin's request fields, result schema, asynchronous task protocol, polling/artifact APIs, callback contract and examples. The document follows saved configuration, supports copy/Markdown download, and excludes connection credentials. Ask the management Agent to add field `description` and valid `examples` annotations when business meaning is missing.
 
-Versioned project operating rules and the human-only plugin connection policy are appended to every management start/resume, including existing customized conversations. They cover task lifecycle, capabilities, model inheritance, schedules and deployment boundaries. The Agent queries tools for current settings and schemas; it does not automatically read the repository README. Update these fixed rules alongside later platform behavior changes.
+Versioned project operating rules and the plugin connection credential policy are appended to every management start/resume, including existing customized conversations. They cover task lifecycle, capabilities, model inheritance, schedules and deployment boundaries. The Agent queries tools for current settings and schemas; it does not automatically read the repository README. Update these fixed rules alongside later platform behavior changes.
 
 ## Security risks and recommendations
 
