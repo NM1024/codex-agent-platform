@@ -102,8 +102,8 @@ const agent = {
   model: "gpt-6.1-sol",
   timeoutMs: 2400000,
   toolTimeoutMs: 180000,
-  enqueue(id, text) {
-    const m = store.enqueue(id, text);
+  enqueue(id, text, attachments = []) {
+    const m = store.enqueue(id, text, attachments);
     store.markRunning(m.id);
     store.finish(
       m,

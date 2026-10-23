@@ -11,9 +11,12 @@ export interface Plugin {type:string;name:string;description?:string;instruction
 export interface PluginList {configured:Plugin[];builtin?:{type:string;version:string}[];invalid?:Json[]}
 export interface Task {task_id:string;type:string;status:string;request_id?:string;error?:{code:string;message?:string};created_at:number;updated_at:number;input?:Json;artifacts?:Artifact[]}
 export interface Artifact {artifact_id:string;filename?:string;mime?:string}
-export interface Message {id:string;role:string;text:string;status:string;created_at:number;error?:{code:string};execution?:AgentSettings}
-export interface Action {id:string;name:string;status:string;target?:string;error?:{code:string}}
-export interface Conversation {id:string;title:string;execution:AgentSettings;messages?:Message[];actions?:Action[]}
+export interface ChatImage {id:string;name:string;dataUrl:string;size:number;width:number;height:number}
+export interface MessageImage {id:string;name:string;mime:string;width:number;height:number;size:number;url:string}
+export interface MessageActivity {id:string;kind:'reasoning_summary'|'assistant_message'|'tool'|'status';label:string;text:string;status:string;created_at:number;updated_at:number}
+export interface Message {id:string;role:string;text:string;status:string;created_at:number;updated_at?:number|null;started_at?:number|null;completed_at?:number|null;reply_to?:string|null;attachments?:MessageImage[];activity?:MessageActivity[];error?:{code:string};execution?:AgentSettings}
+export interface Action {id:string;name:string;status:string;target?:string;message_id?:string|null;error?:{code:string}}
+export interface Conversation {id:string;title:string;execution:AgentSettings;messages?:Message[];actions?:Action[];queued_count?:number;running_count?:number}
 export interface Schedule {id?:string;name:string;kind:'task'|'inspection';cron:string;timezone:string;enabled:boolean;type?:string;input?:Json;message?:string;next_run_at?:number;blocked_reason?:string}
 export interface Resources {sampled_at?:number;host?:{available?:boolean;cpu_percent?:number|null;memory_used_bytes?:number;memory_total_bytes?:number};container?:{memory_used_bytes?:number};disk?:{available_bytes?:number}}
 export interface Overview {sampled_at:number;resources:Resources;investigations?:{task_id:string}[];platform:{unavailable?:boolean;error?:{message:string};runner?:{ready:boolean;reason?:string};tasks?:Record<string,number>;runtime?:{paused:boolean;concurrency:number};recent_errors?:Task[]}}

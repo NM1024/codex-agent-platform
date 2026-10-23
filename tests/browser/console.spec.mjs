@@ -624,7 +624,7 @@ for(const timezoneId of ['America/New_York','Asia/Tokyo'])test(`chat timestamps 
     await page.route('**/admin/api/conversations',route=>route.fulfill({json:[conversation]}));
     await page.route('**/admin/api/conversations/timestamp-test',route=>route.fulfill({json:{...conversation,title}}));
     await navigate(page,'chat');
-    const times=page.locator('#messages time');await expect(times).toHaveCount(2);
+    const times=page.locator('#messages .message-label time');await expect(times).toHaveCount(2);
     for(let index=0;index<2;index++) {
       const date=stamp+index*60000;
       const expected=await page.evaluate(value=>new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium'}).format(new Date(value)),date);

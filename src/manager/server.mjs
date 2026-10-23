@@ -6,6 +6,7 @@ import { HttpError } from '../errors.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {staticEncoding} from './static-encoding.mjs';
+import {validateChatImages} from './chat-images.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
@@ -39,6 +40,12 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
       if(req.method==='POST'&&path==='/admin/api/logout'){auth.logout(req);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{logged_out:true});}
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}
+      const chatImage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/images\/([a-f0-9-]{36})$/);
+      if(req.method==='GET'&&chatImage) {
+        const image=store.getImage(chatImage[1],chatImage[2]);
+        res.writeHead(200,{'content-type':image.mime,'content-length':image.size,'cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",'referrer-policy':'no-referrer'});
+        return res.end(Buffer.from(image.bytes));
+      }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       if(pluginConnection&&(req.method==='GET'||req.method==='POST')) {
         const type=decodeURIComponent(pluginConnection[1]);
@@ -65,7 +72,7 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(conversation) {
         if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversation(conversation[1]));
         if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
-        if(req.method==='POST'&&conversation[2]) {const body=await readJson(req);return json(res,202,agent.enqueue(conversation[1],body.text));}
+        if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images));}
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {
         const body=await readJson(req);if(!managementTools.some(tool=>tool.name===body.action))throw new HttpError(400,'UNKNOWN_OPERATION','未知管理操作。');

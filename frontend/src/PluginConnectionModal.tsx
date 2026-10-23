@@ -21,6 +21,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
   const [callbackUrl,setCallbackUrl]=useState(''),[callbackToken,setCallbackToken]=useState(''),[clearCallbackToken,setClearCallbackToken]=useState(false);
   const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[loadVersion,setLoadVersion]=useState(0);
   const [error,setError]=useState(''),[conflict,setConflict]=useState(false),[copyNotice,setCopyNotice]=useState('');
+  const [copying,setCopying]=useState<Record<string,boolean>>({}),copyLocks=useRef(new Set<string>());
   const alive=useRef(true),saveLock=useRef(false);
   const path='/plugins/'+encodeURIComponent(plugin.type)+'/connection';
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -36,9 +37,12 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
   },[api,path,loadVersion]);
   const requestAddress=callAddress(entryAddress),relativeAddress=requestAddress.startsWith('/');
   const fullUrl=relativeAddress?'https://<gateway-host>'+requestAddress:requestAddress;
-  const copy=async(value:string)=>{
+  const copy=async(key:string,value:string)=>{
+    if(copyLocks.current.has(key))return;
+    copyLocks.current.add(key);setCopying(current=>({...current,[key]:true}));
     try{await navigator.clipboard.writeText(value);if(alive.current)setCopyNotice('已复制，请妥善保管。');}
     catch{if(alive.current)setCopyNotice('复制失败，请在字段中选择并复制。');}
+    finally{copyLocks.current.delete(key);if(alive.current)setCopying(current=>({...current,[key]:false}));}
   };
   const generate=(setValue:(value:string)=>void)=>{
     try{
@@ -85,12 +89,12 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
       <Form.Item label={t('入口地址')} htmlFor="plugin-entry-address" required>
         <Input id="plugin-entry-address" value={entryAddress} required maxLength={4096} autoComplete="off" disabled={locked} aria-describedby="plugin-entry-address-help" onChange={event=>setEntryAddress(event.target.value)}/>
         <Typography.Paragraph id="plugin-entry-address-help" type="secondary" className="connection-field-help">{t('必填。业务系统调用本平台的地址；默认路径已生成，可填写完整 HTTP(S) 公网 URL 或 /hooks/ 路径。域名和反向代理须已将该路径转发到本平台，填写地址不会创建域名或代理。')}{relativeAddress&&' '+t('相对路径的示例请将 <gateway-host> 替换为 Gateway 对外提供服务的域名和端口，并按部署选择 HTTP 或 HTTPS。Admin 端口不是业务入口。')}</Typography.Paragraph>
-        {requestAddress&&<div className="connection-call-url"><Typography.Text strong>{t(relativeAddress?'调用地址 / 路径':'完整调用 URL')}</Typography.Text><Typography.Text code>{requestAddress}</Typography.Text><Button disabled={locked} onClick={()=>{void copy(requestAddress);}}>{t('复制调用地址')}</Button></div>}
+        {requestAddress&&<div className="connection-call-url"><Typography.Text strong>{t(relativeAddress?'调用地址 / 路径':'完整调用 URL')}</Typography.Text><Typography.Text code>{requestAddress}</Typography.Text><Button aria-label={t('复制调用地址')} disabled={locked} loading={copying.address} onClick={()=>{void copy('address',requestAddress);}}>{t('复制调用地址')}</Button></div>}
       </Form.Item>
       <Form.Item label={t('入口密钥')} htmlFor="plugin-entry-key" required>
         <Input.Password id="plugin-entry-key" value={entryKey} autoComplete="new-password" required={!connection.entryKeyConfigured} minLength={24} maxLength={1024} disabled={locked} placeholder={t(connection.entryKeyConfigured?'已配置，留空保持原值':'尚未配置')} aria-describedby="plugin-entry-key-help" onChange={event=>setEntryKey(event.target.value)}/>
         <Typography.Paragraph id="plugin-entry-key-help" type="secondary" className="connection-field-help">{t('必填，至少 24 个字符。调用方通过 Authorization: Bearer 携带它；仅授权当前插件的提交、查询与产物下载。已保存密钥不能读取，留空保留原值。')}</Typography.Paragraph>
-        <div className="connection-secret-actions"><Button disabled={locked} onClick={()=>generate(setEntryKey)}>{t('生成入口密钥')}</Button><Button disabled={locked||!entryKey} onClick={()=>{void copy(entryKey);}}>{t('复制入口密钥')}</Button></div>
+        <div className="connection-secret-actions"><Button disabled={locked} onClick={()=>generate(setEntryKey)}>{t('生成入口密钥')}</Button><Button aria-label={t('复制入口密钥')} disabled={locked||!entryKey} loading={copying.entry} onClick={()=>{void copy('entry',entryKey);}}>{t('复制入口密钥')}</Button></div>
       </Form.Item>
       <Form.Item label={t('回调 URL')} htmlFor="plugin-callback-url">
         <Input id="plugin-callback-url" value={callbackUrl} maxLength={4096} autoComplete="off" disabled={locked} aria-describedby="plugin-callback-url-help" placeholder="https://example.com/callback" onChange={event=>setCallbackUrl(event.target.value)}/>
@@ -99,7 +103,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
       <Form.Item label={t('回调凭证')} htmlFor="plugin-callback-token">
         <Input.Password id="plugin-callback-token" value={callbackToken} autoComplete="new-password" maxLength={1024} disabled={locked||clearCallbackToken} aria-describedby="plugin-callback-token-help" placeholder={t(connection.callbackTokenConfigured?'已配置，留空保持原值':'尚未配置')} onChange={event=>setCallbackToken(event.target.value)}/>
         <Typography.Paragraph id="plugin-callback-token-help" type="secondary" className="connection-field-help">{t('选填，按接收方要求填写。回调请求使用 Authorization: Bearer 携带此凭证；它与入口密钥独立。留空保留已保存值，未配置则不发送认证头。')}</Typography.Paragraph>
-        <div className="connection-secret-actions"><Button disabled={locked||clearCallbackToken} onClick={()=>generate(setCallbackToken)}>{t('生成回调凭证')}</Button><Button disabled={locked||!callbackToken||clearCallbackToken} onClick={()=>{void copy(callbackToken);}}>{t('复制回调凭证')}</Button></div>
+        <div className="connection-secret-actions"><Button disabled={locked||clearCallbackToken} onClick={()=>generate(setCallbackToken)}>{t('生成回调凭证')}</Button><Button aria-label={t('复制回调凭证')} disabled={locked||!callbackToken||clearCallbackToken} loading={copying.callback} onClick={()=>{void copy('callback',callbackToken);}}>{t('复制回调凭证')}</Button></div>
         {connection.callbackTokenConfigured&&<Checkbox checked={clearCallbackToken} disabled={locked} onChange={event=>{setClearCallbackToken(event.target.checked);setCallbackToken('');}}>{t('清除已保存回调凭证')}</Checkbox>}
       </Form.Item>
       {copyNotice&&<Typography.Paragraph role="status">{t(copyNotice)}</Typography.Paragraph>}

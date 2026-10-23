@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Card,Form,Select,Switch,Tag,Typography} from 'antd';
+import {Alert,Button,Card,Form,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
 import {useConsole} from './context';
 import type {AgentSettings} from './types';
 export const pretty=(value:unknown)=>JSON.stringify(value,null,2);
@@ -7,6 +7,15 @@ export const time=(value?:number|string)=>value?new Intl.DateTimeFormat('zh-CN',
 export const bytes=(value?:number)=>value===undefined?'—':value>=1073741824?(value/1073741824).toFixed(1)+' GB':(value/1048576).toFixed(1)+' MB';
 const labels:Record<string,string>={queued:'排队中',dispatching:'启动中',running:'运行中',completing:'提交中',suspended:'等待恢复',completed:'执行完成',failed:'执行失败',accepted:'接口已接收',unknown:'结果未知',not_required:'无需交付',pending:'等待交付',interrupted:'等待继续',executing:'操作中'};
 export const taskStatuses=['queued','dispatching','running','completing','suspended','completed','failed'];
+export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loading'>&{onClick:()=>Promise<unknown>}) {
+  const locked=useRef(false),[busy,setBusy]=useState(false),{act}=useConsole();
+  return <Button {...props} loading={busy} aria-busy={busy} onClick={()=>{
+    if(locked.current)return;
+    locked.current=true;setBusy(true);
+    void act(onClick).finally(()=>{locked.current=false;setBusy(false);});
+  }}/>;
+}
+export function DataLoading(){const {t}=useConsole();return <div className="page-loading" role="status"><Spin/> {t('正在加载数据…')}</div>;}
 export function Status({value}:{value:string}){const {t}=useConsole();return <Tag color={['failed','unknown','未就绪'].includes(value)?'error':['completed','accepted','已就绪','已启用','程序可用'].includes(value)?'success':'default'}>{t(labels[value]??value)}</Tag>;}
 export function Panel({title,children,extra}:{title:string;children:ReactNode;extra?:ReactNode}){return <Card className="console-panel" title={<Typography.Title level={2}>{title}</Typography.Title>} extra={extra}>{children}</Card>;}
 export function AgentGuidance({title,description}:{title:string;description:string}) {
@@ -38,7 +47,7 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   </div>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {
-  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t}=useConsole();
-  useEffect(()=>{let active=true;setLoading(true);void load().then(value=>{if(active)setData(value);}).catch(error=>{if(active)notify(t(error.message));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
+  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t,registerPageLoad}=useConsole();
+  useEffect(()=>{let active=true;setLoading(true);void registerPageLoad(load()).then(value=>{if(active)setData(value);}).catch(error=>{if(active)notify(t(error.message));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
   return {data,setData,loading};
 }

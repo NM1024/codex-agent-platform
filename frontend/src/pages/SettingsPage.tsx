@@ -1,6 +1,6 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useRef, useState} from 'react';
 import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Spin, Tabs, Typography} from 'antd';
-import {AgentPicker, CatalogNote, JsonView, Panel} from '../components';
+import {AgentPicker, CatalogNote, JsonView, Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
 
@@ -24,7 +24,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   const [drafts, setDrafts] = useState<Record<string, FieldDraft>>({});
   const [clears, setClears] = useState<Record<string, boolean>>({});
   const [agent, setAgent] = useState<AgentSettings>();
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false),saveLock=useRef(false);
   const properties = group.schema.properties ?? {};
   const simpleFields=Object.entries(properties).filter(([key,schema])=>!complex(key,schema));
   const complexFields=Object.entries(properties).filter(([key,schema])=>complex(key,schema));
@@ -34,7 +34,8 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   };
   const update = (key:string, value:FieldDraft) => setDrafts(current => ({...current, [key]:value}));
   const save = async () => {
-    setSaving(true);
+    if(saveLock.current)return;
+    saveLock.current=true;setSaving(true);
     await act(async () => {
       const patch: Values = {};
       if (agent) {
@@ -60,7 +61,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       setDrafts({}); setClears({}); setAgent(undefined);
       notify(t(result.synchronization?.runner === 'pending' ? '已保存，Runner 暂时不可用，恢复后自动同步。' : '已保存，配置按本组说明生效。'));
     });
-    setSaving(false);
+    setSaving(false);saveLock.current=false;
   };
 
   return <Panel title={t(group.title)}>
@@ -98,13 +99,13 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
 
 export default function SettingsPage() {
   const {api, operation, act, notify, t, refresh, setAuthenticated, setChatId} = useConsole();
-  const [data, setData] = useState<ConfigurationList>();
+  const {data,setData,loading}=useLoad(()=>operation<ConfigurationList>('configuration_list'),[operation,refresh]);
   const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''),[currentPassword,setCurrentPassword]=useState('');
   const [tab,setTab]=useState('manager');
   const [savingPassword, setSavingPassword] = useState(false);
   const passwordLock=useRef(false);
   const reload = useCallback(async () => {setData(await operation<ConfigurationList>('configuration_list'));}, [operation]);
-  useEffect(() => {let active=true; void operation<ConfigurationList>('configuration_list').then(value => {if(active)setData(value);}).catch(error => {if(active)notify(t(error instanceof Error ? error.message : String(error)));}); return () => {active=false;};}, [operation, refresh]);
+
   const changePassword = async () => {
     if(passwordLock.current)return;
     passwordLock.current=true;
@@ -139,7 +140,7 @@ export default function SettingsPage() {
   ];
   return <section className="settings-page">
     <Typography.Paragraph type="secondary">{t('按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。')}</Typography.Paragraph>
-    {!data&&<div role="status"><Spin/> {t('正在读取…')}</div>}
+    {loading&&<div role="status"><Spin/> {t('正在读取…')}</div>}
     {data?.gateway_unavailable&&<Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
     {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} items={items}/>}
   </section>;

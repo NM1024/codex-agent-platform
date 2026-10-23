@@ -55,6 +55,10 @@ Admin uses its own password hash and expiring hashed cookie sessions. Every remo
 
 The Admin shell bounds scrolling to each workspace. Chat has a desktop conversation sidebar/mobile drawer, separate user and Agent bubbles, a scrolling transcript and a persistent composer with compact model/effort controls. Existing conversation selections save automatically in request order; new conversations apply selections when sending. Configuration categories use separate tabs with retained drafts; password changes live in the security tab.
 
+Management messages remain a durable FIFO within each conversation. Each user message owns its execution timestamps, activity records and eventual reply; queued messages wait for the preceding turn. Public reasoning summaries, assistant output and tool lifecycle metadata are projected from the pinned Codex protocol and exposed through authenticated conversation polling. Raw reasoning, tool arguments and tool results are excluded from this activity projection. A collapsed timeline complements explicit queued/running/recovering/completed/failed states; absence of new activity does not imply completion.
+
+Chat image attachments are private Manager data. The frontend rasterizes supported images, bounds dimensions and compresses them before sending within the existing 1 MiB HTTP envelope. Backend validation independently checks decoded image format, dimensions and size. Conversation responses contain attachment metadata and authenticated preview URLs; they do not repeatedly embed image data. The Agent's initial turn receives the stored images together with the message text. Attachment ownership follows the conversation, persists across queued/recovered messages and does not add another model turn.
+
 `callback_once` records the attempt before sending. A transport failure can leave delivery `unknown`; the platform does not promise exactly-once remote effects or automatically replay an ambiguous callback. An HTTP acceptance response does not prove downstream storage succeeded.
 
 ## Platform prompts

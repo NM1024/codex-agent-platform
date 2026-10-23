@@ -216,6 +216,10 @@ The Agent can configure existing capabilities; it cannot implement a missing too
 
 **Schedules** displays plans, their time zones, next-run times and details, with direct enable/disable switches. Ask the management Agent to create or edit plans; specify the task or inspection, frequency and time zone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
 
+Management chat shows each message's queued, running, recovering and terminal state. Messages in one conversation execute in order; additional messages can queue while a turn is active. Collapsed activity records show available public reasoning summaries, Agent progress and tool lifecycle status. Missing upstream summaries are not replaced with invented reasoning. Replies can be copied as Markdown, and fenced code has its own copy control.
+
+Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into chat. Preview or remove them before sending. Each message supports up to four images; the browser compresses each to at most 160 KiB and a 2048px longest edge to fit the default 1 MiB request limit. Source images above 20 MiB or 40 million pixels must be resized first. Images persist privately with the Manager message and are sent as model input for that turn; upload only data you are authorized to process.
+
 ## Daily operation
 
 - **Start small.** Default task concurrency is `1`. Increase gradually after measuring task duration, account limits and disk use. A request containing several items still has one root conversation; the Agent can use permitted internal collaboration.

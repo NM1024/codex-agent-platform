@@ -132,6 +132,40 @@ button, input, textarea { font: inherit; }
 .actions .ant-collapse .ant-collapse-header { padding: 4px 0; color: #708076; font-size: 12px; }
 .actions .ant-collapse-body { max-height: 120px; overflow: auto; }
 .chat-action { padding: 3px 0; overflow-wrap: anywhere; }
+.chat-loading { display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 160px; color: #738078; }
+.chat-load-error { max-width: 800px; margin: 20px auto; }
+.conversation-pending { display: block; font-size: 10px; color: #5d7465; font-weight: 400; margin-top: 3px; }
+.chat-pending { display: flex; align-items: baseline; gap: 8px 16px; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: #f4f7f5; color: #617468; font-size: 11px; min-width: 0; }
+.chat-pending > span { flex-shrink: 0; }
+.chat-pending ol { min-width: 0; max-height: 54px; overflow: auto; margin: 0; padding-left: 20px; }
+.chat-pending li { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.message-progress { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px 10px; margin: 7px 0; color: #738078; font-size: 10px; }
+.message-progress[data-status="failed"] > span:first-child { color: #b42318; }
+.message-progress[data-status="running"] > span:first-child, .message-progress[data-status="recovering"] > span:first-child { color: #345e4f; font-weight: 600; }
+.message-activity { margin-top: 8px; text-align: left; color: #617468; font-size: 12px; }
+.message-activity summary { cursor: pointer; padding: 6px 0; }
+.message-activity ol { list-style: none; padding: 0 0 0 12px; margin: 4px 0; border-left: 2px solid #e1e9e3; max-height: 300px; overflow: auto; }
+.message-activity li { padding: 6px 0; }
+.message-activity li div { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.message-activity time { font-size: 10px; }
+.message-activity p { white-space: pre-wrap; margin: 5px 0; }
+.message-partial { margin-top: 10px; padding: 10px 12px; background: #f7f9f8; border: 1px solid #e5ebe7; border-radius: 8px; font-size: 13px; }
+.partial-label { display: block; color: #738078; font-size: 10px; margin-bottom: 4px; }
+.chat-image-drafts, .message-images { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
+.chat-image-drafts figure { width: 88px; margin: 0; padding: 5px; border: 1px solid #e0e8e2; border-radius: 8px; text-align: center; }
+.chat-image-drafts img { width: 76px; height: 60px; object-fit: contain; border-radius: 4px; }
+.chat-image-drafts figcaption { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; color: #738078; }
+.chat-image-drafts .ant-btn { font-size: 10px; height: 22px; margin-top: 3px; }
+.message-images a { display: block; max-width: 100%; }
+.message-images img { display: block; width: auto; height: auto; max-width: min(260px,100%); max-height: 220px; object-fit: contain; border-radius: 6px; }
+.chat-image-busy { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #738078; margin-bottom: 6px; }
+.chat-image-picker { flex-shrink: 0; font-size: 12px; }
+.copy-control { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
+.copy-feedback { color: #738078; font-size: 11px; }
+.copy-feedback.error { color: #b42318; }
+.code-block { position: relative; }
+.code-block > .copy-control { display: flex; justify-content: flex-end; margin-bottom: -6px; }
+.code-block pre { margin-top: 8px; }
 .chat-compose > .ant-alert { margin-bottom: 10px; max-height: 100px; overflow: auto; }
 .conversation-drawer .ant-drawer-body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 16px; }
 .danger-text { color: #b42318; }
@@ -199,13 +233,19 @@ button, input, textarea { font: inherit; }
   .message-bubble { padding: 10px 12px; }
   .message-label { gap: 3px 6px; }
   .chat-compose { padding: 8px 12px 10px; }
-  .composer-toolbar { gap: 8px; padding: 8px; }
+  .composer-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px; }
+  .composer-toolbar .agent-picker-compact { flex-basis: 100%; }
+  .chat-image-picker { margin-right: auto; }
+  .chat-pending { flex-wrap: wrap; gap: 3px; }
+  .chat-image-drafts figure { width: calc(25% - 6px); min-width: 0; }
+  .chat-image-drafts img { width: 100%; height: 48px; }
   .agent-picker-compact { flex-wrap: wrap; gap: 4px; }
   .agent-picker-compact .ant-form-item { flex-basis: calc(50% - 4px); }
   .agent-picker-compact .ant-form-item:last-child { max-width: none; }
   .composer-hint { font-size: 10px; }
 }
 @media (max-height: 600px) {
+  .messages { min-height: 96px; padding-block: 8px; }
   .chat-compose #message-input { max-height: 84px !important; overflow-y: auto !important; }
   .chat-header { padding-block: 6px; }
   .chat-time-note, .composer-footer { display: none; }

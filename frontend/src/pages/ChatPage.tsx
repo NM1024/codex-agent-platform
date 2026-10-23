@@ -1,25 +1,34 @@
 import {useEffect, useRef, useState} from 'react';
-import {Button, Collapse, Drawer, Empty, Input, Typography} from 'antd';
+import {Alert, Button, Collapse, Drawer, Empty, Input, Spin, Typography} from 'antd';
 import {AgentPicker, CatalogNote, Status} from '../components';
 import {useConsole} from '../context';
-import {AgentMessage, MessageTime} from '../ChatMessage';
-import type {Action, AgentSettings, ConfigGroup, Conversation} from '../types';
+import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
+import {isPending, MessageProgress, messageStatuses} from '../ChatActivity';
+import {DraftImages, MessageImages} from '../ImageAttachments';
+import {compressChatImage} from '../chatImages';
+import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
   summary?: {task_id?: string};
   error?: {code: string; message?: string};
 }
 interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: ChatAction[]}
-const messageStatuses: Record<string, string> = {queued:'排队中', running:'运行中', interrupted:'等待继续', completed:'执行完成', failed:'执行失败'};
+const conversationCounts=(item:Conversation)=>({queued_count:item.queued_count??item.messages?.filter(message=>message.role==='user'&&message.status==='queued').length,running_count:item.running_count??item.messages?.filter(message=>message.role==='user'&&['running','interrupted','recovering'].includes(message.status)).length});
 
 export default function ChatPage() {
-  const {api, operation, notify, t, refresh, chatId, setChatId, chatDraft:draft, setChatDraft:setDraft,serializeConversation:serialize} = useConsole();
+  const {api, operation, notify, t, refresh, chatId, setChatId, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize,registerPageLoad} = useConsole();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [listLoading,setListLoading]=useState(true);
   const [defaults, setDefaults] = useState<AgentSettings>({});
   const [selections, setSelections] = useState<Record<string, AgentSettings>>({});
   const [saveErrors, setSaveErrors] = useState<Record<string, string | undefined>>({});
   const [conversation, setConversation] = useState<ChatConversation>();
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState<Record<string,boolean>>({});
+  const [compressing,setCompressing]=useState(false);
+  const [imageError,setImageError]=useState('');
+  const [loadingId,setLoadingId]=useState<string|null>(chatId);
+  const [loadError,setLoadError]=useState('');
+  const [loadRetry,setLoadRetry]=useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const mounted = useRef(true);
   const submitting = useRef(false);
@@ -31,6 +40,9 @@ export default function ChatPage() {
   const initialSelectionDone = useRef(Boolean(chatId));
   const selectionVersions = useRef<Record<string, number>>({});
   const reads = useRef<Record<string, number>>({});
+  const fileInput=useRef<HTMLInputElement>(null);
+  const compressLock=useRef(false);
+  const imagesRef=useRef(images);imagesRef.current=images;
   // Track external navigation as well as sidebar clicks before any async response can render.
   if (currentId.current !== chatId) {
     currentId.current = chatId;
@@ -41,7 +53,10 @@ export default function ChatPage() {
   const selected = conversations.find(item => item.id === chatId);
   const selection = selections[selectedKey] ?? selected?.execution ?? {};
   const visibleConversation = conversation?.id === chatId ? conversation : undefined;
-  const actions = visibleConversation?.actions?.slice(-8) ?? [];
+  const messages=visibleConversation?.messages??[];
+  const pending=messages.filter(message=>message.role==='user'&&isPending(message.status));
+  const queued=pending.filter(message=>message.status==='queued');
+  const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
 
   useEffect(() => {
     mounted.current = true;
@@ -49,8 +64,9 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    void Promise.all([api<Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})])
+    let active = true,fetchingList=false;
+    setListLoading(true);
+    void registerPageLoad(Promise.all([api<Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})]))
       .then(([items, group]) => {
         if (!active) return;
         setConversations(current => [...items, ...current.filter(row => !items.some(item => item.id === row.id))]);
@@ -60,15 +76,21 @@ export default function ChatPage() {
           initialSelectionDone.current = true;
           if (!currentId.current && items.length) setChatId(items[0].id);
         }
-      }).catch(error => {if (active) notify(t(error instanceof Error ? error.message : String(error)));});
-    return () => {active = false;};
+      }).catch(error => {if (active) notify(t(error instanceof Error ? error.message : String(error)));}).finally(()=>{if(active)setListLoading(false);});
+    const timer=setInterval(async()=>{
+      if(fetchingList)return;fetchingList=true;
+      try {const items=await api<Conversation[]>('/conversations');if(active)setConversations(current=>[...items,...current.filter(row=>!items.some(item=>item.id===row.id))]);}catch{/* Background list failures preserve the sidebar. */}
+      finally {fetchingList=false;}
+    },5000);
+    return () => {active = false;clearInterval(timer);};
   }, [api, operation, refresh]);
 
   useEffect(() => {
-    if (!chatId) {setConversation(undefined); return;}
+    if (!chatId) {setConversation(undefined);setLoadingId(null);setLoadError('');return;}
     let active = true, fetching = false;
     const generation = navigation.current;
-    setConversation(undefined);
+    setLoadingId(chatId);setLoadError('');
+    let hasLoaded=conversation?.id===chatId;
     const load = async () => {
       if (fetching) return;
       fetching = true;
@@ -78,16 +100,17 @@ export default function ChatPage() {
         const item = await api<ChatConversation>('/conversations/' + chatId);
         if (!active || currentId.current !== chatId || navigation.current !== generation || reads.current[chatId] !== read) return;
         setConversation(item);
-        setConversations(current => current.map(row => row.id === item.id ? {...row, title:item.title} : row));
+        hasLoaded=true;setLoadingId(null);setLoadError('');
+        setConversations(current => current.map(row => row.id === item.id ? {...row, title:item.title,...conversationCounts(item)} : row));
         setSelections(current => Object.hasOwn(current, chatId) ? current : {...current, [chatId]:item.execution ?? {}});
       } catch (error) {
-        if (active && currentId.current === chatId && navigation.current === generation && reads.current[chatId] === read) notify(t(error instanceof Error ? error.message : String(error)));
+        if (active && currentId.current === chatId && navigation.current === generation && reads.current[chatId] === read && !hasLoaded) {setLoadError(error instanceof Error ? error.message : String(error));setLoadingId(null);}
       } finally {fetching = false;}
     };
-    void load();
-    const timer = setInterval(() => {void load();}, 2000);
+    void registerPageLoad(load());
+    const timer = setInterval(() => {if(hasLoaded)void load();}, 1000);
     return () => {active = false; clearInterval(timer);};
-  }, [api, chatId, refresh]);
+  }, [api, chatId, refresh, loadRetry]);
 
   useEffect(() => {
     if (nearBottom.current && messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
@@ -101,6 +124,7 @@ export default function ChatPage() {
     navigation.current += 1;
     nearBottom.current = true;
     setConversation(undefined);
+    setLoadingId(id);setLoadError('');
     setChatId(id);
   };
 
@@ -109,6 +133,7 @@ export default function ChatPage() {
   const persistSelection = (id: string, value: AgentSettings) => {
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
+    setSaving(current=>({...current,[id]:true}));
     setSaveErrors(current => ({...current, [id]:undefined}));
     void serialize(id, () => api('/conversations/' + id, {execution:value})).then(() => {
       if (!mounted.current || selectionVersions.current[id] !== version) return;
@@ -116,7 +141,20 @@ export default function ChatPage() {
       setSaveErrors(current => ({...current, [id]:undefined}));
     }).catch(error => {
       if (mounted.current && selectionVersions.current[id] === version) setSaveErrors(current => ({...current, [id]:error instanceof Error ? error.message : String(error)}));
-    });
+    }).finally(()=>{if(mounted.current && selectionVersions.current[id]===version)setSaving(current=>({...current,[id]:false}));});
+  };
+
+  const addImages=async(files:File[])=>{
+    if(compressLock.current || !files.length)return;
+    if(imagesRef.current.length+files.length>4){setImageError(t('每条消息最多添加 4 张图片。'));return;}
+    const generation=navigation.current;
+    compressLock.current=true;setCompressing(true);setImageError('');
+    try {
+      const compressed:ChatImage[]=[];
+      for(const file of files)compressed.push(await compressChatImage(file));
+      if(mounted.current && navigation.current===generation)setImages(current=>[...current,...compressed].slice(0,4));
+    }catch(error){if(mounted.current && navigation.current===generation)setImageError(t(error instanceof Error?error.message:String(error)));}
+    finally {compressLock.current=false;if(mounted.current)setCompressing(false);}
   };
   const changeSelection = (value: AgentSettings) => {
     initialSelectionDone.current = true;
@@ -125,16 +163,19 @@ export default function ChatPage() {
   };
 
   const send = async () => {
-    if (submitting.current || composing.current || !draft.trim()) return;
+    if (submitting.current || composing.current || compressLock.current || (!draft.trim()&&!images.length) || draft.length>20000) return;
+    const lease=beginChatSend(draft,images.map(image=>image.id));
+    if(!lease)return;
     initialSelectionDone.current = true;
     submitting.current = true;
-    setBusy(true);
-    const text = draft, execution = {...selection}, generation = navigation.current;
+    let released=false;
+    const releaseSend=()=>{if(released)return;released=true;submitting.current=false;lease.release();};
+    const text = draft, sentImages=[...images], execution = {...selection}, generation = navigation.current;
     let id = chatId;
     const stillSelected = () => mounted.current && navigation.current === generation;
     try {
       if (!id) {
-        const created = await api<ChatConversation>('/conversations', {title:text.slice(0, 30), execution});
+        const created = await api<ChatConversation>('/conversations', {title:text.slice(0, 30)||t('图片消息'), execution});
         id = created.id;
         if (mounted.current) {
           setConversations(current => [created, ...current.filter(row => row.id !== created.id)]);
@@ -148,25 +189,32 @@ export default function ChatPage() {
         }
       }
       const sentId = id;
-      await serialize(sentId, async () => {
+      const accepted=await serialize(sentId, async () => {
         await api('/conversations/' + sentId, {execution});
-        await api('/conversations/' + sentId + '/messages', {text});
+        return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{})});
       });
-      if (stillSelected()) {
-        setDraft(current => current === text ? '' : current);
+      // Clear accepted input before reading the conversation; a read failure must never suggest resending it.
+      lease.accepted();
+      if (mounted.current) {
         setSaveErrors(current => ({...current, [sentId]:undefined}));
       }
+      if(stillSelected() && currentId.current===sentId){
+        const optimistic:Message={id:accepted.id??crypto.randomUUID(),role:'user',text,status:'queued',created_at:Date.now(),...accepted};
+        setConversation(current=>({...(current?.id===sentId?current:{id:sentId,title:text.slice(0,30)||t('图片消息'),execution}),messages:[...(current?.id===sentId?current.messages??[]:[]).filter(message=>message.id!==optimistic.id),optimistic]}));
+      }
+      if(mounted.current)setConversations(current=>current.map(row=>row.id===sentId?{...row,queued_count:(row.queued_count??0)+1}:row));
+      releaseSend();
       const read = (reads.current[sentId] ?? 0) + 1;
       reads.current[sentId] = read;
-      const updated = await api<ChatConversation>('/conversations/' + sentId);
+      let updated:ChatConversation;
+      try {updated=await api<ChatConversation>('/conversations/' + sentId);}catch{return;}
       if (!mounted.current || reads.current[sentId] !== read) return;
-      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution} : row));
+      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution,...conversationCounts(updated)} : row));
       if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(updated);
     } catch (error) {
       if (stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));
     } finally {
-      submitting.current = false;
-      if (mounted.current) setBusy(false);
+      releaseSend();
     }
   };
 
@@ -175,8 +223,9 @@ export default function ChatPage() {
       <Button onClick={() => selectConversation(null)}>{t('＋ 新对话')}</Button>
     </div>
     <nav className="conversation-list" aria-label={t('会话列表')}>
+      {listLoading&&<div className="conversation-list-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
       {conversations.map(item => <button key={item.id} type="button" className={'conversation-item' + (item.id === chatId ? ' active' : '')}
-        aria-current={item.id === chatId ? 'true' : undefined} title={item.title} onClick={() => selectConversation(item.id)}><span>{item.title}</span></button>)}
+        aria-current={item.id === chatId ? 'true' : undefined} title={item.title} onClick={() => selectConversation(item.id)}><span>{item.title}</span>{((item.queued_count??0)+(item.running_count??0))>0 && <small className="conversation-pending">{t('待处理')} {(item.queued_count??0)+(item.running_count??0)}</small>}</button>)}
     </nav>
   </>;
 
@@ -191,23 +240,34 @@ export default function ChatPage() {
       </header>
       <div id="messages" className="messages" ref={messagesRef} role="log" aria-label={t('管理对话')}
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
-        {(visibleConversation?.messages ?? []).map(message => <article key={message.id} className={'message ' + message.role}>
+        {!!loadingId && loadingId===chatId && !visibleConversation && <div className="chat-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
+        {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
+        {messages.map(message => <article key={message.id} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
             <div className="message-label"><span>{message.role === 'user' ? t('你 · ') + t(messageStatuses[message.status] ?? message.status) : t('管理 AGENT')}</span><MessageTime value={message.created_at}/></div>
             <div className="message-bubble">{message.role === 'assistant' ? <AgentMessage text={message.text}/> : <div className="message-text">{message.text}</div>}
+              {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
+            {message.role==='user' && <MessageProgress message={message} actions={visibleConversation?.actions?.filter(action=>action.message_id===message.id)} hasReply={messages.some(reply=>reply.role==='assistant'&&reply.reply_to===message.id)}/>}
+            {message.role==='assistant' && <CopyButton text={message.text} label={t('复制回复')}/>}
           </div>
         </article>)}
-        {!visibleConversation?.messages?.length && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
+        {!messages.length && !loadError && !listLoading && (!loadingId||loadingId!==chatId) && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
       </div>
-      <div className="chat-compose">
+      <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
+        onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
+        {pending.length>0 && <div className="chat-pending" role="status"><span>{t('待处理')} {pending.length} · {t('排队中')} {queued.length}</span><ol>{pending.map(message=><li key={message.id}>{message.text||t('图片消息')} · {t(messageStatuses[message.status]??message.status)}</li>)}</ol></div>}
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}
         <CatalogNote/>
+        <DraftImages images={images} remove={id=>setImages(current=>current.filter(image=>image.id!==id))}/>
+        {imageError && <Alert type="error" className="chat-image-error" title={imageError} closable onClose={()=>setImageError('')}/>}
+        {compressing && <div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在压缩图片…')}</div>}
         <Input.TextArea id="message-input" aria-label={t('消息')} autoSize={{minRows:2, maxRows:6}} value={draft}
           placeholder={t('告诉我你想了解或处理什么，例如：查询失败任务并说明原因。')} onChange={event => setDraft(event.target.value)}
+          onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();void addImages(files);}}}
           onCompositionStart={() => {composing.current = true;}} onCompositionEnd={() => {composing.current = false;}}
           onKeyDown={event => {
             if (event.key !== 'Enter' || event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
@@ -215,9 +275,13 @@ export default function ChatPage() {
           }}/>
         <div className="composer-toolbar">
           <AgentPicker id="chat" value={selection} defaults={defaults} inherit compact disabled={busy} onChange={changeSelection}/>
-          <Button type="primary" className="composer-send" loading={busy} disabled={!draft.trim()} onClick={() => {void send();}}>{t('发送')}</Button>
+          <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
+          <Button className="chat-image-picker" disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}>{t('添加图片')}</Button>
+          <Button type="primary" className="composer-send" loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}>{t('发送')}</Button>
         </div>
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>
+          {draft.length>20000 && <span className="danger-text">{t('消息不能超过 20000 个字符。')}</span>}
+          {chatId && saving[chatId] && <span role="status">{t('正在保存模型设置…')}</span>}
           {chatId && saveErrors[chatId] && <Button type="link" size="small" danger title={saveErrors[chatId]} disabled={busy} onClick={() => persistSelection(chatId, {...selection})}>{t('保存失败，重试')}</Button>}</div>
       </div>
     </section>

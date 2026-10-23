@@ -38,7 +38,7 @@ async function setup(t,fixtureOptions={}) {
             await mcp.connect(new StreamableHTTPClientTransport(new URL(url),{requestInit:{headers:{authorization:`Bearer ${options.env.AGENT_TASK_MCP_TOKEN}`}}}));
             const result=await mcp.callTool({name:'plugin_save',arguments:{definition:plugin}});assert.ok(!result.isError,JSON.stringify(result));
             for(const event of fixtureOptions.events?.(options) ?? [])for(const fn of listeners)fn(event);
-            for(const fn of listeners)fn({method:'item/completed',params:{threadId:'persistent-manager',item:{type:'agentMessage',text:'已保存插件，可以继续。'}}});
+            for(const fn of listeners)fn({method:'item/completed',params:{threadId:'persistent-manager',turnId:'turn-'+clients.length,item:{id:'reply-'+clients.length,type:'agentMessage',text:'已保存插件，可以继续。'}}});
             for(const fn of listeners)fn({method:'turn/completed',params:{threadId:'persistent-manager',turn:{id:'turn-'+clients.length,status:'completed'}}});
           } finally {await mcp.close();}
         });return {turn:{id:'turn-'+clients.length}};

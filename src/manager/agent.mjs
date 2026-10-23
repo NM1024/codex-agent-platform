@@ -10,6 +10,7 @@ import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 import {validateModelEffort} from '../codex/models.mjs';
+import {ChatProgress,publicChatText} from './chat-progress.mjs';
 
 const hash=token=>createHash('sha256').update(token).digest('hex');
 export class ManagementAgent {
@@ -17,7 +18,7 @@ export class ManagementAgent {
     Object.assign(this,{store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.waiting=new Set();this.wakes=new Set();this.closed=false;
   }
   authorize(token){return typeof token==='string'&&token.length<256?this.tokens.get(hash(token)):undefined;}
-  enqueue(conversationId,text) {const message=this.store.enqueue(conversationId,text);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
   kick(id) {
     if(this.closed||this.running.has(id))return;
     const pending=this.loop(id).finally(()=>{this.running.delete(id);if(!this.closed&&!this.waiting.has(id)&&this.store.next(id))this.kick(id);});
@@ -42,7 +43,8 @@ export class ManagementAgent {
     this.store.markRunning(message.id);
     const token=randomBytes(32).toString('base64url');this.tokens.set(hash(token),conversation.id);
     const home=join(this.root,'codex',conversation.id),workDir=join(this.root,'work',conversation.id);
-    let client,unsubscribe,timer;const state={text:'',resolve:null};this.active.set(message.id,state);
+    let client,unsubscribe,timer;const state={text:'',resolve:null,finalized:false,turnId:null,pending:[]};this.active.set(message.id,state);
+    const progress=new ChatProgress({store:this.store,messageId:message.id,secrets:[token]});
     try {
       await safeDirectory(home);await safeDirectory(workDir);
       try{await lstat(join(home,'auth.json'));}catch(error){if(error.code!=='ENOENT')throw error;await symlink(this.authFile,join(home,'auth.json'));}
@@ -65,26 +67,41 @@ export class ManagementAgent {
       const recorded=[...turns].reverse().find(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))))
         ?? turns.find(turn=>turn.id===message.turn_id);
       if(recovering&&recorded&&['completed','failed'].includes(recorded.status)) {
-        const text=recorded.items?.filter(item=>item.type==='agentMessage').at(-1)?.text ?? '';
+        for(const item of recorded.items ?? [])progress.event({method:'item/completed',params:{item}});
+        progress.finish(recorded.status==='completed'?'completed':'failed');
+        const text=publicChatText(recorded.items?.filter(item=>item.type==='agentMessage').at(-1)?.text ?? '',[token],false,null);
         this.store.turn(message.id,recorded.id);
         this.store.finish(message,recorded.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(recorded.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'},safeDiagnostic(text,[token],{maxLength:null}));
         return;
       }
       const continuation=recovering&&(recorded||message.turn_id);
       const outcome=new Promise(resolve=>{state.resolve=resolve;});
+      const consume=event=>{
+        if(state.finalized)return;
+        const params=event.params ?? {},turnId=params.turnId ?? params.turn?.id;
+        if(turnId!==state.turnId)return;
+        if(event.method==='turn/completed') {
+          state.finalized=true;const failed=params.turn?.status!=='completed';
+          progress.finish(failed?'failed':'completed');state.text=progress.text;
+          state.resolve({error:failed?{code:'CODEX_TURN_FAILED',message:publicChatText(params.turn?.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'}:null});
+        }else progress.event(event);
+      };
       unsubscribe=client.subscribe(event=>{
-        if(event.method==='transport/closed'){state.disconnected=true;state.resolve({interrupted:true});return;}
+        if(state.finalized)return;
+        if(event.method==='transport/closed'){state.disconnected=true;state.finalized=true;progress.finish('unknown');state.resolve({interrupted:true});return;}
         const params=event.params ?? {};if(params.threadId!==threadId)return;
-        if(event.method==='thread/name/updated')syncTitle(params.threadName);
-        if(event.method==='item/completed'&&params.item?.type==='agentMessage')state.text=safeDiagnostic(params.item.text,[token],{maxLength:null}) ?? '';
-        if(event.method==='turn/completed')state.resolve({error:params.turn?.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(params.turn?.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'}});
+        if(event.method==='thread/name/updated'){syncTitle(params.threadName);return;}
+        if(!state.turnId){if(state.pending.length<200)state.pending.push(event);return;}
+        consume(event);
       });
-      timer=setTimeout(()=>state.resolve({error:{code:'MANAGEMENT_TIMEOUT',message:'管理轮次超过配置的执行时间。'}}),settings.timeoutMs);
+      timer=setTimeout(()=>{if(state.finalized)return;state.finalized=true;progress.finish('failed');state.text=progress.text;state.resolve({error:{code:'MANAGEMENT_TIMEOUT',message:'管理轮次超过配置的执行时间。'}});},settings.timeoutMs);
       const text=continuation?renderSystemPrompt('manager-resume',{recorded_actions_json:JSON.stringify(this.store.actions(conversation.id))}):message.text;
       if(this.closed){this.store.interrupted(message.id);return;}
       const effort=await validateModelEffort(client,settings);
-      const started=await client.request('turn/start',{threadId,model:settings.model,effort,input:[{type:'text',text:marker+'\n'+text}]});
+      const started=await client.request('turn/start',{threadId,model:settings.model,effort,summary:'concise',input:[{type:'text',text:marker+'\n'+text},...(!continuation?this.store.imageInputs(message.id):[])]});
       this.store.turn(message.id,started.turn.id);
+      state.turnId=started.turn.id;
+      for(const event of state.pending)consume(event);state.pending=[];
       const result=await outcome;
       if(result.interrupted||this.closed){this.store.interrupted(message.id);return 'interrupted';}
       else {
@@ -99,11 +116,13 @@ export class ManagementAgent {
         }
       }
     }catch(error) {
+      progress.finish(this.closed||state.disconnected?'unknown':'failed');state.text=progress.text;
       if(this.closed||state.disconnected||['CODEX_EXIT','CODEX_TIMEOUT'].includes(error.message)) {
         this.store.interrupted(message.id);return 'interrupted';
       }
       else this.store.finish(message,{code:error.code ?? 'MANAGEMENT_START_FAILED',message:safeDiagnostic(error.message,[token]) || '管理会话启动失败。'},state.text);
     }finally {
+      state.finalized=true;
       clearTimeout(timer);unsubscribe?.();await client?.close().catch(()=>{});this.tokens.delete(hash(token));this.active.delete(message.id);
     }
   }
