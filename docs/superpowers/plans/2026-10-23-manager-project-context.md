@@ -9,4 +9,4 @@
 - [x] Test and align configuration, deployment and runtime defaults at five while retaining explicit and persisted values, including one.
 - [x] Add failing start/resume coverage for custom saved instructions receiving current project rules. Add the project context resource, injection and concise authoritative tool descriptions; preserve custom instructions and all authorization boundaries.
 - [x] Update documentation and required-resource checks; pass Node24 npm/release (240 total checks), browser (70) and packaged Docker (233) checks; review and resolve the schedule wording finding.
-- [ ] Commit and update the existing unmerged testing PR.
+- [x] Commit implementation as `5fe650f` and update [testing PR #6](https://github.com/NM1024/codex-agent-platform/pull/6); keep it open and unmerged.
