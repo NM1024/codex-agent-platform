@@ -21,6 +21,35 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#workspace")).toBeVisible();
 });
 
+test('cold login defers other pages and serves compressed scripts',async({browser})=>{
+  const context=await browser.newContext();const page=await context.newPage();
+  try {
+    const scripts=[];page.on('response',response=>{if(/\/admin\/assets\/.*\.js$/.test(response.url()))scripts.push(response);});
+    await page.goto('/admin/');await expect(page.locator('#password')).toBeVisible();
+    expect(scripts.some(response=>/Page-/.test(response.url()))).toBe(false);
+    expect(scripts.reduce((total,response)=>total+Number(response.headers()['content-length']),0)).toBeLessThan(260_000);
+    await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();
+    await expect(page.locator('#view .ant-card').first()).toBeVisible();
+    expect(scripts.some(response=>/OverviewPage-/.test(response.url()))).toBe(true);
+    expect(scripts.some(response=>/(Chat|Settings|Tasks|Plugins|Schedules)Page-/.test(response.url()))).toBe(false);
+    const initialBytes=scripts.reduce((total,response)=>total+Number(response.headers()['content-length']),0);
+    expect(initialBytes).toBeLessThan(350_000);
+    expect(scripts.every(response=>['gzip','br'].includes(response.headers()['content-encoding']))).toBe(true);
+    await navigate(page,'chat');await expect(page.locator('#message-input')).toBeVisible();
+    expect(scripts.some(response=>/ChatPage-/.test(response.url()))).toBe(true);
+  }finally{await context.close();}
+});
+
+test('failed page chunks show a recoverable error instead of a blank console',async({page})=>{
+  await page.route('**/SettingsPage-*.js',route=>route.abort());
+  await navigate(page,'settings');
+  await expect(page.locator('#view [role="alert"]')).toContainText('页面加载失败，请刷新后重试。');
+  await expect(page.locator('#workspace')).toBeVisible();
+  await navigate(page,'plugins');await expect(page.getByText('业务插件配置',{exact:true})).toBeVisible();
+  await page.unroute('**/SettingsPage-*.js');await page.reload();
+  await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
+});
+
 test('production React console loads local Ant Design assets without CSP errors',async({page})=>{
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|Refused to apply/i.test(message.text()))errors.push(message.text());});
@@ -159,6 +188,7 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.mobile-navigation')).toBeVisible();
   for (const name of [
     "overview",
     "chat",

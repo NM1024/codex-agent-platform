@@ -1,5 +1,18 @@
 # Validation
 
+## Admin loading and compressed assets
+
+Verified on 2026-10-23 with Node.js 24 and synthetic data:
+
+- All six pages load on demand, with localized loading and recoverable chunk-failure feedback. Markdown stays in the deferred management-chat chunk. React, TypeScript and Ant Design remain in use.
+- The previous public entry was 1,235,125 uncompressed bytes. The new login JS dependency graph is 760,106 raw bytes / 249,155 gzip bytes / 230,174 Brotli bytes. Login plus the default overview is 1,026,923 raw / 333,802 gzip / 310,121 Brotli bytes. These totals include shared dependencies; they are not just the entry filename. CSS adds about 2.7 kB gzip. Other pages add their deferred chunks when visited. These are build/browser byte measurements, not a promise of production network latency.
+- 204 Linux npm tests and the separate host Compose check passed (205 total). Lifecycle hooks were skipped only in the read-only Linux test run after the production build was completed separately. Strict TypeScript/production build and `npm run check:release` passed (75 JavaScript modules, 3 JSON resources).
+- 34 browser tests passed, including cold login/overview transfer budgets, deferred requests, chunk failure/reload recovery, CSP and all existing settings/chat/task/plugin/schedule/locale/responsive checks. A viewport test now waits for the mobile navigation before measuring its geometry.
+- Brotli/gzip round trips, preference/zero-quality negotiation, identity fallback, exact HEAD lengths, Vary, MIME and missing/direct-compression URLs are covered. Nonce HTML and authenticated APIs are excluded from this compression path. Release tests reject missing deferred chunks and either compressed representation.
+- All four isolated Docker packaging targets built, and the final non-root, read-only, network-disabled test image passed 199 checks. The previously documented temporary Dockerfile accommodations for blocked apt downloads and verified production dependency-layer reuse still apply. Independent review found no actionable implementation issues.
+
+No real credentials/account tasks or local deployment were used. Temporary evidence is under `.tmp/admin-loading/`.
+
 ## Model settings and React Admin migration
 
 Verified on 2026-10-23 with synthetic data and Node.js 24:

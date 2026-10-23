@@ -1,6 +1,8 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '页面加载失败，请刷新后重试。':'Could not load this page. Refresh to try again.',
+  '正在加载页面…':'Loading page…',
   '请通过管理 Agent 修改复杂配置。':'Ask the management Agent to change complex configuration.',
   '定时计划配置':'Schedule configuration',
   '业务插件配置':'Business plugin configuration',

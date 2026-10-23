@@ -29,6 +29,8 @@ flowchart LR
 | `operations/` | Preset task/plugin/configuration operations and persistent cron plans. |
 | `manager/` | Independent management conversation, MCP adapter, Admin authentication and web console. |
 | `frontend/` | React + TypeScript + Ant Design Admin source. Vite bundles it into generated `src/manager/web-dist/`; Manager serves only those production assets. |
+
+Admin pages load on demand. The build generates Brotli and gzip variants of every hashed JS/CSS resource; Manager negotiates `Accept-Encoding` and returns `Vary: Accept-Encoding` with immutable caching. Nonce HTML and authenticated API responses are not compressed by this path. Release validation requires the complete manifest graph and both compressed variants, including deferred pages.
 | `contracts/`, `observability/` | Shared management schemas and bounded resource measurements. |
 
 The Manager accesses Gateway operations through an internal authenticated API. It does not import the task runtime or query an external business database. Both management and task Agents use preset MCP tools plus their explicitly permitted native Codex capabilities; arbitrary shell, code editing and foreign MCP tools are denied.

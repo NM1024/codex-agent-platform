@@ -102,6 +102,13 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
   await writeFile(definition,original);await unlink(join(dir,bundle));
   const web=run();assert.notEqual(web.status,0);assert.ok(web.stderr.includes(script));
   await cp(join(root,bundle),join(dir,bundle));
+    const manifest=JSON.parse(await readFile(join(dir,'src/manager/web-dist/.vite/manifest.json'),'utf8'));
+    const deferred=Object.values(manifest).find(item=>item.file.includes('ChatPage-')).file;
+    for(const resource of [deferred,deferred+'.gz',deferred+'.br']) {
+      const name='src/manager/web-dist/'+resource;
+      await unlink(join(dir,name));const absent=run();assert.notEqual(absent.status,0);assert.ok(absent.stderr.includes(resource),absent.stderr);
+      await cp(join(root,name),join(dir,name));
+    }
   for(const name of ['manager','task','task-resume','manager-resume','task-investigation']) {
     const file=join(dir,'prompts',name+'.md'),text=await readFile(file);
     await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes(join('prompts',name+'.md')),missingPrompt.stderr);

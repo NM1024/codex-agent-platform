@@ -5,6 +5,7 @@ import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
+import {staticEncoding} from './static-encoding.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
@@ -16,12 +17,14 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='GET'&&path==='/admin'){res.writeHead(308,{location:'/admin/'});return res.end();}
       if((req.method==='GET'||req.method==='HEAD')&&(path==='/admin/'||assetPath.test(path))) {
         const index=path==='/admin/',file=index?'index.html':path.slice('/admin/'.length),nonce=randomBytes(18).toString('base64');
+        const hashed=file.startsWith('assets/'),encoding=hashed?staticEncoding(req.headers['accept-encoding']):'identity';
+        if(!encoding){res.writeHead(406,{'vary':'Accept-Encoding'});return res.end();}
         let data;
-        try {data=await readFile(new URL(file,webRoot));}
+        try {data=await readFile(new URL(file+(encoding==='br'?'.br':encoding==='gzip'?'.gz':''),webRoot));}
         catch(error){if(error.code==='ENOENT')throw new HttpError(404,'NOT_FOUND','找不到接口。');throw error;}
         const type=file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.md')?'text/plain; charset=utf-8':'image/svg+xml';
         if(index)data=Buffer.from(data.toString('utf8').replace('__CSP_NONCE__',nonce));
-        res.writeHead(200,{'content-type':type,'cache-control':index?'no-store':file.startsWith('assets/')?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'});return res.end(req.method==='HEAD'?undefined:data);
+        res.writeHead(200,{'content-type':type,'content-length':data.length,...(hashed?{'vary':'Accept-Encoding'}:{}),...(encoding!=='identity'?{'content-encoding':encoding}:{}),'cache-control':index?'no-store':hashed?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'});return res.end(req.method==='HEAD'?undefined:data);
       }
       if(!path.startsWith('/admin/api/'))throw new HttpError(404,'NOT_FOUND','找不到接口。');
       if(req.method==='POST'&&req.headers.origin) {
