@@ -1,0 +1,140 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp,rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { BusinessRegistry } from '../src/core/registry.mjs';
+import { RequestStore } from '../src/core/store.mjs';
+import { OperationsService } from '../src/operations/service.mjs';
+
+const plugin={type:'manager.created',name:'管理创建',instructions:'完成任务',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'}};
+async function setup(t,fixtureOptions={}) {
+  const [{ManagerStore},{ManagementAgent},{createManagementMcpHandler}]=await Promise.all([import('../src/manager/store.mjs'),import('../src/manager/agent.mjs'),import('../src/manager/mcp.mjs')]);
+  const root=await mkdtemp(join(tmpdir(),'manager-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const business=new RequestStore(':memory:',{registry:new BusinessRegistry()});t.after(()=>business.close());
+  const operations=new OperationsService({store:business,config:{concurrency:1,paused:true},dispatcher:{drain:async()=>{}},runner:{ready:async()=>({ready:true})}});
+  const store=new ManagerStore(join(root,'manager.sqlite'));t.after(()=>store.close());
+  let agent;const calls=[],clients=[],resumeTurns=[];
+  const handler=createManagementMcpHandler({store,operations,authorize:token=>agent.authorize(token)});
+  const server=createServer(handler);await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+  const url=`http://127.0.0.1:${server.address().port}/mcp`;
+  const createClient=options=>{
+    const listeners=new Set();const client={notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){fixtureOptions.onClose?.();if(fixtureOptions.closeGate)await fixtureOptions.closeGate;},async request(method,params){
+      calls.push({method,params});if(method==='thread/start')return {thread:{id:'persistent-manager'}};
+      if(method==='thread/resume')return {thread:{id:params.threadId,turns:resumeTurns}};
+      if(method==='turn/start') {
+        if(fixtureOptions.disconnectStart){for(const fn of listeners)fn({method:'transport/closed',params:{code:'CODEX_EXIT'}});throw new Error('CODEX_EXIT');}
+        setImmediate(async()=>{
+          const mcp=new Client({name:'manager-fixture',version:'1'});
+          try {
+            await mcp.connect(new StreamableHTTPClientTransport(new URL(url),{requestInit:{headers:{authorization:`Bearer ${options.env.AGENT_TASK_MCP_TOKEN}`}}}));
+            const result=await mcp.callTool({name:'plugin_save',arguments:{definition:plugin}});assert.ok(!result.isError,JSON.stringify(result));
+            for(const fn of listeners)fn({method:'item/completed',params:{threadId:'persistent-manager',item:{type:'agentMessage',text:'已保存插件，可以继续。'}}});
+            for(const fn of listeners)fn({method:'turn/completed',params:{threadId:'persistent-manager',turn:{id:'turn-'+clients.length,status:'completed'}}});
+          } finally {await mcp.close();}
+        });return {turn:{id:'turn-'+clients.length}};
+      }return {};
+    }};clients.push(client);return client;
+  };
+  const create=()=>new ManagementAgent({store,root,authFile:join(root,'unused-auth.json'),mcpUrl:url,createClient,timeoutMs:5000});
+  agent=create();t.after(()=>agent.stop());
+  return {store,business,operations,calls,agent,create,resumeTurns};
+}
+test('management conversation executes real MCP writes and continues the same thread across turns',async t=>{
+  const {store,business,agent,calls}=await setup(t);const conversation=store.createConversation('管理');
+  agent.enqueue(conversation.id,'创建插件');await agent.idle(conversation.id);
+  agent.enqueue(conversation.id,'继续调整');await agent.idle(conversation.id);
+  assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
+  assert.equal(calls.filter(call=>call.method==='thread/resume').length,1);
+  assert.equal(store.getConversation(conversation.id).messages.filter(row=>row.role==='assistant').length,2);
+  assert.equal(business.plugins.get(plugin.type).name,plugin.name);
+  assert.equal(store.actions(conversation.id).filter(row=>row.status==='completed').length,2);
+  const start=calls.find(call=>call.method==='thread/start');assert.equal(start.params.config['features.shell_tool'],false);
+  assert.ok(!JSON.stringify(start.params).includes('unused-auth'));
+});
+test('management changes model, prompt and tool timeout on its next turn in the same thread',async t=>{
+  const {store,agent,calls}=await setup(t),conversation=store.createConversation('热配置');
+  agent.enqueue(conversation.id,'第一轮');await agent.idle(conversation.id);
+  agent.model='configured-manager';agent.instructions='更新后的管理职责';agent.toolTimeoutMs=3200;
+  agent.enqueue(conversation.id,'第二轮');await agent.idle(conversation.id);
+  const next=calls.find(call=>call.method==='thread/resume');assert.equal(next.params.model,'configured-manager');
+  assert.equal(next.params.developerInstructions,'更新后的管理职责');assert.equal(next.params.config.mcp_servers.agent_task.tool_timeout_sec,4);
+  assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
+});
+test('manager resumes a persisted conversation without resending a completed user message',async t=>{
+  const {store,agent,create,calls}=await setup(t);const conversation=store.createConversation('保留');
+  agent.enqueue(conversation.id,'先创建');await agent.idle(conversation.id);await agent.stop();
+  const next=create();t.after(()=>next.stop());await next.recover();
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,1);
+  assert.equal(store.getConversation(conversation.id).messages.length,2);
+});
+test('interrupted management turn continues its original thread with confirmed action records',async t=>{
+  const {store,agent,calls}=await setup(t);const conversation=store.createConversation('恢复');
+  const message=store.enqueue(conversation.id,'原始请求：重试指定任务');store.thread(conversation.id,'persistent-manager');store.markRunning(message.id);store.turn(message.id,'known-turn');
+  const action=store.beginAction(conversation.id,'retry',{task_id:'old-task'});store.finishAction(action,{task_id:'already-created-task',retry_of:'old-task'});
+  await agent.recover();await agent.idle(conversation.id);
+  const started=calls.find(call=>call.method==='turn/start');assert.match(started.params.input[0].text,/Continue the interrupted/);
+  assert.match(started.params.input[0].text,/already-created-task/);assert.ok(!started.params.input[0].text.includes('原始请求'));
+  assert.equal(store.actions(conversation.id).filter(row=>row.name==='retry').length,1);
+});
+test('inspection acceptance is durable and does not create a second conversation or message',async t=>{
+  const {store}=await setup(t);
+  const first=store.acceptInspection('fire-1','检查服务');const second=store.acceptInspection('fire-1','检查服务');
+  assert.equal(first.conversation.id,second.conversation.id);assert.equal(second.created,false);
+  assert.equal(store.getConversation(first.conversation.id).messages.length,1);
+});
+
+test('restart before dispatch preserves a new message on an existing management thread',async t=>{
+  const {store,agent,calls}=await setup(t);const conversation=store.createConversation('未发送');
+  store.thread(conversation.id,'persistent-manager');
+  const message=store.enqueue(conversation.id,'NEW_UNSENT_MESSAGE 查询本次任务');store.markRunning(message.id);
+  await agent.recover();await agent.idle(conversation.id);
+  const started=calls.find(call=>call.method==='turn/start');
+  assert.match(started.params.input[0].text,/NEW_UNSENT_MESSAGE/);
+  assert.equal(store.getConversation(conversation.id).messages[0].status,'completed');
+});
+test('restart after a lost turn acknowledgement reconciles a completed turn without repeating its action',async t=>{
+  const {store,agent,calls,resumeTurns}=await setup(t);const conversation=store.createConversation('确认丢失');
+  store.thread(conversation.id,'persistent-manager');
+  const message=store.enqueue(conversation.id,'重试任务');store.markRunning(message.id);
+  resumeTurns.push({id:'lost-ack-turn',status:'completed',items:[{type:'userMessage',content:[{type:'text',text:`[management_message_id:${message.id}]\n重试任务`}]},{type:'agentMessage',text:'已重试，任务已登记。'}]});
+  await agent.recover();await agent.idle(conversation.id);
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,0);
+  const restored=store.getConversation(conversation.id);assert.equal(restored.messages[0].status,'completed');
+  assert.equal(restored.messages[1].text,'已重试，任务已登记。');
+});
+
+test('a lost turn-start acknowledgement remains interrupted and resumes the original thread on the next trigger',async t=>{
+  const options={disconnectStart:true};
+  const {store,agent,calls,resumeTurns}=await setup(t,options);const conversation=store.createConversation('断线');
+  const message=agent.enqueue(conversation.id,'查询本轮任务');await agent.idle(conversation.id);
+  const persisted=store.getConversation(conversation.id);
+  assert.equal(persisted.messages.find(row=>row.id===message.id).status,'interrupted');
+  assert.equal(persisted.messages.filter(row=>row.role==='assistant').length,0);
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,1);
+  assert.equal(store.next(conversation.id).id,message.id);
+  options.disconnectStart=false;
+  resumeTurns.push({id:'interrupted-original',status:'interrupted',items:[{type:'userMessage',content:[{type:'text',text:`[management_message_id:${message.id}]\n查询本轮任务`}]}]});
+  agent.enqueue(conversation.id,'继续处理');await agent.idle(conversation.id);
+  assert.equal(store.getConversation(conversation.id).messages.find(row=>row.id===message.id).status,'completed');
+  assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,3);
+  const resumed=calls.filter(call=>call.method==='turn/start')[1];
+  assert.match(resumed.params.input[0].text,/Continue the interrupted/);
+});
+
+test('a new management message queued during disconnect cleanup still wakes the interrupted conversation',async t=>{
+  let closeStarted,releaseClose;
+  const closing=new Promise(r=>closeStarted=r),closeGate=new Promise(r=>releaseClose=r);
+  const options={disconnectStart:true,closeGate,onClose:()=>closeStarted()};
+  const {store,agent}=await setup(t,options);const conversation=store.createConversation('关闭时发送');
+  const first=agent.enqueue(conversation.id,'先调查');await closing;
+  options.disconnectStart=false;options.closeGate=null;
+  const next=agent.enqueue(conversation.id,'继续处理');releaseClose();await agent.idle(conversation.id);
+  const messages=store.getConversation(conversation.id).messages;
+  assert.equal(messages.find(row=>row.id===first.id).status,'completed');
+  assert.equal(messages.find(row=>row.id===next.id).status,'completed');
+});

@@ -1,0 +1,27 @@
+{
+  "name": "codex-agent-platform",
+  "version": "0.1.0-preview.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "gateway": "node src/main-gateway.mjs",
+    "runner": "node src/main-runner.mjs",
+    "probe:codex": "node scripts/probe-codex.mjs",
+    "probe:runtime": "node scripts/probe-runtime.mjs",
+    "check:release": "node scripts/check-release.mjs",
+    "manager": "node src/main-manager.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@openai/codex": "0.159.2",
+    "ajv": "8.20.0",
+    "cron-parser": "5.4.0",
+    "sharp": "0.35.5"
+  },
+  "description": "Autonomous Codex task platform with configuration plugins and an operations Agent.",
+  "license": "MIT"
+}

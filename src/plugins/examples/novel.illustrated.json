@@ -1,0 +1,24 @@
+{
+  "type": "novel.illustrated",
+  "name": "图文小说",
+  "description": "根据题材、梗概和章节要求，自主创作正文及每章配图。",
+  "enabled": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {"premise": {"type": "string", "minLength": 1}, "genre": {"type": "string"}, "chapters": {"type": "integer", "minimum": 1}, "style": {"type": "string"}},
+    "required": ["premise"], "additionalProperties": false
+  },
+  "instructions": "完成一篇有完整情节的图文小说。premise 为梗概，genre 为题材，chapters 为章节数（未指定时一章），style 为画面风格。自主完成构思、正文写作、配图和自查；保持人物与情节一致。每章使用原生 image_gen 生图，然后调用 register_image 保存，通过返回的图片预览自查；根据本任务需求决定是否修正。不要用文字或占位图冒充已完成配图。将完整正文保存为文本产物，通过 complete_task 提交 title、chapters 和 text_artifact_id。技术问题无法解决时报告真实问题，不伪造产物。",
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string"},
+      "chapters": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}, "artifact_id": {"type": "string"}}, "required": ["title", "text", "artifact_id"], "additionalProperties": false}},
+      "text_artifact_id": {"type": "string"}
+    },
+    "required": ["title", "chapters", "text_artifact_id"], "additionalProperties": false
+  },
+  "capabilities": {"tools": ["register_image", "write_text_artifact", "read_artifact"], "image_generation": true, "web_search": false},
+  "resources": [],
+  "delivery": {"mode": "none"}
+}

@@ -1,0 +1,119 @@
+name: codex-agent-platform
+services:
+  gateway:
+    image: codex-agent-platform-gateway:0.1.0-preview.1
+    build:
+      context: .
+      target: gateway
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 75s
+    ports:
+      - "127.0.0.1:${PLATFORM_PORT:-3004}:3004"
+    environment:
+      PORT: "3004"
+      INGRESS_TOKEN: ${INGRESS_TOKEN:?Set INGRESS_TOKEN}
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?Set RUNNER_TOKEN}
+      RUNNER_URL: http://runner:3005
+      TASK_DB_PATH: /data/tasks.sqlite
+      WORKSPACE_DIR: /workspace
+      QUEUE_LIMIT: ${QUEUE_LIMIT:-10000}
+      CONCURRENCY: ${CONCURRENCY:-1}
+      EXECUTION_PAUSED: ${EXECUTION_PAUSED:-false}
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
+      PLATFORM_HTTP_TARGETS_JSON: ${PLATFORM_HTTP_TARGETS_JSON:-}
+      TASK_TIMEOUT_MS: ${TASK_TIMEOUT_MS:-2400000}
+      TOOL_TIMEOUT_MS: ${TOOL_TIMEOUT_MS:-180000}
+    volumes:
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/data:/data"
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/workspace:/workspace:ro"
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3004/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  runner:
+    image: codex-agent-platform-runner:0.1.0-preview.1
+    build:
+      context: .
+      target: runner
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 20s
+    environment:
+      PORT: "3005"
+      GATEWAY_INTERNAL_URL: http://gateway:3006
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?Set RUNNER_TOKEN}
+      CODEX_HOME: /codex
+      HOME: /codex
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
+      WORKSPACE_DIR: /workspace
+      CONCURRENCY: ${CONCURRENCY:-1}
+      TASK_TIMEOUT_MS: ${TASK_TIMEOUT_MS:-2400000}
+      TOOL_TIMEOUT_MS: ${TOOL_TIMEOUT_MS:-180000}
+    volumes:
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/workspace:/workspace"
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/codex:/codex"
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3005/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  manager:
+    image: codex-agent-platform-manager:0.1.0-preview.1
+    build:
+      context: .
+      target: manager
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 75s
+    ports:
+      - "127.0.0.1:${MANAGER_PORT:-3007}:3007"
+    environment:
+      MANAGER_PORT: "3007"
+      MANAGER_MCP_PORT: "3008"
+      MANAGER_DATA_DIR: /management
+      CODEX_LOGIN_HOME: /codex
+      INGRESS_TOKEN: ${INGRESS_TOKEN:?Set INGRESS_TOKEN}
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?Set RUNNER_TOKEN}
+      GATEWAY_INTERNAL_URL: http://gateway:3006
+      GATEWAY_URL: http://gateway:3004
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-6.1-sol}
+      TASK_TIMEOUT_MS: ${TASK_TIMEOUT_MS:-2400000}
+      TOOL_TIMEOUT_MS: ${TOOL_TIMEOUT_MS:-180000}
+    volumes:
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/manager:/management"
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/codex:/codex"
+      - "/proc:/host/proc:ro"
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3007/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

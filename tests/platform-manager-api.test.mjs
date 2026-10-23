@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp,mkdir,writeFile,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('resource samples distinguish host CPU, container quota and an unavailable source',async t=>{
+  const {ResourceSampler}=await import('../src/observability/resources.mjs');
+  const root=await mkdtemp(join(tmpdir(),'metrics-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const proc=join(root,'proc'),group=join(root,'cgroup');await mkdir(proc);await mkdir(group);
+  await writeFile(join(proc,'stat'),'cpu 100 0 100 800 0 0 0 0\ncpu0 100 0 100 800\n');
+  await writeFile(join(proc,'meminfo'),'MemTotal: 1000 kB\nMemAvailable: 400 kB\n');
+  await writeFile(join(group,'cpu.max'),'200000 100000');await writeFile(join(group,'memory.current'),'12345');
+  const sampler=new ResourceSampler({procRoot:proc,cgroupRoot:group,diskPath:root});
+  const first=await sampler.sample();assert.equal(first.host.cpu_percent,null);assert.equal(first.container.quota_cores,2);
+  await writeFile(join(proc,'stat'),'cpu 150 0 150 900 0 0 0 0\ncpu0 150 0 150 900\n');
+  const second=await sampler.sample();assert.equal(second.host.cpu_percent,50);assert.equal(second.host.memory_used_bytes,600*1024);
+  assert.equal(second.container.memory_used_bytes,12345);
+  const missing=await new ResourceSampler({procRoot:join(root,'absent'),cgroupRoot:group,diskPath:root}).sample();
+  assert.equal(missing.host.available,false);assert.ok(!('cpu_percent' in missing.host));
+});
+test('manager HTTP serves real resources, accepts asynchronous messages and protects management operations',async t=>{
+  const [{ManagerStore},{createManagerServer}]=await Promise.all([import('../src/manager/store.mjs'),import('../src/manager/server.mjs')]);
+  const store=new ManagerStore(':memory:');t.after(()=>store.close());const calls=[];
+  const {AdminAuth}=await import('../src/manager/auth.mjs');const auth=new AdminAuth(store.db);await auth.initialize('local-admin-password');
+  const agent={closed:false,enqueue:(id,text)=>store.enqueue(id,text)};
+  const operations={async execute(action,args){calls.push({action,args});return action==='overview'?{tasks:{failed:3},runner:{ready:false,reason:'CHATGPT_LOGIN_REQUIRED'}}:{configured:[]};}};
+  const server=createManagerServer({store,agent,operations,auth,metrics:{sample:async()=>({host:{available:false}})}});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const login=await fetch(base+'/admin/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'local-admin-password'})});
+  const headers={cookie:login.headers.get('set-cookie').split(';')[0],'content-type':'application/json'};
+  assert.equal((await fetch(base+'/admin/')).status,200);
+  assert.equal((await fetch(base+'/admin/api/overview')).status,401);
+  const overview=await (await fetch(base+'/admin/api/overview',{headers})).json();assert.equal(overview.platform.tasks.failed,3);assert.equal(overview.resources.host.available,false);
+  const conversation=await(await fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'测试'})})).json();
+  const response=await fetch(`${base}/admin/api/conversations/${conversation.id}/messages`,{method:'POST',headers,body:JSON.stringify({text:'检查任务'})});
+  assert.equal(response.status,202);assert.equal(store.getConversation(conversation.id).messages.length,1);
+  const taskId='00000000-0000-4000-8000-000000000099';
+  const first=await(await fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId})})).json();
+  const second=await(await fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId})})).json();
+  assert.equal(first.id,second.id);
+  const denied=await fetch(base+'/admin/api/operations',{method:'POST',headers:{...headers,origin:'https://another.example'},body:JSON.stringify({action:'runtime_update',args:{paused:true}})});
+  assert.equal(denied.status,403);assert.equal(calls.filter(call=>call.action==='runtime_update').length,0);
+  assert.equal((await fetch(base+'/mcp',{headers})).status,404);
+});
