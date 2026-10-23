@@ -9,6 +9,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 test("Compose separates credentials, persists volumes and only binds gateway loopback", async () => {
   const compose = await readFile(join(root, "compose.yaml"), "utf8");
   assert.match(compose, /127\.0\.0\.1/);
+  const env={...process.env};delete env.CONCURRENCY;
   const result = spawnSync(
     "docker",
     [
@@ -21,7 +22,7 @@ test("Compose separates credentials, persists volumes and only binds gateway loo
       "--format",
       "json",
     ],
-    { encoding: "utf8" },
+    { encoding: "utf8", env },
   );
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(result.stdout);
@@ -40,6 +41,8 @@ test("Compose separates credentials, persists volumes and only binds gateway loo
   assert.equal(gateway.environment.CODEX_HOME, undefined);
   assert.equal(runner.environment.PLATFORM_HTTP_TARGETS_JSON, undefined);
   assert.equal(runner.environment.INGRESS_TOKEN, undefined);
+  assert.equal(gateway.environment.INGRESS_TOKEN, undefined);
+  assert.equal(config.services.manager.environment.INGRESS_TOKEN, undefined);
   assert.equal(
     gateway.volumes.find((v) => v.target === "/workspace").read_only,
     true,
@@ -47,13 +50,25 @@ test("Compose separates credentials, persists volumes and only binds gateway loo
   assert.equal(runner.user, "1000:1000");
   assert.equal(gateway.user, "1000:1000");
   assert.equal(runner.privileged, undefined);
+  assert.equal(gateway.environment.CONCURRENCY, "5");
+  assert.equal(runner.environment.CONCURRENCY, "5");
   assert.ok(!JSON.stringify(config).includes("/var/run/docker.sock"));
   assert.equal(
     runner.volumes.find((v) => v.target === "/codex").read_only,
     undefined,
   );
 });
-test("init creates private, distinct tokens, retains configuration and never destroys data", async (t) => {
+test('Compose defaults both business services to five and honors an explicit one',()=>{
+  for(const [value,want] of [['','5'],['1','1']]) {
+    const result=spawnSync('docker',['compose','--env-file',join(root,'.env.example'),'-f',join(root,'compose.yaml'),'config','--format','json'],{
+      encoding:'utf8',env:{...process.env,CONCURRENCY:value},
+    });
+    assert.equal(result.status,0,result.stderr);
+    const config=JSON.parse(result.stdout);
+    for(const service of ['gateway','runner'])assert.equal(config.services[service].environment.CONCURRENCY,want);
+  }
+});
+test("init creates a private internal token and independent Admin password, retains configuration and data", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "aw-deploy-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const command = ["init", dir];
@@ -62,13 +77,14 @@ test("init creates private, distinct tokens, retains configuration and never des
   });
   assert.equal(result.status, 0, result.stderr);
   const env = await readFile(join(dir, ".env"), "utf8");
+  assert.match(env, /^CONCURRENCY=5$/m);
   const tokens = [
     ...env.matchAll(
-      /^(?:INGRESS_TOKEN|RUNNER_TOKEN)=(.+)$/gm,
+      /^RUNNER_TOKEN=(.+)$/gm,
     ),
   ].map((m) => m[1]);
-  assert.equal(tokens.length, 2);
-  assert.equal(new Set(tokens).size, 2);
+  assert.equal(tokens.length, 1);
+  assert.ok(!env.includes('INGRESS_TOKEN='));
   assert.ok(tokens.every((x) => x.length >= 48));
   assert.equal((await stat(join(dir, ".env"))).mode & 0o777, 0o600);
   const initialPassword=await readFile(join(dir,'manager/initial-password'),'utf8');
@@ -84,27 +100,40 @@ test("init creates private, distinct tokens, retains configuration and never des
 });
 test('init adds an initial Admin password to an existing installation without changing its env',async t=>{
   const {writeFile}=await import('node:fs/promises');const dir=await mkdtemp(join(tmpdir(),'aw-existing-'));t.after(()=>rm(dir,{recursive:true,force:true}));
-  await writeFile(join(dir,'.env'),'EXISTING_CONFIG=retained\n');
+  await writeFile(join(dir,'.env'),'EXISTING_CONFIG=retained\nCONCURRENCY=1\n');
   const result=spawnSync('bash',[join(root,'deploy.sh'),'init',dir],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);
-  assert.equal(await readFile(join(dir,'.env'),'utf8'),'EXISTING_CONFIG=retained\n');assert.ok((await readFile(join(dir,'manager/initial-password'),'utf8')).trim().length>=24);
+  assert.equal(await readFile(join(dir,'.env'),'utf8'),'EXISTING_CONFIG=retained\nCONCURRENCY=1\n');assert.ok((await readFile(join(dir,'manager/initial-password'),'utf8')).trim().length>=24);
 });
 test('release validates dynamic plugin JSON and manager web resources',async t=>{
-  const {cp,unlink,writeFile}=await import('node:fs/promises');
+  const {cp,unlink,writeFile,mkdir}=await import('node:fs/promises');
   const dir=await mkdtemp(join(tmpdir(),'aw-platform-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});await cp(join(root,'prompts'),join(dir,'prompts'),{recursive:true});
   const run=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs')],{cwd:dir,encoding:'utf8'});
   assert.equal(run().status,0);
   const definition=join(dir,'src/plugins/examples/novel.illustrated.json');const original=await readFile(definition);
   await unlink(definition);const missing=run();assert.notEqual(missing.status,0);assert.match(missing.stderr,/novel\.illustrated/);
-  await writeFile(definition,original);await unlink(join(dir,'src/manager/web/app.js'));
-  const web=run();assert.notEqual(web.status,0);assert.match(web.stderr,/app\.js/);
-  await cp(join(root,'src/manager/web/app.js'),join(dir,'src/manager/web/app.js'));
-  for(const name of ['manager','task','task-resume','manager-resume','task-investigation']) {
+  const bundleIndex=join(dir,'src/manager/web-dist/index.html');
+  const script=(await readFile(bundleIndex,'utf8')).match(/src="\/admin\/(assets\/[^\"]+\.js)"/)[1];
+  const bundle='src/manager/web-dist/'+script;
+  await writeFile(definition,original);await unlink(join(dir,bundle));
+  const web=run();assert.notEqual(web.status,0);assert.ok(web.stderr.includes(script));
+  await cp(join(root,bundle),join(dir,bundle));
+    const manifest=JSON.parse(await readFile(join(dir,'src/manager/web-dist/.vite/manifest.json'),'utf8'));
+    const deferred=Object.values(manifest).find(item=>item.file.includes('ChatPage-')).file;
+    for(const resource of [deferred,deferred+'.gz',deferred+'.br']) {
+      const name='src/manager/web-dist/'+resource;
+      await unlink(join(dir,name));const absent=run();assert.notEqual(absent.status,0);assert.ok(absent.stderr.includes(resource),absent.stderr);
+      await cp(join(root,name),join(dir,name));
+    }
+  for(const name of ['manager','manager-connections','manager-project','task','task-resume','manager-resume','task-investigation']) {
     const file=join(dir,'prompts',name+'.md'),text=await readFile(file);
-    await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes('prompts/'+name+'.md'),missingPrompt.stderr);
+    await unlink(file);const missingPrompt=run();assert.notEqual(missingPrompt.status,0);assert.ok(missingPrompt.stderr.includes(join('prompts',name+'.md')),missingPrompt.stderr);
     await writeFile(file,text);
   }
   assert.equal(run().status,0);
+  await mkdir(join(dir,'src/manager/web'));
+  await writeFile(join(dir,'src/manager/web','leftover.css'),'body { color: red; }');
+  const obsolete=run();assert.notEqual(obsolete.status,0);assert.match(obsolete.stderr,/Obsolete Admin source directory/);
 });
 
 test("release ignore rules retain Codex source modules and exclude runtime authentication", async (t) => {

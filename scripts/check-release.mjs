@@ -56,7 +56,28 @@ async function walk(directory) {
 }
 try {
   if (await exists('src/main-manager.mjs'))
-    for (const resource of ['src/manager/web/index.html','src/manager/web/app.js','src/manager/web/style.css','src/manager/web/favicon.svg'])await requireFile(resource);
+    {
+      const index='src/manager/web-dist/index.html';
+      for(const resource of [index,'src/manager/web-dist/favicon.svg','src/manager/web-dist/third-party-notices.md'])await requireFile(resource);
+      const html=await readFile(join(root,index),'utf8');
+      const assets=[...html.matchAll(/(?:src|href)=["']\/admin\/(assets\/[^"']+)["']/g)].map(match=>match[1]);
+      if(!assets.some(path=>path.endsWith('.js'))||!assets.some(path=>path.endsWith('.css')))throw new Error('Missing bundled Admin JS/CSS references');
+      for(const asset of assets)await requireFile('src/manager/web-dist/'+asset);
+      const manifestPath='src/manager/web-dist/.vite/manifest.json';
+      await requireFile(manifestPath);
+      const manifest=JSON.parse(await readFile(join(root,manifestPath),'utf8'));
+      for(const item of Object.values(manifest)) {
+        for(const key of [...item.imports??[],...item.dynamicImports??[]])
+          if(!manifest[key])throw new Error(`Missing Admin manifest dependency: ${key}`);
+        for(const resource of [item.file,...item.css??[],...item.assets??[]]) {
+          if(!/^assets\/[a-zA-Z0-9_-]+\.(?:js|css)$/.test(resource))throw new Error(`Invalid Admin manifest resource: ${resource}`);
+          await requireFile('src/manager/web-dist/'+resource);
+          for(const suffix of ['.gz','.br'])await requireFile('src/manager/web-dist/'+resource+suffix);
+        }
+      }
+      const legacy=await stat(join(root,'src/manager/web')).catch(error=>{if(error.code!=='ENOENT')throw error;});
+      if(legacy)throw new Error('Obsolete Admin source directory remains: src/manager/web');
+    }
   if (await exists('src/application.mjs'))
     for (const resource of ['src/plugins/examples/content.review.json','src/plugins/examples/novel.illustrated.json'])await requireFile(resource);
   await walk(join(root, "src"));

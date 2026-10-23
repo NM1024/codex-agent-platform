@@ -25,7 +25,7 @@ export class ConfigurationStore {
       const descriptor={...scope,check:ajv.compile(scope.schema)};this.scopes.set(scope.name,descriptor);
       const key='configuration:'+scope.name;
       if(!db.prepare('SELECT 1 FROM platform_settings WHERE key=?').get(key)) {
-        const values=structuredClone(scope.defaults);this.validate(descriptor,values,{initial:true});
+        const values=structuredClone(typeof scope.defaults==='function'?scope.defaults():scope.defaults);this.validate(descriptor,values,{initial:true});
         db.prepare('INSERT INTO platform_settings VALUES(?,?)').run(key,JSON.stringify({values,revision:0,updated_at:Date.now(),...(scope.initialError?{bootstrap_error:scope.initialError}:{})}));
       }
       const record=this.record(scope.name);this.validate(descriptor,record.values,{initial:true});scope.apply?.(structuredClone(record.values),{initial:true,revision:record.revision,bootstrapError:record.bootstrap_error});
@@ -43,14 +43,17 @@ export class ConfigurationStore {
     if(!scope.check(values)) {const error=scope.check.errors[0];throw new HttpError(400,'INVALID_CONFIGURATION',`${error.instancePath || '/'} ${error.message}`);}
     scope.validate?.(values,context);
   }
-  update(name,patch) {
+  update(name,patch,{revision}={}) {
     const scope=this.descriptor(name);
     if(!patch||typeof patch!=='object'||Array.isArray(patch))throw new HttpError(400,'INVALID_CONFIGURATION','配置修改须为 JSON 对象。');
-    const previous=this.record(name),values=preserveSecrets({...previous.values,...patch},previous.values,scope.schema);
+    const previous=this.record(name);
+    if((scope.requireRevision||revision!==undefined)&&(!Number.isSafeInteger(revision)||revision!==previous.revision))throw new HttpError(409,'CONFIGURATION_REVISION_CONFLICT','配置已被其他操作更新，请重新读取后再保存。');
+    const values=preserveSecrets({...previous.values,...patch},previous.values,scope.schema);
     this.validate(scope,values);
     this.db.exec('SAVEPOINT configuration_update');
     try {
-      this.db.prepare('UPDATE platform_settings SET value=? WHERE key=?').run(JSON.stringify({values,revision:previous.revision+1,updated_at:Date.now()}),'configuration:'+name);
+      const changed=this.db.prepare("UPDATE platform_settings SET value=? WHERE key=? AND json_extract(value,'$.revision')=?").run(JSON.stringify({values,revision:previous.revision+1,updated_at:Date.now()}),'configuration:'+name,previous.revision).changes;
+      if(!changed)throw new HttpError(409,'CONFIGURATION_REVISION_CONFLICT','配置已被其他操作更新，请重新读取后再保存。');
       scope.apply?.(structuredClone(values));this.db.exec('RELEASE configuration_update');
     }catch(error){this.db.exec('ROLLBACK TO configuration_update; RELEASE configuration_update');throw error;}
     return this.get(name);

@@ -32,15 +32,15 @@ This self-hosted platform is for developers and small, trusted teams that want t
 
 For example, a content system sends an article and review criteria. The Agent reviews it, then submits an approval decision and reasons. Your application consumes that JSON result without parsing a conversational reply.
 
-The current release assumes one operator or a trusted team sharing administrative access and an API credential. It does not provide separate customer accounts, tenant isolation, role-based access control or customer billing. Plan a separate access layer before serving unrelated users.
+The current release assumes one operator or a trusted team sharing administrative access. Each plugin has its own API entry key; that key can access only that plugin's tasks and artifacts. It does not provide separate customer accounts, tenant isolation, role-based access control or customer billing. Plan a separate access layer before serving unrelated users.
 
 ## What it does
 
 - **Runs a complete task autonomously.** Normal execution sends one full task message to one independent Codex conversation. The Agent chooses its steps, uses the permitted tools and submits its final result through `complete_task`.
 - **Makes the input and output predictable.** A plugin declares its input fields, instructions, available capabilities and result schema. The service checks submitted data against that contract.
 - **Keeps work and results on record.** Tasks have durable status, errors, execution details and downloadable image/text artifacts.
-- **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations.
-- **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts, API credentials, HTTP destinations and management instructions are persisted and configurable.
+- **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations. Management replies stream into assistant bubbles with collapsible activity and connection recovery; ended chat history can be deleted from its sidebar.
+- **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts and management instructions are persisted and configurable. Humans configure each plugin's entry and optional callback connection in Admin.
 - **Resumes incomplete work after a restart.** Recovery uses the existing task and Codex thread when their saved state is available. It may send an additional continuation message; completed or failed tasks do not automatically run again.
 
 ```mermaid
@@ -90,9 +90,9 @@ cd codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
 
-`init` creates two distinct random tokens, an independent initial Admin password and persistent data directories. It does not sign in, build images or run a model. Repeating it retains existing configuration and data.
+`init` creates the internal `RUNNER_TOKEN`, an independent initial Admin password and persistent data directories. It does not sign in, build images or run a model. Repeating it retains existing configuration and data.
 
-Before first start, review `/data/codex-agent-platform/.env` locally. The generated defaults are enough for the bundled text example; no callback URL is required. Never use `.env.example` placeholder credentials in a deployment.
+Before first start, review `/data/codex-agent-platform/.env` locally. After opening Admin, configure a plugin's entry address and entry key before enabling it or submitting work. A callback URL is optional. Never use `.env.example` placeholder credentials in a deployment.
 
 ### 2. Build the three service images
 
@@ -132,7 +132,7 @@ curl -sS http://127.0.0.1:3004/healthz
 curl -sS 'http://127.0.0.1:3004/readyz?type=content.review'
 ```
 
-`start` uses the images already built. `/healthz` should return `{"alive":true}`. A successful readiness response includes `"ready":true`; otherwise read `reason` and the [troubleshooting table](#troubleshooting). Liveness, account readiness and successful completion of a real task are different checks.
+`start` uses the images already built. `/healthz` should return `{"alive":true}`. A successful readiness response includes `"ready":true`; otherwise read `reason` and the [troubleshooting table](#troubleshooting). New plugins require human connection configuration before they become ready. Liveness, account readiness and successful completion of a real task are different checks.
 
 ### 5. Open Admin and change the initial password
 
@@ -148,7 +148,7 @@ On **your own computer**, keep this SSH tunnel open:
 ssh -N -L 3007:127.0.0.1:3007 user@your-server
 ```
 
-Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Admin password** and set a new Admin password. Password changes sign out existing web sessions. The initial-password file does not override a password already saved in the Manager database.
+Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Security & sign-in → Admin password** and enter your current password and a new password. Successful changes sign out every web session; an incorrect current password leaves sessions active. The initial-password file does not override a password already saved in the Manager database.
 
 A public domain, HTTPS certificates and the external access gateway are managed by the deployment operator using their own infrastructure. This tutorial uses private SSH access. Keep internal service ports private; connection requirements for an existing gateway are described in the [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access).
 
@@ -158,12 +158,14 @@ This step starts real model work and uses your account's allowance. Start with o
 
 ### 1. Submit
 
-Read the current `INGRESS_TOKEN` value from your runtime `.env` privately, or use the value you subsequently saved in Admin. Run this in Bash **on the server** and paste only that token at the hidden prompt:
+In Admin, open **Business plugins → content.review → Configure connection**. Keep the generated `/hooks/content/review` entry path or enter your public HTTP(S) URL with a `/hooks/...` path. Generate an entry key and copy it to your application's private configuration before saving: the platform will not display the saved key again. Save the connection, then enable the plugin separately. Alternatively, ask the management Agent to initialize missing entry credentials with plugin_connection_initialize, then use Claim entry key in the same modal and copy it once. The Agent sees the entry address and status but never the key. Unclaimed keys cannot authenticate or enable the plugin; existing keys are never rotated by initialization. Missing entry configuration blocks API submissions, trials and schedules.
+
+Run this in Bash **on the server** and paste that plugin's key at the hidden prompt:
 
 ```bash
-read -r -s -p 'Ingress token: ' INGRESS_TOKEN; printf '\n'
+read -r -s -p 'Plugin entry key: ' PLUGIN_ENTRY_KEY; printf '\n'
 curl --fail-with-body -sS http://127.0.0.1:3004/v2/tasks \
-  -H "Authorization: Bearer $INGRESS_TOKEN" \
+  -H "Authorization: Bearer $PLUGIN_ENTRY_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"type":"content.review","request_id":"review-demo-1","input":{"content":"Our support team answers every message within one minute.","criteria":"Identify claims that need evidence. Explain your decision."}}'
 ```
@@ -177,8 +179,8 @@ In the same terminal, replace the placeholder below with that ID:
 ```bash
 TASK_ID='replace-with-returned-task-id'
 curl --fail-with-body -sS "http://127.0.0.1:3004/v2/tasks/$TASK_ID" \
-  -H "Authorization: Bearer $INGRESS_TOKEN"
-unset INGRESS_TOKEN TASK_ID
+  -H "Authorization: Bearer $PLUGIN_ENTRY_KEY"
+unset PLUGIN_ENTRY_KEY TASK_ID
 ```
 
 Repeat the query if the task is still queued or running; do not resubmit the POST just to check progress. Admin's **Task history** shows the same task and its details.
@@ -196,25 +198,39 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 ### 3. Try other capabilities
 
-- For the image example, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
+- For the image example, configure and enable `novel.illustrated` with its own entry key, check `/readyz?type=novel.illustrated`, then submit type `novel.illustrated` with input such as `{"premise":"A lighthouse keeper finds a letter from tomorrow.","chapters":1}`. Actual execution may still reveal account or model limitations. Image work usually takes longer and uses more allowance than a short text trial.
 - Download an artifact through `GET /v2/tasks/{task_id}/artifacts/{artifact_id}` with API authentication, or open it in Admin.
-- For final-result callbacks, configure a named HTTP destination in **Settings**, then choose it in the plugin's delivery configuration. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
+- For final-result callbacks, enter that plugin's callback URL and optional receiver Bearer token in **Configure connection**. A callback includes result and artifact metadata; it does not embed image files. See [plugins and delivery](docs/PLUGINS.md#result-and-delivery).
 
 ## Add your own work and schedules
 
-In **Business plugins**, create a JSON definition with its input fields, complete task instructions, result format and permitted tools. Validate and save it, then submit a small trial. Existing examples are starting points; do not add secrets to instructions or input.
+Model and reasoning selectors are available in **Settings** and above the **Management chat** composer. Ask the management Agent to configure a plugin's model and reasoning effort. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
 
-You can also ask the management Agent in **Management chat**, for example:
+**Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
+
+The trash icon logically deletes a plugin after confirmation: it leaves the active list, rejects new tasks/retries and disables its linked task schedules. Accepted tasks continue with their saved contracts; history, results, callbacks and scoped historical key access remain. This does not erase credentials or free the plugin type/entry path for reuse. There is currently no restore control. Management chat can perform the same explicit deletion with `plugin_delete`.
+
+For example:
 
 > Create a text summary plugin. Accept a `text` field and return `summary` and `key_points`. Use no image generation or external HTTP tools. Save the plugin and tell me its request format; do not run a trial yet.
 
 The Agent can configure existing capabilities; it cannot implement a missing tool. Review the saved definition and use a trial before connecting it to a real system. A plugin's instructions and result contract are retained for accepted tasks; later edits apply to new requests.
 
-For scheduled work, use **Schedules**. Choose a task or a management inspection, supply a five-field cron expression and an explicit timezone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
+**Schedules** displays plans, their time zones, next-run times and details, with direct enable/disable switches. Ask the management Agent to create or edit plans; specify the task or inspection, frequency and time zone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
+
+The trash icon (or management `schedule_delete`) logically deletes a schedule, stops future triggers and cancels queued inspections not yet claimed by Manager. Already claimed inspections, accepted business tasks and their histories remain. The schedule ID stays reserved; saving an old definition cannot restore it.
+
+**Settings → HTTP targets** manages websites and APIs that a business Agent may request through `http_request`. Add a target name (for example `health_check`), URL, timeout and optional Bearer credential using the form, or ask management chat to configure the name/URL. Stored credentials never appear in reads; leave the credential field blank to keep it or select Clear to remove it. Changes apply to the next tool call without restarting services, and saving does not send a request. This is separate from plugin entry addresses and result callbacks. The live `http_targets` configuration group requires the latest revision when saving; concurrent edits return a conflict. `PLATFORM_HTTP_TARGETS_JSON` only initializes the new group, and retired `http` settings remain unused.
+
+Management chat preserves each public assistant message when a final result arrives. When the Agent uses native clarification, answer its choice/free-text card to continue the same turn; no new task is created. Draft answers survive chat/page navigation, and unanswered cards expire when their turn ends or is interrupted. Waiting still counts toward the configured execution timeout. Keep credentials in their dedicated settings, out of clarification answers.
+
+Management chat shows each message's queued, running, recovering and terminal state. Messages in one conversation execute in order; additional messages can queue while a turn is active. Collapsed activity records show available public reasoning summaries, Agent progress and tool lifecycle status. Missing upstream summaries are not replaced with invented reasoning. Replies can be copied as Markdown, and fenced code has its own copy control.
+
+Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into chat. Preview or remove them before sending. Each message supports up to four images; the browser compresses each to at most 160 KiB and a 2048px longest edge to fit the default 1 MiB request limit. Source images above 20 MiB or 40 million pixels must be resized first. Images persist privately with the Manager message and are sent as model input for that turn; upload only data you are authorized to process.
 
 ## Daily operation
 
-- **Start small.** Default task concurrency is `1`. Increase gradually after measuring task duration, account limits and disk use. A request containing several items still has one root conversation; the Agent can use permitted internal collaboration.
+- **Start small.** New installations default to `5` simultaneous business tasks across all plugins. Explicit or previously saved values are retained on upgrade; adjust **Settings → Business execution → Concurrency** to change an existing deployment. For a cautious trial, select `1` and increase after measuring task duration, account limits and disk use. A request containing several items still has one root conversation; the Agent can use permitted internal collaboration.
 - **Use pause for maintenance.** Pausing stops new dispatches while accepted requests queue up and current work continues. Inspect active tasks before a restart. Restore service access and saved files so incomplete conversations can resume.
 - **Change ordinary settings in Admin or management MCP.** Saved values override initial `.env` defaults. Active execution keeps its launch settings; later work uses updated model/timeouts. Ports, mounts, runtime paths and internal credentials need deployment changes.
 - **Treat retries as new work.** An explicit retry creates a related new task and preserves the old record. It may repeat model calls or external effects. An `unknown` delivery outcome needs investigation before another attempt.
@@ -234,9 +250,13 @@ For upgrades, back up first, fetch the intended release, build it, then start it
 
 Platform-owned system instructions and message templates live in [`prompts/`](prompts/README.md), with an index explaining each file, its placeholders and how changes take effect. They use plain Markdown and do not require bilingual copies. You can translate or adapt the wording without searching application code; Admin language selection does not rewrite prompts.
 
-For an existing deployment, change the management Agent's instructions under **Settings → Management Agent → Manager instructions**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
+For an existing deployment, ask the management Agent to update the `manager` scope's `instructions` through `configuration_update`; the current value is viewable in **Settings**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
 
 Business plugin `instructions` stay in plugin configuration. Users and the management Agent create and edit those through the plugin tools; they are separate from platform system prompts.
+
+Use **Business plugins → Integration docs** for a plugin's request fields, result schema, asynchronous task protocol, polling/artifact APIs, callback contract and examples. The document follows saved configuration, supports copy/Markdown download, and excludes connection credentials. Ask the management Agent to add field `description` and valid `examples` annotations when business meaning is missing.
+
+Versioned project operating rules and the plugin connection credential policy are appended to every management start/resume, including existing customized conversations. They cover task lifecycle, capabilities, model inheritance, schedules and deployment boundaries. The Agent queries tools for current settings and schemas; it does not automatically read the repository README. Update these fixed rules alongside later platform behavior changes.
 
 ## Security risks and recommendations
 
@@ -253,7 +273,7 @@ Business plugin `instructions` stay in plugin configuration. Users and the manag
 
 The containers run as a non-root user with read-only root filesystems and no Docker socket. Tool policy restricts arbitrary shell, file editing and unrelated tools. These are useful boundaries, not a security audit or strong isolation between hostile tenants. Docker operators and server administrators remain trusted.
 
-Admin password, API ingress token, internal `RUNNER_TOKEN` and ChatGPT login are different credentials. Changing one does not revoke the others. Put secrets into the relevant private configuration fields, not management chat messages; chat history and task records are persistent. If a credential leaks, revoke or rotate the affected credential and investigate its use. See [SECURITY.md](SECURITY.md) for reporting issues privately.
+Admin password, per-plugin entry keys, callback receiver tokens, internal `RUNNER_TOKEN` and ChatGPT login are different credentials. Changing one does not revoke the others. Entry keys are stored as hashes; callback tokens are stored privately and are write-only in Admin. Put secrets into the relevant private configuration fields, not management chat messages; chat history and task records are persistent. If a credential leaks, revoke or rotate the affected credential and investigate its use. See [SECURITY.md](SECURITY.md) for reporting issues privately.
 
 ## Troubleshooting
 
@@ -283,7 +303,7 @@ npm test
 npm run check:release
 ```
 
-Current checks pass 185 host tests and 15 browser checks, including Chinese/English switching, desktop/mobile workflows and system prompt loading. CI also builds all four release images and runs the isolated container suite. The initial snapshot also passed isolated Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
+The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. Validation covers 203 platform/deployment checks and 32 browser checks, including Chinese/English switching, desktop/mobile workflows, model selection and CSP. CI builds all four release targets. These checks use synthetic data and fake Codex transports; see [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration) for the exact commands and Docker coverage.
 
 | Document | Purpose |
 | --- | --- |

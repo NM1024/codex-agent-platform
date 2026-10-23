@@ -3,6 +3,16 @@ import { requireAuth, readJson, json, errorResponse } from "./http.mjs";
 import { fault } from "./core/registry.mjs";
 import { createMcpHandler } from "./mcp/server.mjs";
 import {taskArtifacts} from "./core/task-results.mjs";
+import {HttpError} from './errors.mjs';
+
+function pluginPrincipal(req,connections) {
+  const headers=[];
+  for(let i=0;i<req.rawHeaders.length;i+=2)if(req.rawHeaders[i].toLowerCase()==='authorization')headers.push(req.rawHeaders[i+1]);
+  const token=headers.length===1?headers[0].match(/^Bearer ([A-Za-z0-9._~+/=-]+)$/)?.[1]:null;
+  const type=token&&connections.authenticate(token);
+  if(!type)throw new HttpError(401,'UNAUTHORIZED','认证失败。');
+  return type;
+}
 
 async function sendArtifact(res,store,registry,config,taskId,artifactId) {
   const row=store.raw(taskId);if(!row||!registry.catalog.readArtifact)throw fault('NOT_FOUND',404);
@@ -46,25 +56,31 @@ export function createTaskApi({
           ),
         });
       }
-      requireAuth(req, config.ingressToken);
+      const connections=store.pluginConnections;
+      const principal=connections?pluginPrincipal(req,connections):null;
+      if(!connections)requireAuth(req,config.ingressToken);
+      const ownsTask=id=>connections?store.raw(id)?.type===principal:!!store.get(id,client);
       const artifactPath=path.match(/^\/v2\/tasks\/([a-f0-9-]{36})\/artifacts\/([a-f0-9-]{36})$/);
       if (req.method==='GET' && artifactPath) {
-        if (!store.get(artifactPath[1],client) || !registry.catalog.readArtifact) throw fault('NOT_FOUND',404);
+        if (!ownsTask(artifactPath[1]) || !registry.catalog.readArtifact) throw fault('NOT_FOUND',404);
         return await sendArtifact(res,store,registry,config,artifactPath[1],artifactPath[2]);
       }
       if (req.method === "POST" && path === "/v2/tasks") {
-        const task = store.accept(client, await readJson(req));
+        const body=await readJson(req);
+        if(connections&&body?.type!==principal)throw new HttpError(403,'PLUGIN_SCOPE_DENIED','该密钥只能调用所属业务插件。');
+        const task = store.accept(connections?'plugin:'+principal:client,body);
         void dispatcher.drain();
         return json(res, 202, task);
       }
-      const routed=registry.routeFor(path);
+      const routed=connections?(()=>{const type=connections.forPath(path);return type?{type}:null;})():registry.routeFor(path);
       if (req.method==='POST' && routed) {
+        if(connections&&routed.type!==principal)throw new HttpError(403,'PLUGIN_SCOPE_DENIED','该密钥只能调用所属业务插件。');
         const body=await readJson(req);
         if (!body || Object.keys(body).some(key=>!['request_id','input'].includes(key))) throw fault('INVALID_INPUT',400);
-        const task=store.accept(client,{...body,type:routed.type});void dispatcher.drain();return json(res,202,task);
+        const task=store.accept(connections?'plugin:'+principal:client,{...body,type:routed.type});void dispatcher.drain();return json(res,202,task);
       }
       if (req.method === "GET" && /^\/v2\/tasks\/[a-f0-9-]{36}$/.test(path)) {
-        const task = store.get(path.split("/").at(-1), client);
+        const id=path.split('/').at(-1),task=ownsTask(id)?store.get(id,connections?undefined:client):null;
         if (!task) throw fault("NOT_FOUND", 404);
         const reason = dispatcher.blocked.get(task.task_id);
         return json(res, 200, {
@@ -73,7 +89,7 @@ export function createTaskApi({
           ...(reason ? { blocked_reason: reason } : {}),
         });
       }
-      for (const module of registry.modules.values())
+      for (const module of connections?[]:registry.modules.values())
         if (await module.routes?.({ req, res, url, store, dispatcher, config, client })) return;
       throw fault("NOT_FOUND", 404);
     } catch (error) {
@@ -100,6 +116,13 @@ export function createPrivateApi({
     if (path === "/mcp") return mcp(req, res);
     try {
       requireAuth(req, config.runnerToken);
+      const keyClaim=path.match(/^\/internal\/plugin-connections\/([^/]+)\/entry-key\/claim$/);
+      if(keyClaim&&req.method==='POST'&&store.pluginConnections)return json(res,200,store.pluginConnections.claimEntryKey(decodeURIComponent(keyClaim[1]),await readJson(req)));
+      const connection=path.match(/^\/internal\/plugin-connections\/([^/]+)$/);
+      if(connection&&(req.method==='GET'||req.method==='POST')&&store.pluginConnections){
+        const type=decodeURIComponent(connection[1]);
+        return json(res,200,req.method==='POST'?store.pluginConnections.update(type,await readJson(req)):store.pluginConnections.get(type));
+      }
       const artifact=path.match(/^\/internal\/artifacts\/([a-f0-9-]{36})\/([a-f0-9-]{36})$/);
       if(req.method==='GET'&&artifact)return await sendArtifact(res,store,registry,config,artifact[1],artifact[2]);
       if (path==='/internal/admin' && req.method==='POST' && operations) {

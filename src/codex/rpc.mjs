@@ -37,6 +37,8 @@ export class CodexRpcClient {
     this.nextId = 1;
     this.pending = new Map();
     this.listeners = new Set();
+    this.serverHandlers = new Map();
+    this.serverPending = new Map();
     this.buffer = "";
     this.closed = false;
     this.process = spawn(command, args, {
@@ -71,7 +73,20 @@ export class CodexRpcClient {
         return;
       }
       if (msg.method) {
+        if(msg.method==='serverRequest/resolved')this.serverPending.delete(msg.params?.requestId);
         if (msg.id !== undefined) {
+          const handler=this.serverHandlers.get(msg.method);
+          if(handler) {
+            if(this.serverPending.has(msg.id)||this.serverPending.size>=20){this.fail('CODEX_PROTOCOL');this.process?.kill();return;}
+            const entry={};this.serverPending.set(msg.id,entry);
+            Promise.resolve().then(()=>handler(msg.params??{},msg.id)).then(result=>{
+              if(this.closed||this.serverPending.get(msg.id)!==entry)return;
+              this.serverPending.delete(msg.id);this.send({id:msg.id,result});
+            }).catch(()=>{
+              if(this.closed||this.serverPending.get(msg.id)!==entry)return;
+              this.serverPending.delete(msg.id);this.send({id:msg.id,error:{code:-32602,message:'User input request unavailable'}});
+            });
+          }else {
           // Never grant shell, filesystem or external tool approvals.
           const result = msg.method.endsWith("/requestApproval")
             ? { decision: "decline" }
@@ -87,6 +102,7 @@ export class CodexRpcClient {
                   },
                 },
           );
+          }
         }
         for (const listener of this.listeners) {
           try {
@@ -113,6 +129,13 @@ export class CodexRpcClient {
   send(message) {
     if (this.closed) throw new Error("CODEX_EXIT");
     this.process.stdin.write(JSON.stringify(message) + "\n");
+  }
+  handleServerRequest(method,handler) {
+    // Clarification is the sole extensible server request. Approval/tool execution
+    // requests keep their fail-closed transport behavior.
+    if(method!=='item/tool/requestUserInput'||typeof handler!=='function')throw new Error('UNSUPPORTED_SERVER_HANDLER');
+    this.serverHandlers.set(method,handler);
+    return ()=>this.serverHandlers.delete(method);
   }
   request(method, params = {}, timeoutMs = this.timeoutMs) {
     if (this.closed) return Promise.reject(new Error("CODEX_EXIT"));
@@ -146,6 +169,7 @@ export class CodexRpcClient {
       p.reject(new Error(code));
     }
     this.pending.clear();
+    this.serverPending.clear();
     for (const listener of this.listeners) {
       try {
         listener({ method: "transport/closed", params: { code } });

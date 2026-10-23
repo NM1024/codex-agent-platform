@@ -4,6 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {configurePlugin} from './helpers/plugin-connections.mjs';
 
 async function storage() {
   const loaded=await import('../src/configuration/store.mjs').catch(()=>({}));
@@ -41,6 +42,7 @@ async function application(t,extra={}) {
   const [{createApplication},{RequestStore}]=await Promise.all([import('../src/application.mjs'),import('../src/core/store.mjs')]);
   const app=createApplication('gateway',{INGRESS_TOKEN:'initial-ingress',RUNNER_TOKEN:'internal-secret',WORKSPACE_DIR:root,...extra});
   const store=new RequestStore(':memory:',{registry:app.registry});t.after(()=>store.close());
+  for(const plugin of store.plugins.list())configurePlugin(store,plugin.type);
   assert.equal(typeof app.configuration,'function','application installs module-owned live configuration');return {...app,store};
 }
 test('execution config imports legacy runtime settings and applies queue and admission changes',async t=>{
@@ -49,19 +51,20 @@ test('execution config imports legacy runtime settings and applies queue and adm
   settings.update('execution',{model:'gpt-6.1-sol',queueLimit:1,taskTimeoutMs:10000,toolTimeoutMs:2000});
   app.store.accept('default',{type:'content.review',request_id:'one',input:{content:'one'}});
   assert.throws(()=>app.store.accept('default',{type:'content.review',request_id:'two',input:{content:'two'}}),error=>error.code==='QUEUE_FULL');
-  settings.update('access',{ingressToken:'new-ingress'});assert.equal(app.config.ingressToken,'new-ingress');
-  assert.throws(()=>settings.update('access',{ingressToken:'internal-secret'}),error=>error.code==='INVALID_CONFIGURATION');
-  assert.ok(!JSON.stringify(settings.list()).includes('new-ingress'));
+  app.store.pluginConnections.update('content.review',{entryKey:'new-human-plugin-entry-key-123456'});
+  assert.equal(app.store.pluginConnections.authenticate('new-human-plugin-entry-key-123456'),'content.review');
+  assert.throws(()=>settings.update('access',{ingressToken:'forbidden-global-key'}));
+  assert.ok(!JSON.stringify(settings.list()).includes('new-human-plugin-entry-key-123456'));
 });
 
 test('a saved HTTP target edit is used by an already accepted but unsent callback',async t=>{
   const {createServer}=await import('node:http');const requests=[];
   const server=createServer((req,res)=>{requests.push({url:req.url,authorization:req.headers.authorization});req.resume();res.end('{}');});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
   const app=await application(t),settings=app.configuration(app.store),base=`http://127.0.0.1:${server.address().port}`;
-  settings.update('http',{targets:{test:{url:base+'/old',token:'old-target'}}});
   app.store.plugins.save({type:'test.deliver',name:'交付',instructions:'完成',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'callback_once',target:'test'}});
+  configurePlugin(app.store,'test.deliver',{callbackUrl:base+'/old',callbackToken:'old-target'});
   const task=app.store.accept('default',{type:'test.deliver',request_id:'once',input:{}});await app.store.complete(app.store.claim(task.task_id).run_id,{});
-  settings.update('http',{targets:{test:{url:base+'/new',token:'new-target'}}});
+  app.store.pluginConnections.update('test.deliver',{callbackUrl:base+'/new',callbackToken:'new-target'});
   const {createDeliveryWorker}=await import('../src/delivery/worker.mjs');await createDeliveryWorker({store:app.store,config:app.config})(task.task_id);
   assert.deepEqual(requests,[{url:'/new',authorization:'Bearer new-target'}]);
 });
@@ -73,7 +76,7 @@ test('management saves live execution settings while a disconnected Runner repor
   const changed=await service.execute('configuration_update',{scope:'execution',patch:{concurrency:3,model:'next-model',taskTimeoutMs:9000,toolTimeoutMs:3000}});
   assert.equal(changed.values.model,'next-model');assert.equal(changed.synchronization.runner,'pending');
   assert.equal(app.config.model,'next-model');assert.equal(configuration.read('execution').concurrency,3);
-  assert.ok((await service.execute('configuration_list')).groups.some(item=>item.scope==='http'));
+  assert.ok(!(await service.execute('configuration_list')).groups.some(item=>['http','access'].includes(item.scope)));
 });
 test('new dispatches carry the current execution configuration without resubmitting old tasks',async t=>{
   const app=await application(t),settings=app.configuration(app.store),{Dispatcher}=await import('../src/core/dispatcher.mjs');
@@ -98,11 +101,13 @@ test('rotating external credentials does not break the manager artifact channel'
   app.registry.catalog.readArtifact=async()=>({data:Buffer.from('managed artifact'),mime:'text/plain',filename:'test.txt'});
   const server=createPrivateApi({...app,dispatcher:{completed:async()=>{}},runner:{}});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
   const client=new OperationsClient({url:`http://127.0.0.1:${server.address().port}`,token:app.config.runnerToken,publicUrl:`http://127.0.0.1:${server.address().port}`,ingressToken:'initial-ingress'});
-  settings.update('access',{ingressToken:'rotated-ingress'});
+  app.store.pluginConnections.update('content.review',{entryKey:'rotated-human-entry-key-123456789'});
   const response=await client.artifact(task.task_id,'00000000-0000-4000-8000-000000000001');assert.equal(response.status,200);assert.equal(await response.text(),'managed artifact');
 });
 test('HTTP target names remain ordinary owned entries and removal revokes their use',async t=>{
-  const app=await application(t),settings=app.configuration(app.store);
+  const app=await application(t),{ConfigurationStore}=await import('../src/configuration/store.mjs'),{httpConfiguration}=await import('../src/capabilities/config.mjs');
+  // Exercise the generic capability descriptor privately; it is not installed in production management scopes.
+  const settings=new ConfigurationStore(app.store.db,[httpConfiguration(app.registry.catalog.targets)]);
   settings.update('http',{targets:{['__proto__']:{url:'https://example.invalid/callback',token:'target-secret'}}});
   assert.ok(Object.hasOwn(app.registry.catalog.targets,'__proto__'),'a configured target is an owned entry');
   settings.update('http',{targets:{}});

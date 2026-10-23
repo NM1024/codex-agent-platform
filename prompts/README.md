@@ -9,6 +9,8 @@ These files contain platform-owned instructions and message templates. They have
 | File | Purpose | Variables supplied by the platform |
 | --- | --- | --- |
 | [manager.md](manager.md) | Default system instructions for the management Agent: its role, tool boundaries, configuration, investigations and reporting. Passed as Codex developer instructions. | None |
+| [manager-project.md](manager-project.md) | Current project operating rules appended to every management start/resume, including saved custom instructions: lifecycle, capabilities, model inheritance, schedules, deployment and chat behavior. | `{{default_concurrency}}` |
+| [manager-connections.md](manager-connections.md) | Platform connection policy appended to every management start/resume, including installations with saved custom instructions. Allows backend-only entry initialization with human-only one-time key claims, rotation and callback configuration. | None |
 | [task.md](task.md) | Platform wrapper for a task's initial message. Includes the plugin's own instructions, request data and required result schema. | `{{plugin_instructions}}`, `{{input_json}}`, `{{result_schema_json}}` |
 | [task-resume.md](task-resume.md) | Continue an unfinished task after a service restart in its existing Codex conversation. | None |
 | [manager-resume.md](manager-resume.md) | Continue an interrupted management turn with the recorded actions, so the Agent can inspect their outcomes. | `{{recorded_actions_json}}` |
@@ -20,9 +22,13 @@ These files contain platform-owned instructions and message templates. They have
 
 ### Management Agent instructions
 
-For an **existing installation**, open **Admin → Settings → Management Agent → Manager instructions**, edit the text and save that group. You can paste the contents of `manager.md`, translated or adapted as needed. The next management turn uses the saved instructions; no image rebuild or service restart is needed. The same change is available through `configuration_update` with scope `manager` and patch field `instructions`.
+For an **existing installation**, ask the management Agent to save the desired instructions through `configuration_update` (scope `manager`, patch field `instructions`). Admin Settings shows the current value without a prompt editor. You can supply the contents of `manager.md`, translated or adapted as needed. The next management turn uses the saved instructions; no image rebuild or service restart is needed. The same change is available through `configuration_update` with scope `manager` and patch field `instructions`.
 
 `manager.md` supplies the first-install default and the fallback when an Agent is used without saved configuration. The platform persists that initial default too. Editing the file or upgrading the image **does not replace instructions already stored in the Manager database**, even if you never changed them yourself. This protects operator changes; use Admin to apply a revised prompt to an existing installation.
+
+The separate `manager-project.md` operating rules and `manager-connections.md` policy are always appended to the selected instructions. Rebuilding and upgrading applies both to the next management turn even when custom instructions were saved previously. The Agent does not automatically read this repository's README or source files. It discovers current state, schemas, models and capabilities through management tools; a documented default is not evidence of the deployed setting. Tool authorization and human-only connection endpoints enforce the credential boundary independently of prompt wording.
+
+When platform behavior changes, update the relevant operating rules, tool descriptions/schemas and regression coverage together. Put connection initialization and human-only credential rules in `manager-connections.md` and other current project rules in `manager-project.md`; updating only the README or first-install prompt does not inform an existing installation. Keep the context concise and refer to tool discovery for live data instead of duplicating credentials or mutable configuration.
 
 ### Other platform message templates
 

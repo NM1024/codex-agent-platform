@@ -14,7 +14,7 @@ test('manager configuration and prompt apply locally even when Gateway is unavai
   const available=await operations.execute('configuration_list');assert.equal(available.gateway_unavailable,true);assert.ok(available.groups.some(item=>item.scope==='manager'));
   await assert.rejects(operations.execute('configuration_update',{scope:'manager',patch:{model:''}}),error=>error.code==='INVALID_CONFIGURATION');assert.equal(agent.model,'manager-model');
 });
-test('management MCP can configure its agent and reset Admin password without storing the password in actions',async t=>{
+test('management MCP verifies the current Admin password and keeps both passwords out of history',async t=>{
   const [{createManagerConfiguration},{createManagerOperations},{AdminAuth},{createManagementMcpHandler},{createServer},{Client},{StreamableHTTPClientTransport}]=await Promise.all([
     import('../src/manager/configuration.mjs'),import('../src/manager/operations.mjs'),import('../src/manager/auth.mjs'),import('../src/manager/mcp.mjs'),import('node:http'),import('@modelcontextprotocol/sdk/client/index.js'),import('@modelcontextprotocol/sdk/client/streamableHttp.js')]);
   const store=new ManagerStore(':memory:');t.after(()=>store.close());const auth=new AdminAuth(store.db);await auth.initialize('initial-test-password');const session=await auth.login('initial-test-password');
@@ -23,8 +23,15 @@ test('management MCP can configure its agent and reset Admin password without st
   const server=createServer(createManagementMcpHandler({store,operations,authorize:token=>token==='mcp-test'?conversation.id:null}));await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
   const client=new Client({name:'configuration-test',version:'1'});t.after(()=>client.close());await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.address().port}/mcp`),{requestInit:{headers:{authorization:'Bearer mcp-test'}}}));
   const updated=await client.callTool({name:'configuration_update',arguments:{scope:'manager',patch:{model:'agent-selected-model'}}});assert.ok(!updated.isError,JSON.stringify(updated));assert.equal(agent.model,'agent-selected-model');
-  const reset=await client.callTool({name:'admin_password_set',arguments:{password:'new-admin-test-password'}});assert.ok(!reset.isError,JSON.stringify(reset));assert.equal(auth.authorize({headers:{cookie:'agent_admin='+session.token}}),false);
-  assert.ok(await auth.login('new-admin-test-password'));assert.ok(!JSON.stringify(store.actions(conversation.id)).includes('new-admin-test-password'));
+  const tools=await client.listTools(),passwordTool=tools.tools.find(tool=>tool.name==='admin_password_set');assert.ok(passwordTool.inputSchema.required.includes('currentPassword'));
+  for(const arguments_ of [{password:'new-admin-test-password'},{currentPassword:'incorrect-test-password',password:'new-admin-test-password'}]) {
+    const rejected=await client.callTool({name:'admin_password_set',arguments:arguments_});assert.equal(rejected.isError,true);
+    assert.equal(auth.authorize({headers:{cookie:'agent_admin='+session.token}}),true);
+  }
+  const reset=await client.callTool({name:'admin_password_set',arguments:{currentPassword:'initial-test-password',password:'new-admin-test-password'}});assert.ok(!reset.isError,JSON.stringify(reset));assert.equal(auth.authorize({headers:{cookie:'agent_admin='+session.token}}),false);
+  assert.ok(await auth.login('new-admin-test-password'));
+  const history=JSON.stringify(store.getConversation(conversation.id));
+  for(const secret of ['initial-test-password','incorrect-test-password','new-admin-test-password'])assert.ok(!history.includes(secret));
 });
 test('manager defaults come from the shared prompt file while saved instructions remain authoritative',async t=>{
   const [{createManagerConfiguration},{readSystemPrompt}]=await Promise.all([import('../src/manager/configuration.mjs'),import('../src/prompts.mjs')]);

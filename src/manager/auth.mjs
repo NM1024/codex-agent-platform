@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {HttpError} from '../errors.mjs';
 const derive=promisify(scrypt),digest=value=>createHash('sha256').update(value).digest('hex');
 const unauthorized=()=>new HttpError(401,'UNAUTHORIZED','密码不正确或登录已过期。');
+const currentPasswordInvalid=()=>new HttpError(403,'CURRENT_PASSWORD_INVALID','当前密码不正确。');
 export class AdminAuth {
   constructor(db) {
     this.db=db;this.sessionTtlMs=43200000;
@@ -41,5 +42,19 @@ export class AdminAuth {
     this.db.exec('SAVEPOINT admin_password');
     try {this.db.prepare('UPDATE manager_auth SET salt=?,hash=?,version=version+1 WHERE id=1').run(salt,hash);this.db.exec('DELETE FROM manager_sessions; RELEASE admin_password');}
     catch(error){this.db.exec('ROLLBACK TO admin_password; RELEASE admin_password');throw error;}
+  }
+  async changePassword(currentPassword,password) {
+    if(typeof currentPassword!=='string'||currentPassword.length>1024)throw currentPasswordInvalid();
+    const record=this.db.prepare('SELECT salt,hash,version FROM manager_auth WHERE id=1').get();if(!record)throw currentPasswordInvalid();
+    const currentHash=await derive(currentPassword,record.salt,64);
+    if(!timingSafeEqual(currentHash,Buffer.from(record.hash)))throw currentPasswordInvalid();
+    this.validate(password);const salt=randomBytes(16),hash=await derive(password,salt,64);
+    this.db.exec('SAVEPOINT admin_password');
+    try {
+      // The password verified above must still be current after asynchronous hashing.
+      const updated=this.db.prepare('UPDATE manager_auth SET salt=?,hash=?,version=version+1 WHERE id=1 AND version=?').run(salt,hash,record.version);
+      if(!updated.changes)throw currentPasswordInvalid();
+      this.db.exec('DELETE FROM manager_sessions; RELEASE admin_password');
+    }catch(error){this.db.exec('ROLLBACK TO admin_password; RELEASE admin_password');throw error;}
   }
 }

@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 const navigate = (page, view) => page.locator(`[data-view="${view}"]`).click();
+const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
+const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
+const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
+async function choose(page,selector,value){
+  await page.locator(selector).click();
+  await page.locator('.ant-select-dropdown:visible').getByText(choiceLabel(value),{exact:true}).last().click();
+}
+async function expectChoice(page,selector,value){await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
 async function operation(page, action, args = {}) {
   const response = await page.request.post("/admin/api/operations", {
     data: { action, args },
@@ -13,83 +21,459 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "登录工作台" }).click();
   await expect(page.locator("#workspace")).toBeVisible();
 });
-test("saving a plugin keeps its selected definition and trial input for submission", async ({
-  page,
-}) => {
-  await navigate(page, "plugins");
-  const editor = page.locator("#plugin-editor");
-  await expect(editor).toBeVisible();
-  const definition = JSON.parse(await editor.inputValue());
-  definition.type = "browser.summary";
-  definition.name = "浏览器摘要";
-  definition.instructions = "Summarize and submit the result.";
-  await editor.fill(JSON.stringify(definition));
-  await page.locator("#trial-input").fill('{"content":"Synthetic trial."}');
-  await page.getByRole("button", { name: "校验并保存", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("插件已保存");
-  expect(JSON.parse(await editor.inputValue()).type).toBe("browser.summary");
-  await expect(page.locator("#trial-input")).toHaveValue(
-    '{"content":"Synthetic trial."}',
-  );
-  const submitted = page.waitForResponse(
-    (r) =>
-      r.url().endsWith("/operations") &&
-      r.request().postDataJSON()?.action === "submit_task",
-  );
-  await page.getByRole("button", { name: "提交试运行", exact: true }).click();
-  const response = await submitted;
-  expect(response.status()).toBe(200);
-  const task = await response.json();
-  expect(task.type).toBe("browser.summary");
-  expect(
-    (await operation(page, "task", { task_id: task.task_id })).input.content,
-  ).toBe("Synthetic trial.");
+
+test('header uses the project brand and icons without a refresh control',async({page})=>{
+  await expect(page.locator('.console-brand')).toHaveText('Codex Agent Platform');
+  await expect(page.locator('#refresh')).toHaveCount(0);
+  for(const selector of ['#repository-link','#logout'])await expect(page.locator(selector+' svg')).toBeVisible();
+  await expect(page.locator('.console-header .ant-select-prefix svg')).toBeVisible();
 });
-test("editing a disabled schedule preserves its disabled state", async ({
-  page,
-}) => {
-  await navigate(page, "schedules");
-  // A slow reload used to overwrite text entered immediately after Edit.
-  await page.route("**/admin/api/schedules", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
+
+test('configuration labels and inputs share a row in desktop and phone layouts',async({page})=>{
+  for(const locale of ['zh-CN','en']){
+  await choose(page,'#app-language',locale);
+  for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:844}]){
+    await page.setViewportSize(viewport);await navigate(page,'settings');
+    const input=page.locator('#setting-manager-timeoutMs');await expect(input).toBeVisible();
+    const label=page.locator('label[for="setting-manager-timeoutMs"]');
+    const fieldBox=await input.boundingBox(),labelBox=await label.boundingBox();
+    expect(Math.abs(fieldBox.y-labelBox.y)).toBeLessThan(8);expect(fieldBox.x).toBeGreaterThan(labelBox.x+labelBox.width);
+    expect(fieldBox.width).toBeGreaterThan(100);expect(fieldBox.x+fieldBox.width).toBeLessThanOrEqual(viewport.width-8);
+    await navigate(page,'plugins');await page.getByRole('button',{name:locale==='en'?'Configure connection':'配置接入',exact:true}).first().click();
+    const field=page.locator('#plugin-entry-address');await expect(field).toBeVisible();
+    // Clicking waits for the modal to finish moving and proves the field is usable.
+    await field.click();
+    // Finish dialog zoom before measuring the settled layout across rapid reopenings.
+    await page.getByRole('dialog').screenshot({animations:'disabled'});
+    const {box,caption}=await field.evaluate(element=>({box:element.getBoundingClientRect().toJSON(),caption:document.querySelector('label[for="plugin-entry-address"]').getBoundingClientRect().toJSON()}));
+    expect(Math.abs(box.y-caption.y)).toBeLessThan(8);expect(box.x).toBeGreaterThan(caption.x+caption.width);
+    expect(box.width).toBeGreaterThan(100);expect(box.x+box.width).toBeLessThanOrEqual(viewport.width-8);
+    await page.getByRole('button',{name:locale==='en'?'Cancel':'取消',exact:true}).click();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  }
+});
+
+test('plugin connection modal is human-only, explains fields and generates independent secrets',async({page,context})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write']);
+  const type='browser.connections';
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name:'独立接入测试业务'}});
+  await navigate(page,'plugins');
+  const row=page.getByRole('row').filter({hasText:'独立接入测试业务'});
+  await expect(row.getByRole('switch')).toBeDisabled();
+  await expect(row).toContainText('待配置接入');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await row.getByRole('button',{name:'配置接入',exact:true}).click();
+  const modal=page.getByRole('dialog');await expect(modal).toBeVisible();
+  await expect(modal).toContainText('入口');await expect(modal).toContainText('回调');
+  const defaultPath='/hooks/browser/connections';
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(defaultPath);
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(defaultPath);
+  await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(defaultPath);
+  await modal.locator('.connection-help summary').first().click();
+  await expect(modal).toContainText('Admin 端口不是业务入口');
+  await modal.locator('.connection-help summary').first().click();
+  await expect(modal.locator('.connection-example')).toHaveCount(0);
+  const absolute='https://gateway.example:3004/hooks/browser-absolute';
+  await page.locator('#plugin-entry-address').fill(absolute);
+  await expect(page.locator('#plugin-entry-address')).toHaveValue(absolute);
+  await modal.getByRole('button',{name:'复制调用地址',exact:true}).click();
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(absolute);
+  await modal.getByRole('button',{name:'生成入口密钥',exact:true}).click();
+  const entry=await page.locator('#plugin-entry-key').inputValue();expect(entry.length).toBeGreaterThanOrEqual(32);
+  await page.locator('#plugin-entry-address').fill('/hooks/browser-human-connections');
+  await modal.getByRole('tab',{name:'结果回调',exact:false}).click();
+  await modal.getByRole('switch',{name:'启用结果回调'}).click();
+  await modal.getByRole('button',{name:'生成回调凭证',exact:true}).click();
+  const callback=await page.locator('#plugin-callback-token').inputValue();expect(callback.length).toBeGreaterThanOrEqual(32);expect(callback).not.toBe(entry);
+
+  await page.locator('#plugin-callback-url').fill('https://example.invalid/browser-callback');
+  await modal.getByRole('button',{name:'保存接入配置',exact:true}).click();
+  await expect(modal).toBeHidden();
+  const configured=await (await page.request.get('/admin/api/plugins/'+type+'/connection')).json();
+  expect(configured.entryPath).toBe('/hooks/browser-human-connections');expect(configured.entryKeyConfigured).toBe(true);expect(configured.callbackTokenConfigured).toBe(true);
+  expect(JSON.stringify(configured)).not.toContain(entry);expect(JSON.stringify(configured)).not.toContain(callback);
+  const agentView=JSON.stringify(await operation(page,'plugin_get',{type}));expect(agentView).not.toContain(entry);expect(agentView).not.toContain(callback);expect(agentView).not.toContain('https://example.invalid/browser-callback');
+  await row.getByRole('button',{name:'配置接入',exact:true}).click();
+  await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(page.locator('#plugin-callback-token')).toHaveValue('');
+  await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser-human-connections');
+  await modal.getByRole('button',{name:'取消',exact:true}).click();
+  await choose(page,'#app-language','en');
+  await row.getByRole('button',{name:'Configure connection',exact:true}).click();
+  await modal.locator('.connection-help summary').first().click();
+  await expect(modal).toContainText('The Admin port is not the business entry point');
+  await expect(modal.getByRole('button',{name:'Integration docs',exact:true})).toBeVisible();
+});
+
+test('pending plugins cannot be enabled or trialed before a human configures their connection',async({page})=>{
+  const type='browser.pending';
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name:'等待人工配置的业务'}});
+  await navigate(page,'plugins');
+  const row=page.getByRole('row').filter({hasText:'等待人工配置的业务'});
+  await expect(row).toContainText('待配置接入');await expect(row.getByRole('switch')).toBeDisabled();
+  const enable=await page.request.post('/admin/api/operations',{data:{action:'plugin_enable',args:{type,enabled:true}}});
+  expect(enable.status()).toBe(409);expect((await enable.json()).error.code).toBe('PLUGIN_CONNECTION_NOT_READY');
+  const trial=await page.request.post('/admin/api/operations',{data:{action:'submit_task',args:{type,input:{}}}});
+  expect(trial.status()).toBe(409);expect((await trial.json()).error.code).toBe('PLUGIN_CONNECTION_NOT_READY');
+  const response=await page.request.post('/admin/api/plugins/'+type+'/connection',{data:{entryKey:'synthetic-pending-human-entry-key-0123456789'}});
+  expect(response.ok()).toBeTruthy();
+  await navigate(page,'overview');await navigate(page,'plugins');await expect(row.getByRole('switch')).toBeEnabled();
+  await row.getByRole('switch').click();await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','true');
+});
+
+test('closing or switching connection dialogs clears secrets and ignores a late load from another plugin',async({page})=>{
+  const first='browser.isolation.first',second='browser.isolation.second';
+  for(const [type,name] of [[first,'接入隔离甲'],[second,'接入隔离乙']])await operation(page,'plugin_save',{definition:{...pluginDefinition,type,name}});
+  await navigate(page,'plugins');
+  const firstRow=page.getByRole('row').filter({hasText:'接入隔离甲'}),secondRow=page.getByRole('row').filter({hasText:'接入隔离乙'}),modal=page.getByRole('dialog');
+  await firstRow.getByRole('button',{name:'配置接入',exact:true}).click();
+  await modal.getByRole('button',{name:'生成入口密钥',exact:true}).click();
+  await expect(page.locator('#plugin-entry-key')).not.toHaveValue('');
+  await modal.getByRole('button',{name:'取消',exact:true}).click();
+  const config=await (await page.request.get('/admin/api/plugins/'+first+'/connection')).json();expect(config.entryKeyConfigured).toBe(false);
+  let release,started;
+  const held=new Promise(resolve=>{release=resolve;}),start=new Promise(resolve=>{started=resolve;});
+  await page.route('**/admin/api/plugins/'+first+'/connection',async route=>{started();await held;await route.continue();});
+  try{
+    await firstRow.getByRole('button',{name:'配置接入',exact:true}).click();await start;
+    await modal.getByRole('button',{name:'取消',exact:true}).click();
+    await secondRow.getByRole('button',{name:'配置接入',exact:true}).click();
+    await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser/isolation/second');
+    await expect(page.locator('#plugin-entry-key')).toHaveValue('');await expect(page.locator('#plugin-callback-token')).toHaveValue('');
+    const loaded=page.waitForResponse(response=>response.url().endsWith('/plugins/'+first+'/connection'));
+    release();await loaded;
+    await expect(page.locator('#plugin-entry-address')).toHaveValue('/hooks/browser/isolation/second');
+    await expect(modal).toHaveAccessibleName(/^配置接入：接入隔离乙/);
+  }finally{release();}
+});
+
+test('settings show one category at a time and keep drafts across tabs',async({page})=>{
+  await navigate(page,'settings');await settingsTab(page,'manager');
+  await page.locator('#setting-manager-timeoutMs').fill('7654321');
+  await expect(page.locator('#configuration-execution')).toBeHidden();
+  await settingsTab(page,'execution');await page.locator('#setting-execution-concurrency').fill('3');
+  await expect(page.locator('#configuration-manager')).toBeHidden();
+  await settingsTab(page,'manager');await expect(page.locator('#setting-manager-timeoutMs')).toHaveValue('7654321');
+  await choose(page,'#app-language','en');await expect(page.locator('#setting-manager-timeoutMs')).toHaveValue('7654321');
+  await settingsTab(page,'security');await expect(page.locator('#current-admin-password')).toBeVisible();
+  await expect(page.locator('#configuration-manager')).toBeHidden();
+});
+
+test('password update rejects an incorrect current password without signing out',async({page})=>{
+  await navigate(page,'settings');await settingsTab(page,'security');
+  await page.locator('#current-admin-password').fill('wrong-synthetic-password');
+  await page.locator('#new-admin-password').fill('unused-synthetic-password');
+  await page.locator('#confirm-admin-password').fill('unused-synthetic-password');
+  await page.getByRole('button',{name:'修改 Admin 密码',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('当前密码不正确。');
+  await expect(page.locator('#workspace')).toBeVisible();
+  expect((await page.request.get('/admin/api/session')).status()).toBe(200);
+});
+
+test('chat uses separate bubbles and keeps its composer inside the viewport',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic layout conversation'}})).json();
+  for(let i=0;i<9;i++)await page.request.post('/admin/api/conversations/'+created.id+'/messages',{data:{text:'Synthetic layout message '+i}});
+  await navigate(page,'chat');await expect(page.locator('#messages .message.assistant').last()).toBeVisible();
+  for(const width of [1440,2560,390,768]){
+    await page.setViewportSize({width,height:900});
+    await expect(page.locator('.chat-compose')).toBeInViewport({ratio:1});
+    const transcript=await page.locator('#messages').boundingBox(),composer=await page.locator('.chat-compose').boundingBox();
+    expect(transcript.height).toBeGreaterThan(230);expect(composer.y).toBeGreaterThanOrEqual(transcript.y+transcript.height-2);expect(composer.y+composer.height).toBeLessThanOrEqual(900);
+    const alignment=await page.evaluate(()=>{const user=document.querySelector('.message.user .message-bubble').getBoundingClientRect(),assistant=document.querySelector('.message.assistant .message-bubble').getBoundingClientRect();return {user:user.right,assistant:assistant.left};});
+    expect(alignment.user).toBeGreaterThan(alignment.assistant+150);
+    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollHeight)).toBeLessThanOrEqual(901);
+  }
+  await page.locator('#messages').evaluate(element=>{element.scrollTop=0;});
+  await expect.poll(()=>page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
+  await page.request.post('/admin/api/conversations/'+created.id+'/messages',{data:{text:'Synthetic update while reading older messages'}});
+  await expect(page.locator('#messages .message.user').last()).toContainText('Synthetic update while reading older messages');
+  expect(await page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
+});
+
+test('chat Enter sends once, Shift Enter adds a line and IME Enter does not submit',async({page})=>{
+  await navigate(page,'chat');
+  const input=page.locator('#message-input'),sent=[];
+  page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/messages'))sent.push(request.postDataJSON().text);});
+  await input.fill('输入法候选');await input.dispatchEvent('compositionstart');await input.press('Enter');
+  expect(sent).toEqual([]);await input.dispatchEvent('compositionend');
+  await input.fill('first line');await input.press('Shift+Enter');await input.pressSequentially('second line');
+  await expect(input).toHaveValue('first line\nsecond line');expect(sent).toEqual([]);
+  await input.press('Enter');await expect.poll(()=>sent).toEqual(['first line\nsecond line']);
+  await expect(input).toHaveValue('');
+  await expect(page.locator('#messages .message.user').last()).toContainText('second line');
+});
+
+test('chat failed model saves retain the choice and offer a working retry',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic autosave retry'}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  let failing=true;
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()==='POST'&&failing)await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_SAVE_FAILURE',message:'Synthetic save failure'}}});else await route.continue();
+  });
+  await choose(page,'#chat-model','fixture-fast');await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toBeVisible();
+  await expectChoice(page,'#chat-model','fixture-fast');failing=false;
+  await page.getByRole('button',{name:'保存失败，重试',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toHaveCount(0);
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution.model).toBe('fixture-fast');
+});
+
+test('phone conversation drawer switches chats while the composer stays reachable',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Phone drawer conversation'}})).json();
+  await navigate(page,'chat');await page.getByRole('button',{name:'会话列表',exact:true}).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button',{name:created.title,exact:true}).click();
+  await expect(page.getByRole('dialog')).toBeHidden();await expect(page.locator('.chat-header')).toContainText(created.title);
+  await expect(page.locator('.chat-compose')).toBeInViewport({ratio:1});
+});
+
+test('inherited model option names the global default rather than the override',async({page})=>{
+  await operation(page,'configuration_update',{scope:'manager',patch:{model:'gpt-6.1-sol'}});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic default label',execution:{model:'fixture-fast'}}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  await page.locator('#chat-model').click();
+  await page.locator('.ant-select-dropdown:visible').getByText('默认：Fixture Default',{exact:true}).click();
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});
+});
+
+test('expanded long activity stays scrollable without hiding the phone send button',async({page})=>{
+  await page.setViewportSize({width:390,height:667});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic long activity'}})).json();
+  // This layout fixture supplies a REST-only synthetic action history.
+  await page.route('**/admin/api/conversations/'+created.id+'/events',route=>route.fulfill({status:404,body:'Synthetic polling fallback'}));
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()!=='GET')return route.continue();
+    await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'failed',error:{code:'SYNTHETIC',message:'Synthetic long error '.repeat(15)}}))}});
+  });
+  await navigate(page,'chat');await page.getByRole('button',{name:'执行记录 (8)',exact:true}).click();
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  const panel=page.locator('#actions .ant-collapse-body');
+  await expect.poll(()=>panel.evaluate(element=>element.clientHeight)).toBeLessThanOrEqual(122);
+  expect(await panel.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+});
+
+test('landscape phone keeps send visible with six input lines and expanded activity',async({page})=>{
+  await page.setViewportSize({width:844,height:390});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic landscape'}})).json();
+  await page.route('**/admin/api/conversations/'+created.id+'/events',route=>route.fulfill({status:404,body:'Synthetic polling fallback'}));
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()!=='GET')return route.continue();
+    await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'completed'}))}});
+  });
+  await navigate(page,'chat');await page.locator('#message-input').fill('line1\nline2\nline3\nline4\nline5\nline6');
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  await page.getByRole('button',{name:'执行记录 (8)',exact:true}).click();
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('#message-input')).toHaveValue('');
+});
+
+test('short English phone layouts keep header controls and send inside the viewport',async({page})=>{
+  await choose(page,'#app-language','en');await navigate(page,'chat');
+  for(const viewport of [{width:390,height:568},{width:320,height:568},{width:844,height:390}]){
+    await page.setViewportSize(viewport);await page.locator('#message-input').fill('one\ntwo\nthree\nfour\nfive\nsix');
+    for(const locator of [page.locator('#repository-link'),page.locator('#app-language'),page.locator('#logout')]){
+      await expect(locator).toBeInViewport({ratio:1});
+      const header=await page.locator('.console-header').boundingBox(),box=await locator.boundingBox();
+      expect(box.y).toBeGreaterThanOrEqual(header.y);expect(box.y+box.height).toBeLessThanOrEqual(header.y+header.height);
+    }
+    await expect(page.getByRole('button',{name:'Send',exact:true})).toBeInViewport({ratio:1});
+  }
+});
+
+test('phone task and overview actions fit without horizontal table scrolling',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  for(const language of ['zh-CN','en']){
+    await choose(page,'#app-language',language);
+    for(const view of ['tasks','overview']){
+      await navigate(page,view);await expect(page.locator('#view tbody tr[data-row-key]').first()).toBeVisible();
+      const table=page.locator('#view .ant-table-content').first();
+      expect(await table.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
+      for(const button of await page.locator('#view tbody tr[data-row-key]').first().getByRole('button').all()){
+        const box=await button.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(390);
+      }
+    }
+  }
+});
+
+test('model autosaves remain ordered when leaving and reopening chat',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic navigation ordering'}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  let release,started;const gate=new Promise(resolve=>{release=resolve;}),held=new Promise(resolve=>{started=resolve;});let first=true;
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(first&&route.request().method()==='POST'){first=false;started();await gate;}
     await route.continue();
   });
-  const row = page.locator("tr").filter({ hasText: "每日运行巡检" });
-  await row.getByRole("button", { name: "编辑", exact: true }).click();
-  await page
-    .getByPlaceholder("例如：每天检查运行情况")
-    .fill("每日运行巡检（已调整）");
-  await expect(
-    page.getByRole("heading", { name: "编辑计划", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByPlaceholder("例如：每天检查运行情况")).toHaveValue(
-    "每日运行巡检（已调整）",
-  );
-  await page.getByRole("button", { name: "保存计划", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("定时计划已保存");
-  expect(
-    (await operation(page, "schedules")).find(
-      (p) => p.name === "每日运行巡检（已调整）",
-    ).enabled,
-  ).toBe(false);
+  try {
+    await choose(page,'#chat-model','fixture-fast');await held;
+    await navigate(page,'overview');await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+    await choose(page,'#chat-reasoningEffort','high');
+    // Give the later selection a network round trip while the older save is held.
+    await page.request.get('/admin/api/session');
+    release();
+    await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({reasoningEffort:'high'});
+    await expectChoice(page,'#chat-reasoningEffort','high');
+  }finally{release();}
 });
+
+test('cold login defers other pages and serves compressed scripts',async({browser})=>{
+  const context=await browser.newContext();const page=await context.newPage();
+  try {
+    const scripts=[];page.on('response',response=>{if(/\/admin\/assets\/.*\.js$/.test(response.url()))scripts.push(response);});
+    await page.goto('/admin/');await expect(page.locator('#password')).toBeVisible();
+    expect(scripts.some(response=>/Page-/.test(response.url()))).toBe(false);
+    expect(scripts.reduce((total,response)=>total+Number(response.headers()['content-length']),0)).toBeLessThan(260_000);
+    await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();
+    await expect(page.locator('#view .ant-card').first()).toBeVisible();
+    expect(scripts.some(response=>/OverviewPage-/.test(response.url()))).toBe(true);
+    expect(scripts.some(response=>/(Chat|Settings|Tasks|Plugins|Schedules)Page-/.test(response.url()))).toBe(false);
+    const initialBytes=scripts.reduce((total,response)=>total+Number(response.headers()['content-length']),0);
+    expect(initialBytes).toBeLessThan(350_000);
+    expect(scripts.every(response=>['gzip','br'].includes(response.headers()['content-encoding']))).toBe(true);
+    await navigate(page,'chat');await expect(page.locator('#message-input')).toBeVisible();
+    expect(scripts.some(response=>/ChatPage-/.test(response.url()))).toBe(true);
+  }finally{await context.close();}
+});
+
+test('failed page chunks show a recoverable error instead of a blank console',async({page})=>{
+  await page.route('**/SettingsPage-*.js',route=>route.abort());
+  await navigate(page,'settings');
+  await expect(page.locator('#view [role="alert"]')).toContainText('页面加载失败，请刷新后重试。');
+  await expect(page.locator('#workspace')).toBeVisible();
+  await navigate(page,'plugins');await expect(page.getByText('业务插件配置',{exact:true})).toBeVisible();
+  await page.unroute('**/SettingsPage-*.js');await page.reload();
+  await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
+});
+
+test('production React console loads local Ant Design assets without CSP errors',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  page.on('console',message=>{if(message.type()==='error'&&/Content Security Policy|Refused to apply/i.test(message.text()))errors.push(message.text());});
+  await page.reload();await expect(page.locator('#workspace .ant-layout-header')).toBeVisible();
+  await expect(page.locator('.ant-card').first()).toBeVisible();
+  const scripts=await page.locator('script[src]').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('src')));
+  expect(scripts.every(src=>src.startsWith('/admin/assets/'))).toBe(true);
+  await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
+  await page.screenshot({path:'.tmp/react-admin/screenshots/overview-desktop.png',fullPage:true,animations:'disabled'});
+  await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
+  await page.screenshot({path:'.tmp/react-admin/screenshots/settings-desktop.png',fullPage:true,animations:'disabled'});
+  await page.setViewportSize({width:390,height:844});
+  await navigate(page,'plugins');await expect(page.getByText('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。Agent 可初始化缺失的入口密钥；请点击「配置接入」由管理员领取一次、修改凭证或设置回调，勿将凭证发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。',{exact:true})).toBeVisible();
+  await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
+  await page.screenshot({path:'.tmp/react-admin/screenshots/plugins-mobile.png',fullPage:true,animations:'disabled'});
+  expect(errors,JSON.stringify(await page.locator('style').evaluateAll(nodes=>nodes.filter(node=>!node.nonce).map(node=>node.textContent?.slice(0,500))))).toEqual([]);
+});
+
+const pluginDefinition={type:'browser.summary',name:'用户自己的中文业务',instructions:'业务提示词原样保留',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'},execution:{model:'fixture-fast',reasoningEffort:'low'}};
+test('business plugin configuration is read-only and displays persisted model settings',async({page})=>{
+  await operation(page,'plugin_save',{definition:pluginDefinition});
+  const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push(r.postDataJSON()?.action);});
+  await navigate(page,'plugins');
+  const row=page.getByRole('row').filter({hasText:pluginDefinition.name});
+  await row.getByRole('button',{name:'查看详情',exact:true}).click();
+  await expect(page.locator('#plugin-detail')).toContainText('fixture-fast');
+  await expect(page.locator('#plugin-detail')).toContainText('low');
+  await expect(page.locator('#plugin-detail')).toContainText(pluginDefinition.instructions);
+  await expect(page.locator('#view input, #view textarea, #view .ant-select')).toHaveCount(0);
+  for(const name of ['新建插件','编辑','启用','停用','校验并保存','提交试运行'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
+  expect(writes.every(action=>['configuration_get','models'].includes(action))).toBe(true);
+});
+
+test('management conversations save independent model settings and defaults are selectable',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic model selection'}})).json();
+  await navigate(page,'chat');
+  await expect(page.locator('.chat-header')).toContainText('Synthetic model selection');
+  await choose(page,'#chat-model','fixture-fast');
+  await choose(page,'#chat-reasoningEffort','low');
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({model:'fixture-fast',reasoningEffort:'low'});
+  await expect(page.getByRole('button',{name:'保存对话配置',exact:true})).toHaveCount(0);
+  await navigate(page,'settings');
+  await expect(page.locator('#setting-manager-model')).toHaveAttribute('role','combobox');
+  await settingsTab(page,'execution');
+  await expect(page.locator('#setting-execution-reasoningEffort')).toHaveAttribute('role','combobox');
+});
+
+test('plugin guidance opens the management conversation',async({page})=>{
+  await navigate(page,'plugins');
+  await page.getByRole('button',{name:'前往管理对话',exact:true}).click();
+  await expect(page.locator('#message-input')).toBeVisible();
+});
+
+test('manager model and effort drafts survive language switching and saving another group',async({page})=>{
+  await navigate(page,'settings');
+  await choose(page,'#setting-manager-model','gpt-6.1-sol');
+  await choose(page,'#setting-manager-reasoningEffort','high');
+  await choose(page,'#app-language','en');
+  await expectChoice(page,'#setting-manager-reasoningEffort','high');
+  await settingsTab(page,'execution');
+  await page.locator('#setting-execution-concurrency').fill('2');
+  await page.locator('#configuration-execution').getByRole('button',{name:'Save settings'}).click();
+  await expect(page.getByRole('status')).toContainText('Saved');
+  await settingsTab(page,'manager');
+  await expectChoice(page,'#setting-manager-model','gpt-6.1-sol');
+  await expectChoice(page,'#setting-manager-reasoningEffort','high');
+});
+
+test('unavailable model catalog preserves saved settings and other fields can still be saved',async({page})=>{
+  await operation(page,'configuration_update',{scope:'manager',patch:{model:'saved-unlisted-model',reasoningEffort:'high'}});
+  await page.route('**/admin/api/operations',async route=>{
+    if(route.request().postDataJSON()?.action==='models')await route.fulfill({status:503,json:{error:{code:'MODEL_CATALOG_UNAVAILABLE'}}});
+    else await route.continue();
+  });
+  await navigate(page,'settings');
+  await expectChoice(page,'#setting-manager-model','saved-unlisted-model');
+  await expectChoice(page,'#setting-manager-reasoningEffort','high');
+  await choose(page,'#app-language','en');
+  await expectChoice(page,'#setting-manager-model','saved-unlisted-model');
+  await expectChoice(page,'#setting-manager-reasoningEffort','high');
+  await page.locator('#setting-manager-inspectionIntervalMs').fill('17000');
+  await page.locator('#configuration-manager').getByRole('button',{name:'Save settings'}).click();
+  await expect(page.getByRole('status')).toContainText('Saved');
+  const config=await operation(page,'configuration_get',{scope:'manager'});
+  expect(config.values.model).toBe('saved-unlisted-model');
+  expect(config.values.reasoningEffort).toBe('high');
+});
+test('business plugin details reload after an Agent operation and navigation',async({page})=>{
+  await operation(page,'plugin_save',{definition:pluginDefinition});
+  await navigate(page,'plugins');
+  await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,instructions:'管理 Agent 更新后的说明'}});
+  await navigate(page,'overview');await navigate(page,'plugins');
+  await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
+  await expect(page.locator('#plugin-detail')).toContainText('管理 Agent 更新后的说明');
+});
+test('schedules are read-only and inspection details preserve disabled state',async({page})=>{
+  const mutations=[];page.on('request',request=>{if(request.method()==='POST'&&/^schedule_(save|enable)$/.test(request.postDataJSON()?.action))mutations.push(request.postDataJSON());});
+  await navigate(page,'schedules');
+  await expect(page.getByText('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。',{exact:true})).toBeVisible();
+  const row=page.getByRole('row').filter({hasText:'每日运行巡检'});
+  await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','false');
+  await row.getByRole('button',{name:'查看详情',exact:true}).click();
+  await expect(page.locator('#schedule-detail')).toContainText('检查队列和失败记录');
+  await expect(page.locator('#schedule-detail')).toContainText('Asia/Shanghai');
+  await expect(page.locator('#view input, #view textarea, #view .ant-select')).toHaveCount(0);
+  for(const name of ['编辑','启用','停用','保存计划','新建计划'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
+  expect(mutations).toEqual([]);
+});
+
 test("saving one settings group retains unsaved changes in other groups", async ({
   page,
 }) => {
   await navigate(page, "settings");
+  await settingsTab(page,'execution');
+  await choose(page,"#setting-execution-model","fixture-fast");
+  await settingsTab(page,'manager');
   await page
-    .locator("#setting-execution-model")
-    .fill("browser-execution-model");
-  await page
-    .locator("#setting-manager-instructions")
-    .fill("An unsaved management prompt.");
+    .locator("#setting-manager-timeoutMs")
+    .fill("1234567");
+  await settingsTab(page,'execution');
   await page
     .locator("#configuration-execution")
     .getByRole("button", { name: "保存配置" })
     .click();
   await expect(page.getByRole("status")).toContainText("已保存");
-  await expect(page.locator("#setting-manager-instructions")).toHaveValue(
-    "An unsaved management prompt.",
+  await settingsTab(page,'manager');
+  await expect(page.locator("#setting-manager-timeoutMs")).toHaveValue(
+    "1234567",
   );
   await page
     .locator("#configuration-manager")
@@ -99,14 +483,15 @@ test("saving one settings group retains unsaved changes in other groups", async 
     .poll(
       async () =>
         (await operation(page, "configuration_get", { scope: "manager" }))
-          .values.instructions,
+          .values.timeoutMs,
     )
-    .toBe("An unsaved management prompt.");
+    .toBe(1234567);
 });
 test("all six navigation choices fit on a phone without horizontal page scrolling", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.mobile-navigation')).toBeVisible();
   for (const name of [
     "overview",
     "chat",
@@ -134,14 +519,14 @@ test("task search works with Enter and exposes the caller request identifier", a
   const input = page.getByRole("textbox", { name: "搜索任务" });
   await input.fill("article-review-2026-002");
   await input.press("Enter");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody tr[data-row-key]")).toHaveCount(1);
   await expect(page.locator("tbody")).toContainText("article-review-2026-002");
 });
 test("language can change before login and survives reload", async ({
   page,
 }) => {
   await page.locator("#logout").click();
-  await page.locator("#login-language").selectOption("en");
+  await choose(page,"#login-language","en");
   await expect(
     page.getByRole("heading", { name: "Understand and manage your system." }),
   ).toBeVisible();
@@ -156,90 +541,59 @@ test("language can change before login and survives reload", async ({
 test("language switching preserves plugin data and settings drafts without writes", async ({
   page,
 }) => {
+  await operation(page,'plugin_save',{definition:pluginDefinition});
   await navigate(page, "plugins");
-  const definition = JSON.parse(
-    await page.locator("#plugin-editor").inputValue(),
-  );
-  definition.name = "用户自己的中文业务";
-  definition.instructions = "业务提示词原样保留";
-  const json = JSON.stringify(definition);
-  await page.locator("#plugin-editor").fill(json);
-  await page.locator("#trial-input").fill('{"content":"用户输入"}');
+  await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const json = await page.locator('#plugin-detail pre').textContent();
   const mutations = [];
   page.on("request", (request) => {
     if (request.method() === "POST")
       mutations.push(request.postDataJSON()?.action ?? request.url());
   });
-  await page.locator("#app-language").selectOption("en");
+  await choose(page,"#app-language","en");
   await expect(
     page.getByRole("heading", { name: "Business plugins", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("#plugin-editor")).toHaveValue(json);
-  await expect(page.locator("#trial-input")).toHaveValue(
-    '{"content":"用户输入"}',
-  );
+  await expect(page.locator('#plugin-detail pre')).toHaveText(json);
   await navigate(page, "settings");
-  await page.locator("#setting-manager-instructions").fill("保留我的提示词");
-  await page.locator("#app-language").selectOption("zh-CN");
+  await page.locator("#setting-manager-timeoutMs").fill("1234568");
+  await choose(page,"#app-language","zh-CN");
   await expect(
     page.getByRole("heading", { name: "系统配置", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("#setting-manager-instructions")).toHaveValue(
-    "保留我的提示词",
+  await expect(page.locator("#setting-manager-timeoutMs")).toHaveValue(
+    "1234568",
   );
-  expect(mutations.every((action) => action === "configuration_list")).toBe(
+  expect(mutations.every((action) => ['configuration_list','configuration_get','models'].includes(action))).toBe(
     true,
   );
-  await page.locator("#app-language").selectOption("en");
+  await choose(page,"#app-language","en");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("#app-language")).toHaveValue("en");
+  await expectChoice(page,"#app-language","en");
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const button of await page.locator("[data-view]").all()) {
+  await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await expect(page.locator('.mobile-navigation [data-view]').first()).toBeVisible();
+  for (const button of await page.locator(".mobile-navigation [data-view]").all()) {
     const box = await button.boundingBox();
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
 });
-test("changing language while editing a schedule keeps its identity and state", async ({
-  page,
-}) => {
-  await navigate(page, "schedules");
-  const plan = await operation(page, "schedule_save", {
-      schedule: {
-        name: "Language edit sample",
-        kind: "inspection",
-        cron: "0 9 * * *",
-        timezone: "Asia/Shanghai",
-        message: "Synthetic inspection",
-        enabled: false,
-      },
-    }),
-    plans = await operation(page, "schedules");
-  await page.locator("#refresh").click();
-  await page
-    .locator("tr")
-    .filter({ hasText: plan.name })
-    .getByRole("button", { name: "编辑", exact: true })
-    .click();
-  await page.locator("#app-language").selectOption("en");
-  await page
-    .getByLabel("Schedule name", { exact: true })
-    .fill("Bilingual edited inspection");
-  await page
-    .getByRole("button", { name: "Save schedule", exact: true })
-    .click();
-  await expect
-    .poll(
-      async () =>
-        (await operation(page, "schedules")).find((p) => p.id === plan.id)
-          ?.name,
-    )
-    .toBe("Bilingual edited inspection");
-  const after = await operation(page, "schedules");
-  expect(after.length).toBe(plans.length);
-  expect(after.find((p) => p.id === plan.id).enabled).toBe(false);
+test('schedule details preserve business data across language changes without writes',async({page})=>{
+  const plan=await operation(page,'schedule_save',{schedule:{name:'只读业务计划',kind:'task',cron:'0 9 * * *',timezone:'Asia/Tokyo',type:'content.review',input:{content:'用户自己的中文内容'},enabled:false}});
+  await navigate(page,'schedules');
+  await page.getByRole('row').filter({hasText:plan.name}).getByRole('button',{name:'查看详情',exact:true}).click();
+  const mutations=[];page.on('request',request=>{if(request.method()==='POST'&&/^schedule_(save|enable)$/.test(request.postDataJSON()?.action))mutations.push(request.postDataJSON());});
+  await choose(page,'#app-language','en');
+  await expect(page.getByRole('heading',{name:'Schedule details',exact:true})).toBeVisible();
+  await expect(page.locator('#schedule-detail')).toContainText('用户自己的中文内容');
+  await expect(page.locator('#schedule-detail')).toContainText('Asia/Tokyo');
+  await expect(page.locator('#schedule-detail')).toContainText('Disabled');
+  const saved=(await operation(page,'schedules')).find(item=>item.id===plan.id);
+  expect(saved.name).toBe(plan.name);expect(saved.input).toEqual(plan.input);expect(saved.enabled).toBe(false);expect(mutations).toEqual([]);
 });
+
 test("completed task artifacts are viewable and downloadable", async ({
   page,
 }) => {
@@ -262,68 +616,102 @@ test("completed task artifacts are viewable and downloadable", async ({
   await link.click();
   expect((await download).suggestedFilename()).toBe("review.txt");
 });
-test("management messages render as text and retain an unsent draft while polling", async ({
+test("management messages render safe Markdown and retain an unsent draft during live updates", async ({
   page,
 }) => {
   await navigate(page, "chat");
   await page.locator("#message-input").fill("检查队列");
+  const accepted=page.waitForResponse(response=>response.url().endsWith('/messages')&&response.request().method()==='POST');
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  const conversationId=(await accepted).url().match(/conversations\/([^/]+)/)[1];
   await expect(page.locator("#messages")).toContainText("<img src=x");
+  const reply=page.locator('#messages .assistant').last();
+  await expect(reply.getByRole('heading',{name:'运行报告'})).toBeVisible();
+  await expect(reply.locator('strong')).toHaveText('队列');
+  await expect(reply.locator('pre code')).toHaveText('const count = 3;\n');
+  await expect(reply.locator('table tbody td').first()).toHaveText('3');
+  await expect(reply.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await expect(reply.locator('img')).toHaveCount(0);
+  await expect(reply.getByRole('link',{name:'文档'})).toHaveAttribute('rel','noopener noreferrer');
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
+  await page.screenshot({path:'.tmp/react-admin/screenshots/chat-markdown-desktop.png',fullPage:true,animations:'disabled'});
   await page.locator("#message-input").fill("下一条未发送的消息");
-  await page.waitForResponse(
-    (r) =>
-      r.url().includes("/conversations/") && r.request().method() === "GET",
-  );
+  await page.request.post('/admin/api/conversations/'+conversationId+'/messages',{data:{text:'Synthetic live update preserves draft'}});
+  await expect(page.locator('#messages .message.user').last()).toContainText('Synthetic live update preserves draft');
   await expect(page.locator("#message-input")).toHaveValue(
     "下一条未发送的消息",
   );
 });
-test("English navigation covers each view and schedule creation only shows relevant fields", async ({
-  page,
-}) => {
-  await page.locator("#app-language").selectOption("en");
-  const views = {
-    overview: "Overview",
-    chat: "Management chat",
-    tasks: "Task history",
-    plugins: "Business plugins",
-    schedules: "Schedules",
-    settings: "Settings",
-  };
-  for (const [view, title] of Object.entries(views)) {
-    await navigate(page, view);
-    await expect(page.locator("#page-title")).toHaveText(title);
-  }
-  await navigate(page, "schedules");
-  await page
-    .getByLabel("Schedule name", { exact: true })
-    .fill("Unsubmitted schedule");
-  await expect(
-    page.getByLabel("Inspection instructions", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel("Task input JSON", { exact: true }),
-  ).toBeHidden();
-  await page.getByLabel("Trigger type", { exact: true }).selectOption("task");
-  await expect(
-    page.getByLabel("Task input JSON", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel("Inspection instructions", { exact: true }),
-  ).toBeHidden();
-  const before = await operation(page, "schedules");
-  await page.getByRole("button", { name: "New schedule", exact: true }).click();
-  await expect(page.getByLabel("Schedule name", { exact: true })).toHaveValue(
-    "",
-  );
-  expect((await operation(page, "schedules")).length).toBe(before.length);
+
+test('chat composer draft survives leaving and returning to the page',async({page})=>{
+  await navigate(page,'chat');
+  await page.locator('#message-input').fill('Keep this unsent draft across navigation');
+  await navigate(page,'overview');await navigate(page,'chat');
+  await expect(page.locator('#message-input')).toHaveValue('Keep this unsent draft across navigation');
 });
+
+for(const timezoneId of ['America/New_York','Asia/Tokyo'])test(`chat timestamps use browser timezone ${timezoneId} and polling updates thread title`,async({browser})=>{
+  const context=await browser.newContext({timezoneId,locale:'en-US'}),page=await context.newPage();
+  try {
+    await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();
+    await expect(page.locator('#workspace')).toBeVisible();
+    const stamp=Date.parse('2026-01-02T01:04:05Z');let title='首条用户消息';
+    const conversation={id:'timestamp-test',title,execution:{},messages:[{id:'user-time',role:'user',status:'completed',text:'Hello',created_at:stamp},{id:'agent-time',role:'assistant',status:'completed',text:'**Reply**',created_at:stamp+60000}]};
+    await page.route('**/admin/api/conversations',route=>route.fulfill({json:[conversation]}));
+    await page.route('**/admin/api/conversations/timestamp-test',route=>route.fulfill({json:{...conversation,title}}));
+    await navigate(page,'chat');
+    const times=page.locator('#messages .message-label time');await expect(times).toHaveCount(2);
+    for(let index=0;index<2;index++) {
+      const date=stamp+index*60000;
+      const expected=await page.evaluate(value=>new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium'}).format(new Date(value)),date);
+      await expect(times.nth(index)).toHaveText(expected);await expect(times.nth(index)).toHaveAttribute('datetime',new Date(date).toISOString());
+    }
+    title='Codex 提供的对话名称';
+    await expect(page.locator('.conversation-list').getByRole('button',{name:title,exact:true})).toBeVisible();
+    await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
+  }finally{await context.close();}
+});
+
+test('a missing sibling artifact does not hide available downloads',async({page})=>{
+  const task=(await operation(page,'tasks',{status:'completed'}))[0],detail=await operation(page,'task',{task_id:task.task_id});
+  const image=detail.artifacts.find(item=>item.mime.startsWith('image/'));
+  await page.route(`**/admin/api/artifacts/${task.task_id}/${image.artifact_id}`,route=>route.fulfill({status:404,body:'Missing fixture'}));
+  await navigate(page,'tasks');
+  await page.locator('tr').filter({hasText:task.task_id}).getByRole('button',{name:'详情',exact:true}).click();
+  await expect(page.getByRole('link',{name:'review.txt'})).toBeVisible();
+});
+
+test('a pending retry cannot create multiple replacement tasks through repeated clicks',async({page})=>{
+  const task=(await operation(page,'tasks',{status:'failed'}))[0];let retryCalls=0;
+  await page.route('**/admin/api/operations',async route=>{
+    if(route.request().postDataJSON()?.action==='retry'){
+      retryCalls++;await new Promise(resolve=>setTimeout(resolve,600));
+      await route.fulfill({json:{task_id:'synthetic-retry'}});
+    }else await route.continue();
+  });
+  await navigate(page,'tasks');
+  await page.locator('tr').filter({hasText:task.task_id}).getByRole('button',{name:'详情',exact:true}).click();
+  const retry=page.getByRole('button',{name:'重新执行任务',exact:true});
+  await retry.evaluate(button=>{button.click();button.click();});
+  await expect.poll(()=>retryCalls).toBe(1);
+  await page.waitForTimeout(800);expect(retryCalls).toBe(1);
+});
+test('English navigation covers each view and schedules guide users to management chat',async({page})=>{
+  await choose(page,'#app-language','en');
+  for(const [view,title] of Object.entries({overview:'Overview',chat:'Management chat',tasks:'Task history',plugins:'Business plugins',schedules:'Schedules',settings:'Settings'})){
+    await navigate(page,view);await expect(page.locator('#page-title')).toHaveText(title);
+  }
+  await navigate(page,'schedules');
+  await expect(page.getByText('Schedule configuration',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Open management chat',exact:true}).click();
+  await expect(page.locator('#message-input')).toBeVisible();
+});
+
 test("English login errors, session reload and logout work without model access", async ({
   page,
 }) => {
   await page.locator("#logout").click();
-  await page.locator("#login-language").selectOption("en");
+  await choose(page,"#login-language","en");
   await page.locator("#password").fill("incorrect-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("alert")).toHaveText(
@@ -341,46 +729,27 @@ test("English login errors, session reload and logout work without model access"
 test("typing during a slow language change preserves the latest draft", async ({
   page,
 }) => {
-  await navigate(page, "plugins");
-  await page.locator("#trial-input").fill("before");
-  let release;
-  const gate = new Promise((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/admin/api/plugins", async (route) => {
-    await gate;
-    await route.continue();
-  });
-  const pending = page.waitForRequest("**/admin/api/plugins");
-  await page.locator("#app-language").selectOption("en");
-  await pending;
-  await page.locator("#trial-input").fill("edited while language was loading");
-  release();
+  await navigate(page, "chat");
+  await page.locator("#message-input").fill("before");
+  await choose(page,'#app-language','en');
+  await page.locator('#message-input').fill('edited while language was loading');
   await expect(
-    page.getByRole("heading", { name: "Plugin definition", exact: true }),
+    page.getByRole("heading", { name: "Management chat", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("#trial-input")).toHaveValue(
+  await expect(page.locator("#message-input")).toHaveValue(
     "edited while language was loading",
   );
 });
-test("English schedule validation errors are readable and keep diagnostic codes", async ({
-  page,
-}) => {
-  await navigate(page, "schedules");
-  await page.locator("#app-language").selectOption("en");
-  await page
-    .getByLabel("Schedule name", { exact: true })
-    .fill("Invalid cron sample");
-  await page
-    .getByLabel("Cron (minute hour day month weekday)", { exact: true })
-    .fill("invalid");
-  await page
-    .getByRole("button", { name: "Save schedule", exact: true })
-    .click();
-  await expect(page.getByRole("status")).toHaveText(
-    "INVALID_SCHEDULE: Provide a valid five-field cron expression and IANA time zone.",
-  );
+test('an empty schedules page keeps its explanation and management chat shortcut',async({page})=>{
+  await page.route('**/admin/api/schedules',route=>route.fulfill({json:[]}));
+  await navigate(page,'schedules');await choose(page,'#app-language','en');
+  await expect(page.getByText('No records yet',{exact:true})).toBeVisible();
+  await expect(page.getByText('Schedule configuration',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'View details',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Open management chat',exact:true}).click();
+  await expect(page.locator('#message-input')).toBeVisible();
 });
+
 test("task investigation uses the server-owned prompt and opens its existing conversation", async ({
   page,
 }) => {
@@ -406,4 +775,101 @@ test("task investigation uses the server-owned prompt and opens its existing con
     .click();
   await expect(page.locator("#message-input")).toBeVisible();
   await expect(page.locator("#messages .message.user")).toHaveCount(1);
+});
+
+test('changing Admin password signs out and the new password works',async({page})=>{
+  await navigate(page,'chat');await page.locator('#message-input').fill('Sensitive unsent synthetic draft');
+  await navigate(page,'settings');
+  await settingsTab(page,'security');
+  await page.locator('#current-admin-password').fill('local-browser-password');
+  await page.locator('#new-admin-password').fill('replacement-browser-password');
+  await page.locator('#confirm-admin-password').fill('replacement-browser-password');
+  await page.getByRole('button',{name:'修改 Admin 密码',exact:true}).click();
+  await expect(page.locator('#login')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('密码已修改');
+  await page.locator('#password').fill('replacement-browser-password');
+  await page.getByRole('button',{name:'登录工作台'}).click();
+  await navigate(page,'chat');await expect(page.locator('#message-input')).toHaveValue('');
+  expect((await page.request.post('/admin/api/password',{data:{currentPassword:'replacement-browser-password',password:'local-browser-password'}})).status()).toBe(200);
+});
+
+
+test('Admin layout keeps spacing and actions within desktop tablet and phone viewports',async({page})=>{
+  test.setTimeout(90000);
+  for(const language of ['zh-CN','en']){
+    await choose(page,'#app-language',language);
+    for(const width of [390,768,1440,2560]){
+      await page.setViewportSize({width,height:1000});
+      for(const view of ['overview','chat','tasks','plugins','schedules','settings']){
+        await navigate(page,view);await expect(page.locator(view==='chat'?'.chat-compose':'#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
+        await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:language+' '+width+' '+view}).toBeLessThanOrEqual(width);
+        if(view==='settings'){
+          await expect(page.getByRole('tabpanel',{includeHidden:false})).toHaveCount(1);
+          await expect(page.locator('.settings-tabs .ant-card:visible')).toHaveCount(1);
+        }
+        if(view==='plugins'||view==='schedules'){
+          const action=page.getByRole('button',{name:language==='en'?'Open management chat':'前往管理对话',exact:true});await expect(action).toBeVisible();
+          const box=await action.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+          const details=page.getByRole('button',{name:language==='en'?'View details':'查看详情',exact:true});
+          for(const button of await details.all()){const rect=await button.boundingBox();expect(rect.x+rect.width).toBeLessThanOrEqual(width);}
+        }
+        if(width!==768)await page.screenshot({path:'.tmp/chat-layout/screenshots/'+view+'-'+language+'-'+width+'.png',animations:'disabled'});
+      }
+    }
+  }
+});
+
+for(const view of ['plugins','schedules'])test(`${view} supports one-step toggles without duplicate requests`,async({page})=>{
+  if(view==='plugins'){
+    await operation(page,'plugin_save',{definition:{...pluginDefinition,enabled:false}});
+    const configured=await page.request.post('/admin/api/plugins/'+pluginDefinition.type+'/connection',{data:{entryKey:'synthetic-summary-toggle-entry-key-0123456789'}});
+    expect(configured.ok()).toBeTruthy();
+  }
+  const name=view==='plugins'?pluginDefinition.name:'每日运行巡检';
+  const action=view==='plugins'?'plugin_enable':'schedule_enable';
+  let calls=0;
+  await page.route('**/admin/api/operations',async route=>{
+    if(route.request().postDataJSON()?.action===action){calls++;await new Promise(resolve=>setTimeout(resolve,250));}
+    await route.continue();
+  });
+  await navigate(page,view);
+  const row=page.getByRole('row').filter({hasText:name}),toggle=row.getByRole('switch');
+  await expect(toggle).toHaveAttribute('aria-checked','false');
+  await toggle.evaluate(element=>{element.click();element.click();});
+  await expect(toggle).toHaveAttribute('aria-checked','true');expect(calls).toBe(1);
+  const response=await page.request.get('/admin/api/'+view),data=await response.json();
+  expect((view==='plugins'?data.configured:data).find(item=>item.name===name).enabled).toBe(true);
+  await row.getByRole('button',{name:'查看详情',exact:true}).click();
+  await expect(page.locator(view==='plugins'?'#plugin-detail':'#schedule-detail')).toContainText(view==='plugins'?'true':'已启用');
+});
+
+test('complex settings are readable without JSON or prompt editors and Agent operations remain available',async({page})=>{
+  const text='通过 Agent 保存的管理指令';
+  await operation(page,'configuration_update',{scope:'manager',patch:{instructions:text}});
+  await navigate(page,'settings');
+  await expect(page.locator('#setting-manager-instructions')).toHaveCount(0);
+  await expect(page.locator('#setting-http-targets')).toHaveCount(0);
+  await page.locator('#configuration-manager').getByText('管理提示词',{exact:true}).click();
+  await expect(page.locator('#configuration-manager')).toContainText(text);
+  await expect(page.locator('#setting-manager-model')).toBeVisible();
+  await expect(page.locator('[data-settings-tab="http"], [data-settings-tab="access"]')).toHaveCount(0);
+  await expect(page.locator('#configuration-http, #configuration-access')).toHaveCount(0);
+  await settingsTab(page,'execution');
+  await expect(page.locator('#setting-execution-concurrency')).toBeVisible();
+});
+
+test('a failed enable operation preserves state and can be tried again',async({page})=>{
+  await operation(page,'plugin_save',{definition:{...pluginDefinition,enabled:false}});
+  const configured=await page.request.post('/admin/api/plugins/'+pluginDefinition.type+'/connection',{data:{entryKey:'synthetic-summary-failed-toggle-key-0123456789'}});
+  expect(configured.ok()).toBeTruthy();
+  let fail=true;
+  await page.route('**/admin/api/operations',async route=>{
+    if(fail&&route.request().postDataJSON()?.action==='plugin_enable')await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_TOGGLE_FAILURE',message:'Synthetic toggle failure'}}});
+    else await route.continue();
+  });
+  await navigate(page,'plugins');
+  const toggle=page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('switch');
+  await toggle.click();await expect(page.getByRole('status')).toContainText('Synthetic toggle failure');
+  await expect(toggle).toHaveAttribute('aria-checked','false');await expect(toggle).toBeEnabled();
+  fail=false;await toggle.click();await expect(toggle).toHaveAttribute('aria-checked','true');
 });

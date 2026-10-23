@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 // Explicit resources keep deployment validation and editing locations predictable.
 const files = {
   manager: new URL("../prompts/manager.md", import.meta.url),
+  "manager-project": new URL("../prompts/manager-project.md", import.meta.url),
+  "manager-connections": new URL("../prompts/manager-connections.md", import.meta.url),
   task: new URL("../prompts/task.md", import.meta.url),
   "task-resume": new URL("../prompts/task-resume.md", import.meta.url),
   "manager-resume": new URL("../prompts/manager-resume.md", import.meta.url),

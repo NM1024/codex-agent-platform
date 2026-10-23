@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { HttpError } from "../errors.mjs";
 import { validateDefinition } from '../plugins/definition.mjs';
 import { createConfiguredModule } from '../plugins/module.mjs';
+import { configuredDelivery } from '../delivery/configured.mjs';
 
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -45,12 +46,18 @@ export class BusinessRegistry {
     if (this.compiledDefinitions.has(key)) return this.compiledDefinitions.get(key);
     try {
       const module=this.compile(createConfiguredModule(validated,this.catalog));
+      if(this.catalog.requirePluginConnections) {
+        const availability=module.availability;
+        module.availability=state=>this.pluginConnections&&!this.pluginConnections.status(module.type).ready?{ready:false,reason:'PLUGIN_CONNECTION_NOT_READY'}:(availability?.(state) ?? state);
+        module.delivery=undefined;
+      }
       this.compiledDefinitions.set(key,module);
       return module;
     }
     catch (error) {if (error instanceof HttpError) throw error;throw new HttpError(400,'INVALID_PLUGIN',`INVALID_PLUGIN: ${error.message}`);}
   }
   assertRoutes(module) {
+    if(this.catalog.requirePluginConnections)return;
     for (const path of module.definition.routes ?? [])
       for (const existing of this.modules.values())
         if (existing.type!==module.type && existing.definition?.routes?.includes(path)) throw new HttpError(409,'ROUTE_CONFLICT',`ROUTE_CONFLICT: ${path}`);
@@ -59,7 +66,12 @@ export class BusinessRegistry {
   routeFor(path) {return [...this.modules.values()].find(module=>module.definition?.routes?.includes(path));}
   forTask(row) {
     if (row.definition && (typeof row.definition==='string' ? JSON.parse(row.definition) : row.definition).type!==row.type) throw fault('INVALID_PLUGIN',400);
-    return row.definition ? this.compileDefinition(typeof row.definition==='string' ? JSON.parse(row.definition) : row.definition,{snapshot:true}) : this.catalog.profiles?.[row.type] ? this.compile(this.catalog.profiles[row.type]) : this.get(row.type);
+    const module=row.definition ? this.compileDefinition(typeof row.definition==='string' ? JSON.parse(row.definition) : row.definition,{snapshot:true}) : this.catalog.profiles?.[row.type] ? this.compile(this.catalog.profiles[row.type]) : this.get(row.type);
+    if(!this.pluginConnections||!module.definition)return module;
+    return {...module,
+      availability:state=>this.pluginConnections.status(row.type).ready?(module.availability?.(state) ?? state):{ready:false,reason:'PLUGIN_CONNECTION_NOT_READY'},
+      delivery:this.pluginConnections.callbackFor(row.type)?configuredDelivery(()=>this.pluginConnections.callbackFor(row.type)):undefined,
+    };
   }
   get(type) {
     const module = this.modules.get(type);

@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { removeTableUniqueness } from "./sqlite.mjs";
 import { digest, fault } from "./registry.mjs";
 import { PluginStore } from '../plugins/store.mjs';
+import { PluginConnectionStore } from '../plugins/connections.mjs';
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 const active = "'dispatching','running','completing','suspended'";
 
@@ -32,6 +33,10 @@ export class RequestStore {
     }
     if (!this.requestColumns.has('retry_of')) {
       this.db.exec('ALTER TABLE agent_requests ADD COLUMN retry_of TEXT');this.requestColumns.add('retry_of');
+    }
+    if(this.registry.catalog.requirePluginConnections===true) {
+      this.pluginConnections=new PluginConnectionStore(this.db,this.registry);
+      this.registry.pluginConnections=this.pluginConnections;
     }
     this.plugins = new PluginStore(this.db,this.registry);
     for (const definition of this.registry.initialDefinitions ?? [])
@@ -145,6 +150,8 @@ export class RequestStore {
     this.db.prepare('INSERT INTO platform_errors VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),run.task_id,run.run_id,run.generation ?? 0,'tool',tool,error.code,error.message?.slice(0,4096) ?? null,Date.now());
   }
   accept(client, body, { prepared: imported } = {}) {
+    if(typeof body?.type==='string'&&this.db.prepare('SELECT deleted_at FROM platform_plugins WHERE type=?').get(body.type)?.deleted_at!=null)throw fault('PLUGIN_DELETED',409);
+    if(body?.type&&this.registry.modules.get(body.type)?.definition)this.pluginConnections?.assertReady(body.type);
     const { module, input } = this.registry.normalize(body);
     // Only trusted legacy imports supply prepared data; new admissions use the
     // module's configuration check without preventing historical queue migration.
@@ -195,6 +202,7 @@ export class RequestStore {
   claim(id) {
     return this.transaction(() => {
       const row = this.raw(id);
+      if(row&&['queued','suspended'].includes(row.status)&&(row.definition||this.registry.modules.get(row.type)?.definition))this.pluginConnections?.assertReady(row.type);
       if (row?.status === "suspended") {
         const token = randomBytes(32).toString("base64url");
         this.db.prepare("UPDATE agent_runs SET token_hash=?,generation=generation+1,launch_status='intent' WHERE run_id=?").run(tokenHash(token), row.run_id);
@@ -268,7 +276,7 @@ export class RequestStore {
     if(!run||!['dispatching','running','completing','suspended'].includes(run.status)||(generation!==undefined&&run.generation!==generation))return;
     if(!execution||typeof execution.model!=='string'||!Number.isSafeInteger(execution.taskTimeoutMs)||execution.taskTimeoutMs<1||!Number.isSafeInteger(execution.toolTimeoutMs)||execution.toolTimeoutMs<1)return;
     const metadata=JSON.parse(run.runtime_metadata ?? '{}');
-    metadata.execution={model:execution.model,taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
+    metadata.execution={model:execution.model,...(execution.reasoningEffort!==undefined?{reasoningEffort:execution.reasoningEffort}:{}),taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
     this.db.prepare('UPDATE agent_runs SET runtime_metadata=? WHERE run_id=?').run(JSON.stringify(metadata),id);
   }
   executionSettings(id,generation) {

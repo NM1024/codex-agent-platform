@@ -18,6 +18,11 @@ const app = createApplication("gateway", {
 });
 const business = new RequestStore(":memory:", { registry: app.registry }),
   configuration = app.configuration(business);
+// Human setup is simulated here without routing secrets through Agent operations.
+for(const plugin of business.plugins.list()) {
+  business.pluginConnections.update(plugin.type,{entryKey:'synthetic-browser-key-'+plugin.type.replaceAll('.','-')+'-0123456789'});
+  business.plugins.setEnabled(plugin.type,true);
+}
 configuration.update("execution", { paused: true });
 const dispatcher = { drain: async () => {}, blocked: new Map() },
   runner = {
@@ -97,13 +102,20 @@ const agent = {
   model: "gpt-6.1-sol",
   timeoutMs: 2400000,
   toolTimeoutMs: 180000,
-  enqueue(id, text) {
-    const m = store.enqueue(id, text);
+  deleteConversation(id) {return store.deleteConversation(id);},
+  enqueue(id, text, attachments = []) {
+    const m = store.enqueue(id, text, attachments);
     store.markRunning(m.id);
+    if(text==='Browser streaming fixture') {
+      setTimeout(()=>store.reply(m.id,'第一段公开回复。'),150);
+      setTimeout(()=>store.reply(m.id,'第一段公开回复。第二段继续到达。'),650);
+      setTimeout(()=>store.finish(m,null,'第一段公开回复。第二段继续到达。完整回复已结束。'),1500);
+      return m;
+    }
     store.finish(
       m,
       null,
-      '本地验收：系统中有 3 个任务等待处理，1 个历史失败。<img src=x onerror="window.injected=true">',
+      '# 运行报告\n\n**队列**\n\n本地验收：系统中有 3 个任务等待处理，1 个历史失败。\n\n```js\nconst count = 3;\n```\n\n| 等待 |\n| --- |\n| 3 |\n\n[文档](https://example.com/docs) [危险](javascript:alert(1))\n\n![远程图片](https://example.com/tracking.png)\n\n<img src=x onerror="window.injected=true">',
     );
     return m;
   },
@@ -118,7 +130,10 @@ const settings = createManagerConfiguration({ store, agent, auth }),
     }),
   };
 const operations = createManagerOperations({
+  models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'medium'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
+    claimPluginEntryKey(type,body){return business.pluginConnections.claimEntryKey(type,body);},
+    pluginConnection(type,patch){return patch===undefined?business.pluginConnections.get(type):business.pluginConnections.update(type,patch);},
     execute: (...args) => platform.execute(...args),
     async artifact(taskId, id) {
       const file = await app.registry.catalog.readArtifact(
@@ -141,11 +156,12 @@ await new Promise((r) =>
   server.listen(Number(process.env.CONSOLE_TEST_PORT ?? 4317), "127.0.0.1", r),
 );
 console.log("Synthetic browser test server ready");
-process.on("SIGTERM", () =>
+process.on("SIGTERM", () => {
+  server.closeEventStreams?.();
   server.close(async () => {
     store.close();
     business.close();
     await rm(workspace, { recursive: true, force: true });
     process.exit(0);
-  }),
-);
+  });
+});

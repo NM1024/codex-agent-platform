@@ -5,6 +5,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
+test('current project context renders the shared concurrency default and requires explicit deployment data',async()=>{
+  const [{renderSystemPrompt},{DEFAULT_CONCURRENCY}]=await Promise.all([import('../src/prompts.mjs'),import('../src/config.mjs')]);
+  const context=renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY});
+  assert.ok(context.includes(`默认业务并发为 ${DEFAULT_CONCURRENCY}`));
+  assert.ok(context.includes('已经保存的并发'));
+  assert.throws(()=>renderSystemPrompt('manager-project'),/Missing system prompt variable: default_concurrency/);
+});
+
 test("system templates preserve inserted business text and diagnose missing placeholders", async () => {
   const { renderSystemPrompt } = await import("../src/prompts.mjs");
   const { createConfiguredModule } = await import("../src/plugins/module.mjs");

@@ -44,7 +44,9 @@ For documentation-only changes, check links, anchors and example commands, and k
 
 ### Console changes
 
-Check the English and Chinese interfaces on desktop and at 390px mobile width. The interface catalog is `src/manager/web/i18n.js`; translate interface copy while preserving user-entered prompts, plugin definitions, task content and Agent messages. Form drafts must survive language changes.
+The Admin frontend uses React, strict TypeScript and Ant Design. Sources are in `frontend/src/`; translations are in `frontend/src/i18n.ts`. Check Chinese and English on desktop and at 390px mobile width. Preserve user-entered prompts, plugin definitions, task content and Agent messages. Form drafts must survive language changes; the chat draft also survives navigating to other pages.
+
+Run `npm run check:types` and `npm run build:admin` for frontend changes. Vite writes the production bundle into the ignored `src/manager/web-dist/` directory. `npm test` and `npm run test:browser` build it automatically before testing. Manager serves this bundle; it does not serve TypeScript sources or a legacy fallback. Docker builds it in the `admin-build` stage, so deployment operators do not need frontend tools on the host.
 
 Run the isolated browser suite:
 

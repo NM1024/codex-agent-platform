@@ -1,5 +1,5 @@
 import {renderSystemPrompt} from '../prompts.mjs';
-import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
+import { DEFAULT_TOOL_TIMEOUT_MS, DEFAULT_CONCURRENCY } from "../config.mjs";
 import { join } from "node:path";
 import { readFile, symlink, lstat, rm, readdir } from "node:fs/promises";
 import { runtimeConfig } from "../codex/config.mjs";
@@ -9,6 +9,7 @@ import { initialize } from "../codex/session.mjs";
 import { digest } from "../core/registry.mjs";
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
 import {runtimeSettings} from '../configuration/execution.mjs';
+import {validateModelEffort} from '../codex/models.mjs';
 
 // Only request identity participates in replay protection. Module code, task
 // prompts and configuration may change after a request was accepted.
@@ -37,7 +38,7 @@ export class AgentRuntime {
     taskTimeoutMs = 2400000,
     toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS,
     closingTimeoutMs = 30000,
-    concurrency = 1,
+    concurrency = DEFAULT_CONCURRENCY,
     createClient = (options) => new CodexRpcClient(options),
     onExit = () => {},
     onDiagnostic = () => {},
@@ -181,6 +182,7 @@ export class AgentRuntime {
       const client = this.createClient({ cwd: workDir, env });
       state.client = client;
       await initialize(client);
+      const effort=await validateModelEffort(client,run.execution);
       if (state.ending) return this.acknowledge(state);
       const config = runtimeConfig(run.package, this.mcpUrl, { toolTimeoutMs: run.execution.toolTimeoutMs });
       const resuming = !!old?.thread_id;
@@ -238,6 +240,8 @@ export class AgentRuntime {
       const turn = await client.request("turn/start", {
         threadId: state.threadId,
         input,
+        model:run.execution.model,
+        effort,
       });
       state.turnId = turn.turn.id;
       await this.save(state, {
@@ -246,6 +250,9 @@ export class AgentRuntime {
       });
       return this.acknowledge(state);
     } catch (error) {
+      if(error.code==='UNSUPPORTED_REASONING_EFFORT'||error.code==='MODEL_UNAVAILABLE'){
+        state.record.error_source='configuration';state.record.error_message=error.message;
+      }
       await this.end(run.run_id, ["CODEX_EXIT", "CODEX_TIMEOUT", "CODEX_RESUME_FAILED"].includes(error.message) ? "SUSPENDED" : error.message === "CODEX_SESSION_UNAVAILABLE" ? "CODEX_SESSION_UNAVAILABLE" : "CODEX_START_FAILED");
       throw error;
     }
