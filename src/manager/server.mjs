@@ -4,7 +4,7 @@ import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 import { managementTools } from '../contracts/management.mjs';
 
-const assets=new Map([['/admin/',['index.html','text/html; charset=utf-8']],['/admin/app.js',['app.js','text/javascript; charset=utf-8']],['/admin/style.css',['style.css','text/css; charset=utf-8']],['/admin/favicon.svg',['favicon.svg','image/svg+xml']]]);
+const assets=new Map([['/admin/',['index.html','text/html; charset=utf-8']],['/admin/app.js',['app.js','text/javascript; charset=utf-8']],['/admin/i18n.js',['i18n.js','text/javascript; charset=utf-8']],['/admin/style.css',['style.css','text/css; charset=utf-8']],['/admin/favicon.svg',['favicon.svg','image/svg+xml']]]);
 export function createManagerServer({store,agent,operations,auth,metrics}) {
   return createServer(async(req,res)=>{
     try {

@@ -14,5 +14,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run check:release
-      - run: docker build --target test -t codex-agent-platform-test .
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Build all release targets
+        run: |
+          for target in gateway runner manager test; do
+            docker build --target "$target" -t "codex-agent-platform-$target" .
+          done
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
