@@ -444,7 +444,7 @@ test('business plugin details reload after an Agent operation and navigation',as
 test('schedules are read-only and inspection details preserve disabled state',async({page})=>{
   const mutations=[];page.on('request',request=>{if(request.method()==='POST'&&/^schedule_(save|enable)$/.test(request.postDataJSON()?.action))mutations.push(request.postDataJSON());});
   await navigate(page,'schedules');
-  await expect(page.getByText('可在此启用或停用。新增和编辑定时任务，请通过管理 Agent 操作。',{exact:true})).toBeVisible();
+  await expect(page.getByText('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。',{exact:true})).toBeVisible();
   const row=page.getByRole('row').filter({hasText:'每日运行巡检'});
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','false');
   await row.getByRole('button',{name:'查看详情',exact:true}).click();

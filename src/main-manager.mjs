@@ -12,6 +12,7 @@ import {createManagerConfiguration} from './manager/configuration.mjs';
 import {createManagerOperations} from './manager/operations.mjs';
 import {AdminAuth} from './manager/auth.mjs';
 import {readFile} from 'node:fs/promises';
+import {acceptPendingInspections} from './manager/inspections.mjs';
 
 try {
   const env=process.env,config=loadConfig('gateway',{...env,PORT:env.MANAGER_PORT ?? '3007'});
@@ -33,15 +34,7 @@ try {
   await agent.recover();let closing=false,inspectionTask;
   const inspect=()=>{
     if(closing||inspectionTask)return;
-    inspectionTask=(async()=>{
-      const pending=await client.execute('inspection_list');
-      for(const item of pending){
-        if(closing)return;
-        const accepted=store.acceptInspection(item.id,item.message);
-        if(accepted.created)agent.kick(accepted.conversation.id);
-        await client.execute('inspection_ack',{id:item.id,conversation_id:accepted.conversation.id});
-      }
-    })().catch(()=>{}).finally(()=>{inspectionTask=null;});
+    inspectionTask=acceptPendingInspections({client,store,agent,closing:()=>closing}).catch(()=>{}).finally(()=>{inspectionTask=null;});
   };
   let lastInspection=Date.now();
   const inspectionTimer=setInterval(()=>{if(Date.now()-lastInspection>=agent.inspectionIntervalMs){lastInspection=Date.now();inspect();}},1000);inspect();

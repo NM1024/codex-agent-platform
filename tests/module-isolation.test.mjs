@@ -55,6 +55,7 @@ test('management operates task, schedule and settings modules through their inte
   const plan=await service.execute('schedule_save',{schedule:{name:'巡检',kind:'inspection',cron:'* * * * *',message:'检查状态'}});
   await service.schedules.tick(plan.next_run_at);
   const inspections=await service.execute('inspection_list');assert.equal(inspections.length,1);
+  assert.equal((await service.execute('inspection_claim',{id:inspections[0].id})).accepted,true);
   await service.execute('inspection_ack',{id:inspections[0].id,conversation_id:'inspection-conversation'});assert.equal((await service.execute('inspection_list')).length,0);
   assert.equal((await service.execute('runtime_update',{concurrency:3})).concurrency,3);
 });

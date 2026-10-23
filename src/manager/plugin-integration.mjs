@@ -104,7 +104,7 @@ export function buildPluginIntegration(definition,connection,{locale='zh-CN'}={}
       `| 401 | UNAUTHORIZED | ${text('缺少、失效或错误的插件入口密钥','Missing, rotated or invalid plugin entry key')} |`,
       `| 403 | PLUGIN_SCOPE_DENIED | ${text('该密钥不属于目标插件','Key does not belong to the target plugin')} |`,
       `| 404 | NOT_FOUND | ${text('路径、任务或产物不存在，或不属于该插件','Unknown path/task/artifact or outside the plugin scope')} |`,
-      `| 409 | PLUGIN_DISABLED / PLUGIN_CONNECTION_NOT_READY | ${text('插件未启用或未完成人工接入','Plugin disabled or human connection setup incomplete')} |`,
+      `| 409 | PLUGIN_DISABLED / PLUGIN_CONNECTION_NOT_READY / PLUGIN_DELETED | ${text('插件未启用、未完成人工接入或已删除','Plugin disabled, connection setup incomplete or plugin deleted')} |`,
       `| 413 / 415 | PAYLOAD_TOO_LARGE / UNSUPPORTED_MEDIA_TYPE | ${text('请求过大或未使用 application/json','Body too large or Content-Type is not application/json')} |`,
       `| 503 | QUEUE_FULL / SERVICE_UNAVAILABLE | ${text('队列满或服务暂不可用','Queue full or service unavailable')} |`].join('\n'),
       code(json({error:{code:'INVALID_INPUT',message:text('请求字段不正确','Invalid request fields')}})),

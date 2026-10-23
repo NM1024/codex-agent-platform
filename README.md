@@ -208,6 +208,8 @@ Model and reasoning selectors are available in **Settings** and above the **Mana
 
 **Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
 
+The trash icon logically deletes a plugin after confirmation: it leaves the active list, rejects new tasks/retries and disables its linked task schedules. Accepted tasks continue with their saved contracts; history, results, callbacks and scoped historical key access remain. This does not erase credentials or free the plugin type/entry path for reuse. There is currently no restore control. Management chat can perform the same explicit deletion with `plugin_delete`.
+
 For example:
 
 > Create a text summary plugin. Accept a `text` field and return `summary` and `key_points`. Use no image generation or external HTTP tools. Save the plugin and tell me its request format; do not run a trial yet.
@@ -215,6 +217,8 @@ For example:
 The Agent can configure existing capabilities; it cannot implement a missing tool. Review the saved definition and use a trial before connecting it to a real system. A plugin's instructions and result contract are retained for accepted tasks; later edits apply to new requests.
 
 **Schedules** displays plans, their time zones, next-run times and details, with direct enable/disable switches. Ask the management Agent to create or edit plans; specify the task or inspection, frequency and time zone. For example, `0 9 * * *` runs daily at 09:00 in the selected timezone. Start with a low-frequency plan and verify its next run; disable plans when they are not needed. An enabled plan can consume allowance without you being online.
+
+The trash icon (or management `schedule_delete`) logically deletes a schedule, stops future triggers and cancels queued inspections not yet claimed by Manager. Already claimed inspections, accepted business tasks and their histories remain. The schedule ID stays reserved; saving an old definition cannot restore it.
 
 Management chat preserves each public assistant message when a final result arrives. When the Agent uses native clarification, answer its choice/free-text card to continue the same turn; no new task is created. Draft answers survive chat/page navigation, and unanswered cards expire when their turn ends or is interrupted. Waiting still counts toward the configured execution timeout. Keep credentials in their dedicated settings, out of clarification answers.
 

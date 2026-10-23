@@ -19,17 +19,19 @@ export class ScheduleStore {
       CREATE TABLE IF NOT EXISTS platform_schedule_runs(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,due_at INTEGER NOT NULL,triggered_at INTEGER NOT NULL,task_id TEXT NOT NULL,UNIQUE(schedule_id,due_at));
       CREATE TABLE IF NOT EXISTS platform_inspections(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,conversation_id TEXT,created_at INTEGER NOT NULL);
     `);
+    if(!this.db.prepare('PRAGMA table_info(platform_schedules)').all().some(column=>column.name==='deleted_at'))this.db.exec('ALTER TABLE platform_schedules ADD COLUMN deleted_at INTEGER');
   }
   get(id) {
-    const row=this.db.prepare('SELECT * FROM platform_schedules WHERE id=?').get(id);
+    const row=this.db.prepare('SELECT * FROM platform_schedules WHERE id=? AND deleted_at IS NULL').get(id);
     if (!row) throw new HttpError(404,'SCHEDULE_NOT_FOUND','找不到定时计划。');
     return {...JSON.parse(row.definition),next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at};
   }
-  list() {return this.db.prepare('SELECT id FROM platform_schedules ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
+  list() {return this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
   save(raw,now=Date.now()) {
     if (!raw || typeof raw!=='object' || !['task','inspection'].includes(raw.kind) || typeof raw.name!=='string' || !raw.name.trim()) throw invalid('name 和 kind 不正确。');
     const timezone=raw.timezone ?? 'Asia/Shanghai',next_run_at=nextAt(raw.cron,timezone,now);
     const id=raw.id ?? randomUUID();if (!/^[a-f0-9-]{36}$/.test(id)) throw invalid('id 不正确。');
+    if(this.db.prepare('SELECT deleted_at FROM platform_schedules WHERE id=?').get(id)?.deleted_at!=null)throw new HttpError(409,'SCHEDULE_DELETED','定时计划已删除，不能通过保存重新启用。');
     if (raw.enabled!==undefined && typeof raw.enabled!=='boolean') throw invalid('enabled 必须为布尔值。');
     const definition={id,name:raw.name,kind:raw.kind,cron:raw.cron,timezone,enabled:raw.enabled ?? true};
     if (raw.kind==='task') {
@@ -40,7 +42,7 @@ export class ScheduleStore {
       if (typeof raw.message!=='string' || !raw.message.trim()) throw invalid('巡检需要 message。');
       definition.message=raw.message;
     }
-    this.db.prepare('INSERT INTO platform_schedules VALUES(?,?,?,?,NULL,?) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,enabled=excluded.enabled,next_run_at=excluded.next_run_at,blocked_reason=NULL,updated_at=excluded.updated_at').run(id,JSON.stringify(definition),Number(definition.enabled),next_run_at,now);
+    this.db.prepare('INSERT INTO platform_schedules(id,definition,enabled,next_run_at,blocked_reason,updated_at) VALUES(?,?,?,?,NULL,?) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,enabled=excluded.enabled,next_run_at=excluded.next_run_at,blocked_reason=NULL,updated_at=excluded.updated_at').run(id,JSON.stringify(definition),Number(definition.enabled),next_run_at,now);
     return this.get(id);
   }
   setEnabled(id,enabled) {
@@ -51,14 +53,39 @@ export class ScheduleStore {
     this.db.prepare('UPDATE platform_schedules SET enabled=0,definition=?,updated_at=? WHERE id=?').run(JSON.stringify({...definition,enabled:false}),Date.now(),id);
     return this.get(id);
   }
-  pendingInspections(){return this.db.prepare("SELECT id,message,status FROM platform_inspections WHERE status='queued' ORDER BY created_at").all();}
+  delete(id) {
+    return this.store.transaction(()=>{
+      const row=this.db.prepare('SELECT definition,deleted_at FROM platform_schedules WHERE id=?').get(id);
+      if(!row)throw new HttpError(404,'SCHEDULE_NOT_FOUND','找不到定时计划。');
+      const deleted_at=row.deleted_at??Date.now();
+      if(row.deleted_at===null)this.db.prepare('UPDATE platform_schedules SET enabled=0,definition=?,deleted_at=?,updated_at=? WHERE id=?').run(JSON.stringify({...JSON.parse(row.definition),enabled:false}),deleted_at,deleted_at,id);
+      this.db.prepare("UPDATE platform_inspections SET status='cancelled' WHERE schedule_id=? AND status='queued'").run(id);
+      return {id,deleted:true,deleted_at};
+    });
+  }
+  disableForPlugin(type) {
+    for(const plan of this.list())if(plan.kind==='task'&&plan.type===type) {
+      this.setEnabled(plan.id,false);
+      this.db.prepare("UPDATE platform_schedules SET blocked_reason='PLUGIN_DELETED' WHERE id=?").run(plan.id);
+    }
+  }
+  pendingInspections(){return this.db.prepare("SELECT id,message,status FROM platform_inspections WHERE status IN ('queued','claimed') ORDER BY created_at").all();}
+  claimInspection(id) {
+    if(typeof id!=='string')throw new HttpError(400,'INVALID_INPUT','巡检记录编号不正确。');
+    return this.store.transaction(()=>{
+      this.db.prepare("UPDATE platform_inspections SET status='claimed' WHERE id=? AND status='queued'").run(id);
+      const row=this.db.prepare('SELECT id,message,status FROM platform_inspections WHERE id=?').get(id);
+      return row?.status==='claimed'?{accepted:true,...row}:{accepted:false};
+    });
+  }
   acknowledgeInspection(id,conversationId) {
     if(typeof id!=='string'||typeof conversationId!=='string')throw new HttpError(400,'INVALID_INPUT','巡检记录和管理会话编号不正确。');
-    this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=? WHERE id=? AND status='queued'").run(conversationId,id);
-    return {accepted:true};
+    this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=? WHERE id=? AND status='claimed'").run(conversationId,id);
+    const row=this.db.prepare('SELECT status,conversation_id FROM platform_inspections WHERE id=?').get(id);
+    return {accepted:row?.status==='accepted'&&row.conversation_id===conversationId};
   }
   async tick(now=Date.now()) {
-    const rows=this.db.prepare('SELECT id FROM platform_schedules WHERE enabled=1 AND next_run_at<=? ORDER BY next_run_at,id').all(now);
+    const rows=this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL AND enabled=1 AND next_run_at<=? ORDER BY next_run_at,id').all(now);
     for (const {id} of rows) {
       try {this.store.transaction(()=>{
         const plan=this.get(id);if (!plan.enabled || plan.next_run_at>now) return;

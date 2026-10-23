@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Table,Typography} from 'antd';
-import {AgentGuidance,EnableToggle,JsonView,Panel,Status,useLoad} from '../components';
+import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,Status,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {Schedule} from '../types';
 
@@ -14,7 +14,7 @@ export default function SchedulesPage() {
   const {data:plans=[],setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
   const selected=plans.find(plan=>plan.id===selectedId);
   return <>
-    <AgentGuidance title={t('定时计划配置')} description={t('可在此启用或停用。新增和编辑定时任务，请通过管理 Agent 操作。')}/>
+    <AgentGuidance title={t('定时计划配置')} description={t('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。')}/>
     <Panel title={t('定时计划')}>
       <Typography.Paragraph type="secondary">{t('时间按每个计划设置的时区显示；新增或编辑请在管理对话中说明。')}</Typography.Paragraph>
       <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} className="responsive-table" tableLayout="auto" locale={{emptyText:t('暂无记录')}} columns={[
@@ -25,7 +25,11 @@ export default function SchedulesPage() {
           const updated=await operation<Schedule>('schedule_enable',{id:plan.id,enabled});
           setPlans(current=>current?.map(item=>item.id===updated.id?updated:item));
         }}/>{plan.blocked_reason&&<div><Typography.Text type="danger">{t('触发受阻')}</Typography.Text></div>}</>},
-        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plan)=><Button onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button>},
+        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plan)=><div className="plugin-row-actions"><Button onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button><DeleteAction label={t('删除定时计划：{name}',{name:plan.name})} name={plan.name} description={t('删除后从列表隐藏、停止后续触发，并取消尚未交给管理 Agent 的巡检。已接单任务和对话继续执行，历史记录保留。')} onDelete={async()=>{
+          await operation('schedule_delete',{id:plan.id});
+          setPlans(current=>current?.filter(item=>item.id!==plan.id));
+          if(selectedId===plan.id)setSelectedId(undefined);
+        }}/></div>},
       ]}/>
     </Panel>
     {selected&&<Panel title={t('计划详情')}><div id="schedule-detail">

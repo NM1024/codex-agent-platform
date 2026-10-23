@@ -71,6 +71,7 @@ export class PluginConnectionStore {
     // Serialize with human replacement/claim even when another Gateway process is active.
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      this.assertActive(type);
       const row=this.row(type);
       if(!row.entry_path||!row.entry_key_hash) {
         const entry=row.entry_path?{address:row.entry_address,path:row.entry_path}:this.entry(`/hooks/${type.replaceAll('.','/')}`);
@@ -88,6 +89,7 @@ export class PluginConnectionStore {
     if(!patch||Array.isArray(patch)||typeof patch!=='object'||Object.keys(patch).some(key=>key!=='revision')||!Number.isSafeInteger(patch.revision))throw new HttpError(409,'PLUGIN_CONNECTION_REVISION_CONFLICT');
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      this.assertActive(type);
       const row=this.row(type);
       if(patch.revision!==row.revision)throw new HttpError(409,'PLUGIN_CONNECTION_REVISION_CONFLICT');
       if(!row.entry_key_pending)throw new HttpError(409,'PLUGIN_ENTRY_KEY_NOT_CLAIMABLE');
@@ -97,6 +99,7 @@ export class PluginConnectionStore {
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   update(type,patch) {
+    this.assertActive(type);
     const row=this.row(type);
     if(!patch||Array.isArray(patch)||typeof patch!=='object'||Object.keys(patch).some(key=>!['entryAddress','entryKey','callbackUrl','callbackToken','revision'].includes(key)))throw invalid();
     if(Object.hasOwn(patch,'revision')&&(!Number.isSafeInteger(patch.revision)||patch.revision!==row.revision))throw new HttpError(409,'PLUGIN_CONNECTION_REVISION_CONFLICT');
@@ -126,6 +129,10 @@ export class PluginConnectionStore {
   authenticate(token) {
     if(typeof token!=='string'||token.length<24||token.length>1024)return null;
     return this.db.prepare('SELECT type FROM platform_plugin_connections WHERE entry_key_hash=? AND entry_key_pending IS NULL').get(hash(token))?.type ?? null;
+  }
+  assertActive(type) {
+    this.assertPlugin(type);
+    if(this.db.prepare('SELECT deleted_at FROM platform_plugins WHERE type=?').get(type).deleted_at!==null)throw new HttpError(409,'PLUGIN_DELETED');
   }
   forPath(path) {return this.db.prepare('SELECT type FROM platform_plugin_connections WHERE entry_path=?').get(path)?.type ?? null;}
   assertReady(type) {if(!this.status(type).ready)throw new HttpError(409,'PLUGIN_CONNECTION_NOT_READY');}

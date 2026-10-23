@@ -150,6 +150,7 @@ export class RequestStore {
     this.db.prepare('INSERT INTO platform_errors VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),run.task_id,run.run_id,run.generation ?? 0,'tool',tool,error.code,error.message?.slice(0,4096) ?? null,Date.now());
   }
   accept(client, body, { prepared: imported } = {}) {
+    if(typeof body?.type==='string'&&this.db.prepare('SELECT deleted_at FROM platform_plugins WHERE type=?').get(body.type)?.deleted_at!=null)throw fault('PLUGIN_DELETED',409);
     if(body?.type&&this.registry.modules.get(body.type)?.definition)this.pluginConnections?.assertReady(body.type);
     const { module, input } = this.registry.normalize(body);
     // Only trusted legacy imports supply prepared data; new admissions use the

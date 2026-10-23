@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Switch,Table,Typography} from 'antd';
-import {AgentGuidance,EnableToggle,JsonView,Panel,useLoad} from '../components';
+import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import PluginConnectionModal from '../PluginConnectionModal';
 import PluginIntegrationDrawer from '../PluginIntegrationDrawer';
@@ -24,7 +24,13 @@ export default function PluginsPage() {
           setData(current=>current?{...current,configured:current.configured.map(item=>item.type===updated.type?updated:item)}:current);
         }}/>}<Typography.Text id={'plugin-connection-status-'+plugin.type} type={plugin.connection?.ready?'secondary':'warning'}>{t(plugin.connection?.ready?'接入已就绪':plugin.connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></div>},
         {title:t('说明'),dataIndex:'description',className:'table-text-cell',responsive:['md'],render:value=><div className="table-summary" title={value}>{value}</div>},
-        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plugin)=><div className="plugin-row-actions"><Button onClick={()=>setConnectionPlugin(plugin)}>{t('配置接入')}</Button><Button onClick={()=>setIntegrationPlugin(plugin)}>{t('对接文档')}</Button><Button onClick={()=>setSelectedType(plugin.type)}>{t('查看详情')}</Button></div>},
+        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plugin)=><div className="plugin-row-actions"><Button onClick={()=>setConnectionPlugin(plugin)}>{t('配置接入')}</Button><Button onClick={()=>setIntegrationPlugin(plugin)}>{t('对接文档')}</Button><Button onClick={()=>setSelectedType(plugin.type)}>{t('查看详情')}</Button><DeleteAction label={t('删除业务插件：{name}',{name:plugin.name})} name={plugin.name} description={t('删除后从列表隐藏、停止接收新任务，并停用关联的定时计划。已接单任务继续执行，历史任务和结果保留。')} onDelete={async()=>{
+          await operation('plugin_delete',{type:plugin.type});
+          setData(current=>current?{...current,configured:current.configured.filter(item=>item.type!==plugin.type)}:current);
+          if(connectionPlugin?.type===plugin.type)setConnectionPlugin(undefined);
+          if(integrationPlugin?.type===plugin.type)setIntegrationPlugin(undefined);
+          if(selectedType===plugin.type)setSelectedType(undefined);
+        }}/></div>},
       ]}/>
     </Panel>
     {integrationPlugin&&<PluginIntegrationDrawer key={integrationPlugin.type+':'+locale} plugin={integrationPlugin} onClose={()=>setIntegrationPlugin(undefined)} onConfigure={()=>{setConnectionPlugin(integrationPlugin);setIntegrationPlugin(undefined);}}/>}

@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Card,Form,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
+import {Alert,Button,Card,Form,Modal,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
+import {Icon} from './Icon';
 import {useConsole} from './context';
 import type {AgentSettings} from './types';
 export const pretty=(value:unknown)=>JSON.stringify(value,null,2);
@@ -16,6 +17,24 @@ export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loadi
   }}/>;
 }
 export function DataLoading(){const {t}=useConsole();return <div className="page-loading" role="status"><Spin/> {t('正在加载数据…')}</div>;}
+export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
+  const {t}=useConsole(),locked=useRef(false);
+  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const remove=async()=>{
+    if(locked.current)return;
+    locked.current=true;setBusy(true);setError('');
+    try{await onDelete();setOpen(false);}catch(cause){setError(cause instanceof Error?cause.message:t('删除失败，请重试。'));}
+    finally{locked.current=false;setBusy(false);}
+  };
+  return <>
+    <Button type="text" danger icon={<Icon name="trash"/>} aria-label={label} title={label} onClick={()=>{setError('');setOpen(true);}}/>
+    <Modal open={open} title={t('逻辑删除')} okText={t('删除')} cancelText={t('取消')} onOk={()=>void remove()} onCancel={()=>{if(!locked.current)setOpen(false);}} okButtonProps={{danger:true,loading:busy,'aria-label':t('删除'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} maskClosable={!busy} keyboard={!busy}>
+      <Typography.Paragraph>{t('确定删除“{name}”吗？',{name})}</Typography.Paragraph>
+      <Typography.Paragraph>{description}</Typography.Paragraph>
+      {error&&<Alert type="error" showIcon title={error}/>}
+    </Modal>
+  </>;
+}
 export function Status({value}:{value:string}){const {t}=useConsole();return <Tag color={['failed','unknown','未就绪'].includes(value)?'error':['completed','accepted','已就绪','已启用','程序可用'].includes(value)?'success':'default'}>{t(labels[value]??value)}</Tag>;}
 export function Panel({title,children,extra}:{title:string;children:ReactNode;extra?:ReactNode}){return <Card className="console-panel" title={<Typography.Title level={2}>{title}</Typography.Title>} extra={extra}>{children}</Card>;}
 export function AgentGuidance({title,description}:{title:string;description:string}) {

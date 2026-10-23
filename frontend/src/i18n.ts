@@ -1,6 +1,14 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '逻辑删除':'Logical deletion',
+  '确定删除“{name}”吗？':'Delete “{name}”?',
+  '删除失败，请重试。':'Deletion failed. Please retry.',
+  '删除业务插件：{name}':'Delete plugin: {name}',
+  '删除定时计划：{name}':'Delete schedule: {name}',
+  '删除后从列表隐藏、停止接收新任务，并停用关联的定时计划。已接单任务继续执行，历史任务和结果保留。':'Hide this plugin, stop new tasks and disable its schedules. Already accepted tasks continue; task history and results are retained.',
+  '删除后从列表隐藏、停止后续触发，并取消尚未交给管理 Agent 的巡检。已接单任务和对话继续执行，历史记录保留。':'Hide this schedule, stop future triggers and cancel inspections not yet accepted by the management Agent. Accepted tasks and conversations continue; history is retained.',
+  '可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。':'Enable, disable or logically delete schedules here. Ask the management Agent to create or edit schedules.',
   'Agent 提问':'Agent question',
   '等待你的回答':'Your answer is needed',
   '等待回答':'Waiting for answer',

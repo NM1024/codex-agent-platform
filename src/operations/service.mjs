@@ -22,6 +22,7 @@ export class OperationsService {
   async execute(action,args={}) {
     const pluginView=definition=>this.store.pluginConnections?{...definition,connection:this.store.pluginConnections.status(definition.type)}:definition;
     if(action==='inspection_list')return this.schedules.pendingInspections();
+    if(action==='inspection_claim')return this.schedules.claimInspection(args.id);
     if(action==='inspection_ack')return this.schedules.acknowledgeInspection(args.id,args.conversation_id);
     const check=this.checks.get(action);
     if (!check) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','未知管理操作。');
@@ -69,6 +70,11 @@ export class OperationsService {
       return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'可调用 plugin_connection_initialize 初始化缺失入口信息；请到业务插件列表的“配置接入”领取生成的入口密钥或手动配置，完成后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未完成配置或密钥未领取前不能启用、提交任务、试运行或执行定时计划。'}:saved;
     }
     if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
+    if (action==='plugin_delete') return this.store.transaction(()=>{
+      // Pause dependent plans and mark the plugin in one durable transaction.
+      this.schedules.disableForPlugin(args.type);
+      return this.store.plugins.delete(args.type);
+    });
     if (action==='capabilities') return {
       plugin_schema:pluginDefinitionSchema,
       delivery_modes:this.store.pluginConnections?['none']:['none','callback_once'],
@@ -82,6 +88,7 @@ export class OperationsService {
     if (action==='schedules') return this.schedules.list();
     if (action==='schedule_save') return this.schedules.save(args.schedule);
     if (action==='schedule_enable') return this.schedules.setEnabled(args.id,args.enabled);
+    if (action==='schedule_delete') return this.schedules.delete(args.id);
     if (action==='runtime_update') {
       if (args.paused===undefined && args.concurrency===undefined) throw fault('INVALID_MANAGEMENT_INPUT');
       await this.execute('configuration_update',{scope:'execution',patch:args});

@@ -28,6 +28,24 @@ async function setup(t){
   return {...app,store,configuration,operations,dispatcher,runner,listen,base,post};
 }
 
+test('deleted plugin rejects both admission routes but preserves scoped historical task and artifact access',async t=>{
+  const {store,operations,registry,base,post}=await setup(t);
+  const accepted=await post('/hooks/review-own',{request_id:'before-delete',input:{content:'synthetic'}});
+  const task=await accepted.json();assert.equal(accepted.status,202);
+  await operations.execute('plugin_delete',{type:'content.review'});
+  for(const [path,body] of [['/hooks/review-own',{request_id:'after',input:{content:'x'}}],['/v2/tasks',{type:'content.review',request_id:'after',input:{content:'x'}}]]) {
+    const response=await post(path,body);assert.equal(response.status,409);assert.equal((await response.json()).error.code,'PLUGIN_DELETED');
+  }
+  const get=(path,key)=>fetch(base+path,{headers:{authorization:'Bearer '+key}});
+  assert.equal((await get('/v2/tasks/'+task.task_id,keys.review)).status,200);
+  assert.equal((await get('/v2/tasks/'+task.task_id,keys.beta)).status,404);
+  registry.catalog.readArtifact=async()=>({mime:'text/plain',filename:'synthetic.txt',data:Buffer.from('synthetic artifact')});
+  const artifact='/v2/tasks/'+task.task_id+'/artifacts/'+randomUUID();
+  assert.equal((await get(artifact,keys.review)).status,200);assert.equal((await get(artifact,keys.beta)).status,404);
+  const run=store.claim(task.task_id);await store.complete(run.run_id,{approved:true,reasons:[]});
+  assert.equal((await (await get('/v2/tasks/'+task.task_id,keys.review)).json()).status,'completed');
+});
+
 test('production keys isolate submission, task queries and artifacts; retired global keys cannot bypass',async t=>{
   const {store,registry,base,post}=await setup(t);
   assert.equal((await post('/hooks/review-own',{request_id:'old',input:{content:'synthetic'}},'retired-global-key')).status,401);
