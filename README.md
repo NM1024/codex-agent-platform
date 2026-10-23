@@ -17,6 +17,7 @@ This self-hosted platform is for developers and small, trusted teams that want t
 - [Send your first task](#send-your-first-task)
 - [Add your own work and schedules](#add-your-own-work-and-schedules)
 - [Daily operation](#daily-operation)
+- [Edit platform system prompts](#edit-platform-system-prompts)
 - [Security risks and recommendations](#security-risks-and-recommendations)
 - [Troubleshooting](#troubleshooting)
 - [Development and documentation](#development-and-documentation)
@@ -229,6 +230,14 @@ sudo ./deploy.sh stop /data/codex-agent-platform
 
 For upgrades, back up first, fetch the intended release, build it, then start it. Do not delete runtime directories to upgrade. See [deployment and recovery](docs/DEPLOYMENT.md).
 
+## Edit platform system prompts
+
+Platform-owned system instructions and message templates live in [`prompts/`](prompts/README.md), with an index explaining each file, its placeholders and how changes take effect. They use plain Markdown and do not require bilingual copies. You can translate or adapt the wording without searching application code; Admin language selection does not rewrite prompts.
+
+For an existing deployment, change the management Agent's instructions under **Settings → Management Agent → Manager instructions**. Saved instructions apply to the next turn and take precedence over `prompts/manager.md`, including its first-install default. Other built-in templates cover initial task messages, restart recovery and task investigations; source-file changes require rebuilding and redeploying the images. See the [prompt editing guide](prompts/README.md#editing-and-applying-changes).
+
+Business plugin `instructions` stay in plugin configuration. Users and the management Agent create and edit those through the plugin tools; they are separate from platform system prompts.
+
 ## Security risks and recommendations
 
 **Deploy this as a privileged service for people you trust.** Agents act through the configured tools without a person approving every operation. Admin access can change plugins and schedules, submit work, alter credentials and request service restarts.
@@ -274,11 +283,12 @@ npm test
 npm run check:release
 ```
 
-Current checks pass 182 host tests, 176 isolated container tests and 14 browser checks, including Chinese/English switching and desktop/mobile workflows. The initial snapshot also passed isolated Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
+Current checks pass 185 host tests and 15 browser checks, including Chinese/English switching, desktop/mobile workflows and system prompt loading. CI also builds all four release images and runs the isolated container suite. The initial snapshot also passed isolated Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
 
 | Document | Purpose |
 | --- | --- |
 | [Architecture](docs/ARCHITECTURE.md) | Components, lifecycle and trust boundaries. |
+| [System prompts](prompts/README.md) | Where to edit built-in instructions and how they take effect. |
 | [Plugins](docs/PLUGINS.md) | JSON definitions, tool capabilities, routes, artifacts and callbacks. |
 | [Deployment](docs/DEPLOYMENT.md) | Persistent data, HTTPS, probes, password recovery and backups. |
 | [Contributing](CONTRIBUTING.md) | Development and contribution expectations. |

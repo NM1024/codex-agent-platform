@@ -1,11 +1,12 @@
 import { createHash,randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { lstat,symlink,readFile } from 'node:fs/promises';
+import { lstat,symlink } from 'node:fs/promises';
 import { safeDirectory } from '../files.mjs';
 import { CodexRpcClient,filteredCodexEnv } from '../codex/rpc.mjs';
 import { initialize } from '../codex/session.mjs';
 import { runtimeConfig } from '../codex/config.mjs';
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
+import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 
 const hash=token=>createHash('sha256').update(token).digest('hex');
@@ -44,7 +45,7 @@ export class ManagementAgent {
       client=this.createClient({cwd:workDir,env});state.client=client;
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=settings.instructions ?? await readFile(new URL('./prompt.md',import.meta.url),'utf8');
+      const prompt=settings.instructions ?? readSystemPrompt('manager');
       const config=runtimeConfig({native:{},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),
@@ -71,7 +72,7 @@ export class ManagementAgent {
         if(event.method==='turn/completed')state.resolve({error:params.turn?.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(params.turn?.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'}});
       });
       timer=setTimeout(()=>state.resolve({error:{code:'MANAGEMENT_TIMEOUT',message:'管理轮次超过配置的执行时间。'}}),settings.timeoutMs);
-      const text=continuation?`Continue the interrupted management task in this same conversation. Do not resend the original request or mechanically repeat completed actions. Inspect any uncertain actions before deciding what to do.\nRecorded actions:\n${JSON.stringify(this.store.actions(conversation.id))}`:message.text;
+      const text=continuation?renderSystemPrompt('manager-resume',{recorded_actions_json:JSON.stringify(this.store.actions(conversation.id))}):message.text;
       if(this.closed){this.store.interrupted(message.id);return;}
       const started=await client.request('turn/start',{threadId,input:[{type:'text',text:marker+'\n'+text}]});
       this.store.turn(message.id,started.turn.id);

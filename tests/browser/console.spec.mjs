@@ -381,3 +381,29 @@ test("English schedule validation errors are readable and keep diagnostic codes"
     "INVALID_SCHEDULE: Provide a valid five-field cron expression and IANA time zone.",
   );
 });
+test("task investigation uses the server-owned prompt and opens its existing conversation", async ({
+  page,
+}) => {
+  const task = (await operation(page, "tasks", { status: "failed" }))[0];
+  await navigate(page, "tasks");
+  await page
+    .locator("tr")
+    .filter({ hasText: task.task_id })
+    .getByRole("button", { name: "调查", exact: true })
+    .click();
+  await expect(page.locator("#message-input")).toBeVisible();
+  await expect(page.locator("#messages .message.user")).toContainText(
+    task.task_id,
+  );
+  await expect(page.locator("#messages .message.user")).toContainText(
+    "不重新提交任务",
+  );
+  await navigate(page, "tasks");
+  await page
+    .locator("tr")
+    .filter({ hasText: task.task_id })
+    .getByRole("button", { name: "调查", exact: true })
+    .click();
+  await expect(page.locator("#message-input")).toBeVisible();
+  await expect(page.locator("#messages .message.user")).toHaveCount(1);
+});

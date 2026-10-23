@@ -33,7 +33,7 @@ async function walk(directory) {
       ...source.matchAll(/\bfrom\s*["'](\.{1,2}\/[^"']+)["']/g),
       ...source.matchAll(/\bimport\s*(?:\(\s*)?["'](\.{1,2}\/[^"']+)["']/g),
       ...source.matchAll(
-        /new\s+URL\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
+        /new\s+URL\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*,\s*import\.meta\.url\s*,?\s*\)/g,
       ),
     ];
     for (const match of imports) {
@@ -56,7 +56,7 @@ async function walk(directory) {
 }
 try {
   if (await exists('src/main-manager.mjs'))
-    for (const resource of ['src/manager/web/index.html','src/manager/web/app.js','src/manager/web/style.css','src/manager/web/favicon.svg','src/manager/prompt.md'])await requireFile(resource);
+    for (const resource of ['src/manager/web/index.html','src/manager/web/app.js','src/manager/web/style.css','src/manager/web/favicon.svg'])await requireFile(resource);
   if (await exists('src/application.mjs'))
     for (const resource of ['src/plugins/examples/content.review.json','src/plugins/examples/novel.illustrated.json'])await requireFile(resource);
   await walk(join(root, "src"));

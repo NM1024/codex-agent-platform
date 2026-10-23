@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
+import {renderSystemPrompt} from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 
 const assets=new Map([['/admin/',['index.html','text/html; charset=utf-8']],['/admin/app.js',['app.js','text/javascript; charset=utf-8']],['/admin/i18n.js',['i18n.js','text/javascript; charset=utf-8']],['/admin/style.css',['style.css','text/css; charset=utf-8']],['/admin/favicon.svg',['favicon.svg','image/svg+xml']]]);
@@ -37,7 +38,10 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         if(req.method==='POST') {
           const body=await readJson(req);
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
-          return json(res,201,store.createConversation(body.title,body.task_id?'task:'+body.task_id:null));
+          const conversation=store.createConversation(body.title,body.task_id?'task:'+body.task_id:null);
+          if(body.investigate===true&&body.task_id&&!conversation.messages.length)
+            agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
+          return json(res,201,store.getConversation(conversation.id));
         }
       }
       const conversation=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})(\/messages)?$/);
