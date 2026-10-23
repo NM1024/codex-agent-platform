@@ -1,5 +1,18 @@
 # Validation
 
+## Live management chat and deletable history
+
+Verified on 2026-10-24 with Node.js 24 and synthetic data:
+
+- Management chat uses a cookie-authenticated SSE snapshot/patch stream instead of healthy-connection transcript polling. Public Codex output appears directly in an assistant bubble; completion retains that bubble's identity. Reconnects restore state without submitting another turn. Streaming failure falls back to polling with explicit connection feedback. Read/navigation versions prevent delayed REST responses, including stale 404s, from overriding newer streamed content.
+- Nine backend regressions cover initial/update/final/reconnect frames, conversation isolation, unauthorized/missing resources, revoked sessions, slow clients, shutdown, Chinese text without whitespace, fragmented credential filtering, text beyond the activity budget, reopen/recovery and transactional deletion. Local cleanup removes owned thread/work directories without following the shared synthetic login symlink. Busy conversation/Agent states reject deletion, and business data stays separate.
+- Complete Linux npm verification passed 247 checks plus two host Compose checks (249 total). TypeScript/production build and release validation passed (81 JavaScript modules, 3 JSON resources). The frontend build ran separately before lifecycle hooks were skipped in the read-only Linux npm run. Direct Windows focused checks omit only Linux filesystem/symlink scenarios; the authoritative Linux suite has no skips.
+- All four Docker targets built from clean staged source, and the non-root, read-only, network-disabled packaged test image passed 242 checks. The previously documented temporary Dockerfile accommodations for blocked apt downloads and reuse of the unchanged verified dependency layer still apply; a fresh unmodified production Docker build remains unverified here.
+- Independent backend and frontend reviews found no actionable issues. The full browser suite passed 78 checks; an additional focused admission-order check passed after the unchanged production build (79 checks altogether). Nine new browser regressions exercise native EventSource, Chinese incremental output, completion without duplicate bubbles, deletion persistence, reconnect/fallback/navigation and stale-response guards, loading/errors, pending protection, draft retention and phone controls. Existing polling-era tests now assert actual streamed updates; REST-only layout fixtures explicitly exercise polling fallback. The delayed-admission regression verifies that an older POST acknowledgement cannot erase a running message already received over SSE.
+- Desktop/390px phone live-reply captures and a settled, hit-tested mobile deletion-confirmation capture were inspected. The initial mobile capture caught the modal's enter transition; waiting for confirmation-button hit testing produced the visible dialog. No stacking or layout fix was needed. Screenshots and both full/targeted browser logs remain in `.tmp/chat-streaming/`.
+
+No actual credentials, account/model tasks or local platform deployment were used. Temporary evidence is under `.tmp/chat-streaming/`. Provider-side deletion and secure erasure of SQLite free pages/backups are outside local chat-history deletion semantics.
+
 ## Default business concurrency and management project knowledge
 
 Verified on 2026-10-24 with Node.js 24 and synthetic data:

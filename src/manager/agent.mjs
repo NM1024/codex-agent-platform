@@ -1,7 +1,8 @@
 import { createHash,randomBytes } from 'node:crypto';
-import { join } from 'node:path';
-import { lstat,symlink } from 'node:fs/promises';
-import { safeDirectory } from '../files.mjs';
+import { join,resolve,relative,sep } from 'node:path';
+import { lstat,symlink,rm } from 'node:fs/promises';
+import { safeDirectory,containedPath } from '../files.mjs';
+import {HttpError} from '../errors.mjs';
 import { CodexRpcClient,filteredCodexEnv } from '../codex/rpc.mjs';
 import { initialize } from '../codex/session.mjs';
 import { runtimeConfig } from '../codex/config.mjs';
@@ -19,6 +20,18 @@ export class ManagementAgent {
     Object.assign(this,{store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.waiting=new Set();this.wakes=new Set();this.closed=false;
   }
   authorize(token){return typeof token==='string'&&token.length<256?this.tokens.get(hash(token)):undefined;}
+  async deleteConversation(id) {
+    if(this.running.has(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
+    const result=this.store.deleteConversation(id);this.waiting.delete(id);this.wakes.delete(id);
+    const cleanup=await Promise.allSettled(['codex','work'].map(async directory=>{
+      const base=resolve(this.root),target=resolve(base,directory,id),rel=relative(base,target);
+      if(!/^[a-f0-9-]{36}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
+      await containedPath(base,target,{allowMissing:true});
+      // fs.rm removes an auth.json symlink itself, never its external target.
+      await rm(target,{recursive:true,force:true});
+    }));
+    return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
+  }
   enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
   kick(id) {
     if(this.closed||this.running.has(id))return;

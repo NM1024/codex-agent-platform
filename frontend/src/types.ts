@@ -14,7 +14,7 @@ export interface Artifact {artifact_id:string;filename?:string;mime?:string}
 export interface ChatImage {id:string;name:string;dataUrl:string;size:number;width:number;height:number}
 export interface MessageImage {id:string;name:string;mime:string;width:number;height:number;size:number;url:string}
 export interface MessageActivity {id:string;kind:'reasoning_summary'|'assistant_message'|'tool'|'status';label:string;text:string;status:string;created_at:number;updated_at:number}
-export interface Message {id:string;role:string;text:string;status:string;created_at:number;updated_at?:number|null;started_at?:number|null;completed_at?:number|null;reply_to?:string|null;attachments?:MessageImage[];activity?:MessageActivity[];error?:{code:string};execution?:AgentSettings}
+export interface Message {id:string;role:string;text:string;status:string;created_at:number;updated_at?:number|null;started_at?:number|null;completed_at?:number|null;reply_to?:string|null;partial_text?:string|null;attachments?:MessageImage[];activity?:MessageActivity[];error?:{code:string};execution?:AgentSettings}
 export interface Action {id:string;name:string;status:string;target?:string;message_id?:string|null;error?:{code:string}}
 export interface Conversation {id:string;title:string;execution:AgentSettings;messages?:Message[];actions?:Action[];queued_count?:number;running_count?:number}
 export interface Schedule {id?:string;name:string;kind:'task'|'inspection';cron:string;timezone:string;enabled:boolean;type?:string;input?:Json;message?:string;next_run_at?:number;blocked_reason?:string}

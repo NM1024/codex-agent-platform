@@ -5,7 +5,7 @@ import type {Catalog,View,ChatImage} from './types';
 interface ConsoleContext {
   locale:string;changeLocale:(locale:string)=>void;t:typeof t;pending:number;notice:string;notify:(text:string)=>void;
   authenticated:boolean;setAuthenticated:(value:boolean)=>void;view:View;navigate:(view:View)=>void;
-  api:<T>(path:string,body?:unknown)=>Promise<T>;operation:<T>(action:string,args?:unknown)=>Promise<T>;
+  api:<T>(path:string,body?:unknown,method?:'DELETE')=>Promise<T>;operation:<T>(action:string,args?:unknown)=>Promise<T>;
   act:<T>(work:()=>Promise<T>)=>Promise<T|undefined>;chatId:string|null;setChatId:(id:string|null)=>void;
   chatDraft:string;setChatDraft:(value:string|((previous:string)=>string))=>void;
   chatImages:ChatImage[];setChatImages:(value:ChatImage[]|((previous:ChatImage[])=>ChatImage[]))=>void;
@@ -57,8 +57,8 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
     void tail.then(()=>{if(conversationWrites.current.get(id)===tail)conversationWrites.current.delete(id);});
     return result;
   },[]);
-  const api=useCallback(async<T,>(path:string,body?:unknown)=>{
-    try{return await request<T>(path,body);}catch(error){if(error instanceof ApiError&&error.status===401)setAuthenticated(false);throw error;}
+  const api=useCallback(async<T,>(path:string,body?:unknown,method?:'DELETE')=>{
+    try{return await request<T>(path,body,method);}catch(error){if(error instanceof ApiError&&error.status===401)setAuthenticated(false);throw error;}
   },[]);
   const operation=useCallback(<T,>(action:string,args:unknown={})=>api<T>('/operations',{action,args}),[api]);
   const act=useCallback(async<T,>(work:()=>Promise<T>)=>{

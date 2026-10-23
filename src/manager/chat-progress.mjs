@@ -3,9 +3,10 @@ import { safeDiagnostic } from '../codex/diagnostics.mjs';
 const MAX_TEXT=8192,MAX_ITEMS=100;
 export function publicChatText(text,secrets=[],streaming=false,maxLength=MAX_TEXT) {
   if(typeof text!=='string')return '';
-  // Keep the final lexical token private until its boundary is known. A credential
+  // Keep the trailing credential-like ASCII token private until its boundary is known. A credential
   // can arrive over many deltas; sanitizing each individual delta would leak it.
-  let value=streaming?text.replace(/\S+$/u,''):text;
+  // Chinese prose need not wait for whitespace to become visible.
+  let value=streaming?text.replace(/[A-Za-z0-9_~+\/.=:@%\-]+$/u,''):text;
   // A bounded record can end mid-token even when an item/turn completes.
   for(const secret of secrets)if(typeof secret==='string')for(let length=Math.min(secret.length-1,value.length);length>=4;length--)
     if(value.endsWith(secret.slice(0,length))){value=value.slice(0,-length)+'[REDACTED]';break;}
@@ -18,7 +19,12 @@ export function publicChatText(text,secrets=[],streaming=false,maxLength=MAX_TEX
 // Only explicitly public fields enter storage. This object never receives raw
 // reasoning deltas or serializes tool arguments/results.
 export class ChatProgress {
-  constructor({store,messageId,secrets=[]}) {Object.assign(this,{store,messageId,secrets});this.items=new Map();this.text='';this.closed=false;}
+  constructor({store,messageId,secrets=[]}) {Object.assign(this,{store,messageId,secrets});this.items=new Map();this.text='';this.closed=false;this.replyId=null;this.replyText='';}
+  reply(id,text,delta=false,streaming=false) {
+    if(this.replyId!==id){this.replyId=id;this.replyText='';}
+    this.replyText=(delta?this.replyText+text:text).slice(0,1048576);
+    this.store.reply?.(this.messageId,publicChatText(this.replyText,this.secrets,streaming,null));
+  }
   save(id,kind,label,text,status='running',streaming=false) {
     this.store.progress(this.messageId,{id,kind,label:publicChatText(label,this.secrets,false,120),text:publicChatText(text,this.secrets,streaming),status});
   }
@@ -28,6 +34,7 @@ export class ChatProgress {
     if(event.method==='item/reasoning/summaryTextDelta'||event.method==='item/agentMessage/delta') {
       if(typeof params.itemId!=='string'||typeof params.delta!=='string')return;
       const summary=event.method==='item/reasoning/summaryTextDelta';
+      if(!summary)this.reply(params.itemId,params.delta,true,true);
       const id=(summary?'summary:':'assistant:')+params.itemId+(summary?':'+(Number.isInteger(params.summaryIndex)?params.summaryIndex:0):'');
       if(!this.items.has(id)&&this.items.size>=MAX_ITEMS)return;
       const value=((this.items.get(id)?.text ?? '')+params.delta).slice(0,MAX_TEXT);
@@ -45,6 +52,7 @@ export class ChatProgress {
         this.items.set(id,value);this.save(id,value.kind,value.label,value.text,value.status,!completed);
       }
     }else if(item.type==='agentMessage') {
+      this.reply(item.id,typeof item.text==='string'?item.text:this.replyId===item.id?this.replyText:'',false,!completed);
       // Final replies are independent of the bounded activity budget.
       if(completed)this.text=publicChatText(item.text,this.secrets,false,null);
       const id='assistant:'+item.id;
@@ -60,6 +68,7 @@ export class ChatProgress {
   }
   finish(status='completed') {
     if(this.closed)return;
+    if(!this.text&&this.replyText)this.text=publicChatText(this.replyText,this.secrets,false,null);
     for(const [id,item] of this.items)if(item.status==='running') {
       this.save(id,item.kind,item.label,item.text,status,false);
       if(item.kind==='assistant_message'&&!this.text)this.text=publicChatText(item.text,this.secrets,false,null);

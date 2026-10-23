@@ -39,7 +39,7 @@ The current release assumes one operator or a trusted team sharing administrativ
 - **Runs a complete task autonomously.** Normal execution sends one full task message to one independent Codex conversation. The Agent chooses its steps, uses the permitted tools and submits its final result through `complete_task`.
 - **Makes the input and output predictable.** A plugin declares its input fields, instructions, available capabilities and result schema. The service checks submitted data against that contract.
 - **Keeps work and results on record.** Tasks have durable status, errors, execution details and downloadable image/text artifacts.
-- **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations.
+- **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations. Management replies stream into assistant bubbles with collapsible activity and connection recovery; ended chat history can be deleted from its sidebar.
 - **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts and management instructions are persisted and configurable. Humans configure each plugin's entry and optional callback connection in Admin.
 - **Resumes incomplete work after a restart.** Recovery uses the existing task and Codex thread when their saved state is available. It may send an additional continuation message; completed or failed tasks do not automatically run again.
 

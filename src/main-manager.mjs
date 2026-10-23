@@ -47,7 +47,7 @@ try {
   const inspectionTimer=setInterval(()=>{if(Date.now()-lastInspection>=agent.inspectionIntervalMs){lastInspection=Date.now();inspect();}},1000);inspect();
   async function stop(){
     if(closing)return;closing=true;clearInterval(inspectionTimer);
-    await agent.stop();await inspectionTask;await mcp.settle();
+    api.closeEventStreams();await agent.stop();await inspectionTask;await mcp.settle();
     await Promise.all([new Promise(r=>api.close(r)),new Promise(r=>internal.close(r))]);store.close();
   }
   process.on('SIGTERM',()=>void stop());process.on('SIGINT',()=>void stop());

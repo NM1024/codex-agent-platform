@@ -93,6 +93,11 @@ button, input, textarea { font: inherit; }
 .conversation-item:hover { background: #edf1ee; }
 .conversation-item.active { color: #224936; background: #e5eee8; font-weight: 600; }
 .conversation-item:focus-visible { outline: 2px solid #345e4f; outline-offset: -2px; }
+.conversation-row { display: flex; flex-shrink: 0; align-items: center; min-width: 0; gap: 2px; }
+.conversation-row .conversation-item { flex: 1; min-width: 0; width: auto; }
+.conversation-row .conversation-delete { flex-shrink: 0; width: 28px; height: 32px; font-size: 20px; }
+.chat-stream-status { display: inline-block; margin-left: 10px; color: #738078; font-size: 10px; }
+.chat-stream-status.connected::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: #4a8760; vertical-align: middle; }
 .chat-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .chat-header { display: flex; flex-shrink: 0; align-items: center; gap: 14px; min-width: 0; padding: 16px 28px; border-bottom: 1px solid #eff1f0; }
 .chat-header > div { min-width: 0; }
@@ -149,7 +154,7 @@ button, input, textarea { font: inherit; }
 .message-activity li div { display: flex; flex-wrap: wrap; gap: 4px 8px; }
 .message-activity time { font-size: 10px; }
 .message-activity p { white-space: pre-wrap; margin: 5px 0; }
-.message-partial { margin-top: 10px; padding: 10px 12px; background: #f7f9f8; border: 1px solid #e5ebe7; border-radius: 8px; font-size: 13px; }
+.message-partial { min-width: 40px; }
 .partial-label { display: block; color: #738078; font-size: 10px; margin-bottom: 4px; }
 .chat-image-drafts, .message-images { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
 .chat-image-drafts figure { width: 88px; margin: 0; padding: 5px; border: 1px solid #e0e8e2; border-radius: 8px; text-align: center; }

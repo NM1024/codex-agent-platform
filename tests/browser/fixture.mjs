@@ -102,9 +102,16 @@ const agent = {
   model: "gpt-6.1-sol",
   timeoutMs: 2400000,
   toolTimeoutMs: 180000,
+  deleteConversation(id) {return store.deleteConversation(id);},
   enqueue(id, text, attachments = []) {
     const m = store.enqueue(id, text, attachments);
     store.markRunning(m.id);
+    if(text==='Browser streaming fixture') {
+      setTimeout(()=>store.reply(m.id,'第一段公开回复。'),150);
+      setTimeout(()=>store.reply(m.id,'第一段公开回复。第二段继续到达。'),650);
+      setTimeout(()=>store.finish(m,null,'第一段公开回复。第二段继续到达。完整回复已结束。'),1500);
+      return m;
+    }
     store.finish(
       m,
       null,
@@ -148,11 +155,12 @@ await new Promise((r) =>
   server.listen(Number(process.env.CONSOLE_TEST_PORT ?? 4317), "127.0.0.1", r),
 );
 console.log("Synthetic browser test server ready");
-process.on("SIGTERM", () =>
+process.on("SIGTERM", () => {
+  server.closeEventStreams?.();
   server.close(async () => {
     store.close();
     business.close();
     await rm(workspace, { recursive: true, force: true });
     process.exit(0);
-  }),
-);
+  });
+});

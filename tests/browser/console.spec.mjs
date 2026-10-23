@@ -155,7 +155,8 @@ test('chat uses separate bubbles and keeps its composer inside the viewport',asy
   }
   await page.locator('#messages').evaluate(element=>{element.scrollTop=0;});
   await expect.poll(()=>page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
-  await page.waitForResponse(response=>response.url().endsWith('/conversations/'+created.id)&&response.request().method()==='GET');
+  await page.request.post('/admin/api/conversations/'+created.id+'/messages',{data:{text:'Synthetic update while reading older messages'}});
+  await expect(page.locator('#messages .message.user').last()).toContainText('Synthetic update while reading older messages');
   expect(await page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
 });
 
@@ -208,6 +209,8 @@ test('inherited model option names the global default rather than the override',
 test('expanded long activity stays scrollable without hiding the phone send button',async({page})=>{
   await page.setViewportSize({width:390,height:667});
   const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic long activity'}})).json();
+  // This layout fixture supplies a REST-only synthetic action history.
+  await page.route('**/admin/api/conversations/'+created.id+'/events',route=>route.fulfill({status:404,body:'Synthetic polling fallback'}));
   await page.route('**/admin/api/conversations/'+created.id,async route=>{
     if(route.request().method()!=='GET')return route.continue();
     await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'failed',error:{code:'SYNTHETIC',message:'Synthetic long error '.repeat(15)}}))}});
@@ -222,6 +225,7 @@ test('expanded long activity stays scrollable without hiding the phone send butt
 test('landscape phone keeps send visible with six input lines and expanded activity',async({page})=>{
   await page.setViewportSize({width:844,height:390});
   const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic landscape'}})).json();
+  await page.route('**/admin/api/conversations/'+created.id+'/events',route=>route.fulfill({status:404,body:'Synthetic polling fallback'}));
   await page.route('**/admin/api/conversations/'+created.id,async route=>{
     if(route.request().method()!=='GET')return route.continue();
     await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'completed'}))}});
@@ -580,12 +584,14 @@ test("completed task artifacts are viewable and downloadable", async ({
   await link.click();
   expect((await download).suggestedFilename()).toBe("review.txt");
 });
-test("management messages render safe Markdown and retain an unsent draft while polling", async ({
+test("management messages render safe Markdown and retain an unsent draft during live updates", async ({
   page,
 }) => {
   await navigate(page, "chat");
   await page.locator("#message-input").fill("检查队列");
+  const accepted=page.waitForResponse(response=>response.url().endsWith('/messages')&&response.request().method()==='POST');
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  const conversationId=(await accepted).url().match(/conversations\/([^/]+)/)[1];
   await expect(page.locator("#messages")).toContainText("<img src=x");
   const reply=page.locator('#messages .assistant').last();
   await expect(reply.getByRole('heading',{name:'运行报告'})).toBeVisible();
@@ -598,10 +604,8 @@ test("management messages render safe Markdown and retain an unsent draft while 
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
   await page.screenshot({path:'.tmp/react-admin/screenshots/chat-markdown-desktop.png',fullPage:true,animations:'disabled'});
   await page.locator("#message-input").fill("下一条未发送的消息");
-  await page.waitForResponse(
-    (r) =>
-      r.url().includes("/conversations/") && r.request().method() === "GET",
-  );
+  await page.request.post('/admin/api/conversations/'+conversationId+'/messages',{data:{text:'Synthetic live update preserves draft'}});
+  await expect(page.locator('#messages .message.user').last()).toContainText('Synthetic live update preserves draft');
   await expect(page.locator("#message-input")).toHaveValue(
     "下一条未发送的消息",
   );
