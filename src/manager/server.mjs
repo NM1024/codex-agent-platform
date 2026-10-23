@@ -8,6 +8,7 @@ import { managementTools } from '../contracts/management.mjs';
 import {staticEncoding} from './static-encoding.mjs';
 import {validateChatImages} from './chat-images.mjs';
 import {streamConversation} from './events.mjs';
+import {buildPluginIntegration} from './plugin-integration.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
@@ -51,6 +52,12 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         return res.end(Buffer.from(image.bytes));
       }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
+      const pluginIntegration=path.match(/^\/admin\/api\/plugins\/([^/]+)\/integration$/);
+      if(req.method==='GET'&&pluginIntegration){
+        const type=decodeURIComponent(pluginIntegration[1]);
+        const [definition,connection]=await Promise.all([Promise.resolve().then(()=>operations.execute('plugin_get',{type})),Promise.resolve().then(()=>operations.pluginConnection(type))]);
+        return json(res,200,buildPluginIntegration(definition,connection,{locale:url.searchParams.get('locale')}));
+      }
       if(pluginConnection&&(req.method==='GET'||req.method==='POST')) {
         const type=decodeURIComponent(pluginConnection[1]);
         return json(res,200,await operations.pluginConnection(type,req.method==='POST'?await readJson(req):undefined));

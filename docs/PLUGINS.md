@@ -29,6 +29,18 @@ A plugin defines a business contract, not executable code. Admin shows definitio
 
 Standard submission: `POST /v2/tasks` with `{type, request_id, input}` and `Authorization: Bearer <that-plugin-entry-key>`. The body type must match the plugin identified by the key. A human-configured `/hooks/...` route accepts `{request_id, input}` and determines the type from that route; its key must identify the same plugin. Use this key for queries and artifact downloads too; it cannot access another plugin's tasks or files.
 
+## Per-plugin integration documentation
+
+Each Admin business-plugin row has an **Integration docs** action, separate from connection setup and definition details. The read-only drawer provides overview, request, response/query, callback and error tabs, with code copy, full Markdown copy and download. It is available before a plugin is enabled or its human connection is ready, with setup guidance instead of automatically changing anything.
+
+The human-authenticated `GET /admin/api/plugins/{type}/integration?locale=zh-CN|en` route reads the current saved definition and connection revisions on each request. Its document is generated from the actual platform HTTP protocol and that plugin's `input_schema`/`result_schema`; it does not use a model turn or submit a trial. There is no new Agent tool or public entry-key documentation endpoint. Operators may share the exported Markdown with callers.
+
+Parameter tables include nested objects/arrays, local references, required flags, descriptions and constraints; the complete schemas remain authoritative for complex, conditional or recursive contracts. A synthesized example is shown only after validating against the complete schema. Unsupported examples are explicitly unavailable. Add business meaning through JSON Schema `description` and valid `examples` annotations using management chat; absent descriptions are labeled, not inferred. UI language changes translate protocol guidance, not business annotations.
+
+The bundled example schemas include field annotations for fresh installations. Existing saved definitions are retained during upgrade; ask the management Agent to add any missing descriptions/examples to those definitions while preserving their business contracts.
+
+Documents distinguish asynchronous HTTP202 admission from HTTP200 queries/final results, and explain scoped Bearer auth, request correlation without deduplication, task states, artifacts and optional callbacks. A relative entry path uses an explicit `https://<gateway-host>` placeholder; the Admin origin is never assumed to be the business host. Keys and callback credentials are placeholders. Actual callback URLs are omitted too because their query strings can contain credentials. Current plugin documents do not replace the contract saved when a historical task was accepted.
+
 ## Human connection configuration
 
 After the Agent creates a plugin, open its **Configure connection** action in **Business plugins**. The entry address and entry key are mandatory. The initial path is the Agent's first `routes` suggestion, or `/hooks/` followed by the type with dots replaced by slashes. Humans may edit it to another `/hooks/...` path or an absolute HTTP(S) URL with such a path. Paths and keys must be unique across plugins; system paths, traversal, URL credentials, query strings and fragments are rejected for entry addresses. Saving a public URL does not configure a domain, TLS or reverse proxy.

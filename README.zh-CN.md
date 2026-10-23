@@ -246,6 +246,8 @@ sudo ./deploy.sh stop /data/codex-agent-platform
 
 已有部署的管理 Agent 提示词，请让管理 Agent 通过 `configuration_update` 修改 `manager` 范围的 `instructions`；系统配置页面可查看当前值，保存后下一轮生效，无需重启。`prompts/manager.md` 是首次安装的默认值；数据库中已保存的提示词优先，包括安装时自动保存的初始值。修改其他内置模板（任务初始消息、重启恢复、任务调查）后，需要重新构建镜像并部署。具体见[提示词修改说明](prompts/README.md#editing-and-applying-changes)。
 
+在“业务插件”列表点击“对接文档”，可查看该插件的请求字段、结果结构、异步任务协议、查询与产物下载接口、回调约定和示例，并复制或下载 Markdown。文档随已保存配置生成，不包含接入凭证。业务字段缺少含义时，可让管理 Agent 在 Schema 中补充 `description` 和可校验的 `examples`。
+
 每次管理对话启动或恢复时，还会附加随版本更新的项目运营规范和人工接入规则，已有自定义提示词也能收到更新。这些规范涵盖任务生命周期、能力约定、模型继承、定时计划和部署边界。管理 Agent 通过工具查询当前设置和 schema，不会自动读取仓库 README；以后修改平台行为时，需要同步更新这份固定规范和工具说明。
 
 业务插件的 `instructions` 仍属于插件配置，由用户或管理 Agent 通过插件工具创建、修改；它们与平台系统提示词分开维护。

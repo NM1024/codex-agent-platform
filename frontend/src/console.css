@@ -267,10 +267,28 @@ button, input, textarea { font: inherit; }
 }
 
 /* Human-managed plugin connections. Modal content is independent of chat state. */
-.plugin-row-actions { display: flex; align-items: flex-start; gap: 8px; }
+.plugin-row-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .plugin-row-actions .ant-btn { height: auto; min-height: 32px; white-space: normal; }
 .plugin-connection-status { display: grid; gap: 4px; }
 .plugin-connection-status > .ant-typography { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.plugin-integration-drawer .ant-drawer-title { overflow-wrap: anywhere; }
+.plugin-integration-drawer .ant-drawer-body { min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.integration-loading { display: flex; align-items: center; gap: 10px; padding: 24px 0; }
+.integration-metadata { margin-bottom: 16px; }
+.integration-metadata .ant-descriptions-item-content { overflow-wrap: anywhere; }
+.integration-export { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; margin-top: 16px; }
+.integration-export .copy-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.integration-export .copy-feedback { max-width: 100%; }
+.integration-tabs { min-width: 0; }
+.integration-tabs .ant-tabs-content-holder { min-width: 0; }
+.plugin-integration-drawer .message-markdown { overflow-wrap: anywhere; }
+.plugin-integration-drawer .message-markdown th, .plugin-integration-drawer .message-markdown td { min-width: 96px; }
+.plugin-integration-drawer .ant-alert { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 600px) {
+  .plugin-integration-drawer .ant-drawer-body { padding: 16px; }
+  .plugin-integration-drawer .ant-drawer-header { padding: 16px; }
+  .plugin-integration-drawer .ant-tabs-tab { padding-block: 12px; }
+}
 .plugin-connection-modal { top: 32px; max-width: calc(100vw - 24px); padding-bottom: 32px; }
 .plugin-connection-modal .ant-modal-title { padding-right: 24px; overflow-wrap: anywhere; }
 .plugin-connection-modal .ant-modal-body { max-height: calc(100dvh - 200px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 4px; }

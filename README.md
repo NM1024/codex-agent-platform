@@ -246,6 +246,8 @@ For an existing deployment, ask the management Agent to update the `manager` sco
 
 Business plugin `instructions` stay in plugin configuration. Users and the management Agent create and edit those through the plugin tools; they are separate from platform system prompts.
 
+Use **Business plugins → Integration docs** for a plugin's request fields, result schema, asynchronous task protocol, polling/artifact APIs, callback contract and examples. The document follows saved configuration, supports copy/Markdown download, and excludes connection credentials. Ask the management Agent to add field `description` and valid `examples` annotations when business meaning is missing.
+
 Versioned project operating rules and the human-only plugin connection policy are appended to every management start/resume, including existing customized conversations. They cover task lifecycle, capabilities, model inheritance, schedules and deployment boundaries. The Agent queries tools for current settings and schemas; it does not automatically read the repository README. Update these fixed rules alongside later platform behavior changes.
 
 ## Security risks and recommendations

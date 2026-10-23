@@ -5,16 +5,21 @@
   "enabled": true,
   "input_schema": {
     "type": "object",
-    "properties": {"premise": {"type": "string", "minLength": 1}, "genre": {"type": "string"}, "chapters": {"type": "integer", "minimum": 1}, "style": {"type": "string"}},
+    "properties": {
+      "premise": {"type": "string", "minLength": 1, "description": "故事梗概、核心设定或创作要求。", "examples": ["一名旅行者在海边小城发现了一封未寄出的信。"]},
+      "genre": {"type": "string", "description": "期望的小说题材。", "examples": ["温暖的日常故事"]},
+      "chapters": {"type": "integer", "minimum": 1, "description": "期望的章节数；未提供时按当前业务指令创作一章。"},
+      "style": {"type": "string", "description": "章节配图的画面风格要求。", "examples": ["柔和的水彩插画"]}
+    },
     "required": ["premise"], "additionalProperties": false
   },
   "instructions": "完成一篇有完整情节的图文小说。premise 为梗概，genre 为题材，chapters 为章节数（未指定时一章），style 为画面风格。自主完成构思、正文写作、配图和自查；保持人物与情节一致。每章使用原生 image_gen 生图，然后调用 register_image 保存，通过返回的图片预览自查；根据本任务需求决定是否修正。不要用文字或占位图冒充已完成配图。将完整正文保存为文本产物，通过 complete_task 提交 title、chapters 和 text_artifact_id。技术问题无法解决时报告真实问题，不伪造产物。",
   "result_schema": {
     "type": "object",
     "properties": {
-      "title": {"type": "string"},
-      "chapters": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"title": {"type": "string"}, "text": {"type": "string"}, "artifact_id": {"type": "string"}}, "required": ["title", "text", "artifact_id"], "additionalProperties": false}},
-      "text_artifact_id": {"type": "string"}
+      "title": {"type": "string", "description": "整篇小说的标题。"},
+      "chapters": {"type": "array", "minItems": 1, "description": "按顺序排列的章节及其配图元数据。", "items": {"type": "object", "properties": {"title": {"type": "string", "description": "章节标题。"}, "text": {"type": "string", "description": "本章节正文。"}, "artifact_id": {"type": "string", "description": "本任务生成并登记的章节图片产物编号，用于产物下载接口。"}}, "required": ["title", "text", "artifact_id"], "additionalProperties": false}},
+      "text_artifact_id": {"type": "string", "description": "包含完整小说正文的文本产物编号，用于产物下载接口。"}
     },
     "required": ["title", "chapters", "text_artifact_id"], "additionalProperties": false
   },

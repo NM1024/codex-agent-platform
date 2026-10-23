@@ -1,6 +1,15 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '对接文档':'Integration docs',
+  '对接文档：{name}':'Integration docs: {name}',
+  '正在加载对接文档…':'Loading integration docs…',
+  '对接文档暂时无法读取，请重试。':'Integration docs could not be loaded. Please retry.',
+  '业务定义版本':'Business definition revision',
+  '接入配置版本':'Connection revision',
+  '请先通过「配置接入」完成必填设置，再启用插件并提交任务。文档仍可查阅。':'Complete the required settings in Configure connection before enabling this plugin and submitting tasks. Documentation remains available.',
+  '复制 Markdown':'Copy Markdown',
+  '下载 Markdown':'Download Markdown',
   '复制':'Copy',
   '复制代码':'Copy code',
   '复制回复':'Copy reply',
