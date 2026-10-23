@@ -1,7 +1,8 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {useRef,useState} from 'react';
-import {Button} from 'antd';
+import {Button,Tooltip} from 'antd';
+import {Icon} from './Icon';
 import {useConsole} from './context';
 
 export function CopyButton({text,label='复制'}:{text:string;label?:string}) {
@@ -15,7 +16,7 @@ export function CopyButton({text,label='复制'}:{text:string;label?:string}) {
     }catch{setState('failed');}
     finally{locked.current=false;}
   };
-  return <span className="copy-control"><Button size="small" loading={state==='copying'} aria-label={t(label)} onClick={()=>void copy()}>{t(state==='copying'?'正在复制…':label)}</Button><span className="copy-feedback" role="status">{state==='copied'?t('已复制'):state==='failed'?t('复制失败，请手动选择文本复制。'):''}</span></span>;
+  return <span className="copy-control"><Tooltip title={t(state==='copied'?'已复制':label)}><Button type="text" size="small" icon={<Icon name={state==='copied'?'check':'copy'}/>} loading={state==='copying'} aria-label={t(label)} onClick={()=>void copy()}/></Tooltip><span className="copy-feedback" role="status">{state==='copied'?t('已复制'):state==='failed'?t('复制失败，请手动选择文本复制。'):''}</span></span>;
 }
 
 function literalCode(node:unknown):string {

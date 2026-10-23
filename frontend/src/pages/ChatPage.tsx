@@ -7,6 +7,7 @@ import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress, messageStatuses} from '../ChatActivity';
 import {DraftImages, MessageImages} from '../ImageAttachments';
 import {compressChatImage} from '../chatImages';
+import {Icon} from '../Icon';
 import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
@@ -17,7 +18,7 @@ interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: Chat
 const conversationCounts=(item:Conversation)=>({queued_count:item.queued_count??item.messages?.filter(message=>message.role==='user'&&message.status==='queued').length,running_count:item.running_count??item.messages?.filter(message=>message.role==='user'&&['running','interrupted','recovering'].includes(message.status)).length});
 
 export default function ChatPage() {
-  const {api, operation, notify, t, refresh, chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize,registerPageLoad} = useConsole();
+  const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [listLoading,setListLoading]=useState(true);
   const [defaults, setDefaults] = useState<AgentSettings>({});
@@ -70,7 +71,7 @@ export default function ChatPage() {
     if(message.role!=='user')return message.reply_to&&messages.some(user=>user.id===message.reply_to)?[]:[{message,key:message.id,live:false}];
     const reply=messages.find(item=>item.role==='assistant'&&item.reply_to===message.id);
     const partial=message.partial_text??message.activity?.filter(item=>item.kind==='assistant_message').map(item=>item.text).filter(Boolean).join('\n\n')??'';
-    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false}]:['running','interrupted','recovering'].includes(message.status)?[{message:{id:'reply:'+message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:true}]:[])];
+    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false}]:['running','interrupted','recovering'].includes(message.status)?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:true}]:[])];
   });
 
   const forgetConversation=(id:string)=>{
@@ -90,7 +91,7 @@ export default function ChatPage() {
   useEffect(() => {
     let active = true,fetchingList=false;
     setListLoading(true);
-    void registerPageLoad(Promise.all([api<Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})]))
+    void Promise.all([api<Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})])
       .then(([items, group]) => {
         if (!active) return;
         const available=items.filter(item=>!deletedIds.current.has(item.id));
@@ -108,7 +109,7 @@ export default function ChatPage() {
       finally {fetchingList=false;}
     },5000);
     return () => {active = false;clearInterval(timer);};
-  }, [api, operation, refresh]);
+  }, [api, operation]);
 
   useEffect(() => {
     if (!chatId) {setConversation(undefined);setLoadingId(null);setLoadError('');return;}
@@ -135,7 +136,7 @@ export default function ChatPage() {
         if (active && currentId.current === chatId && navigation.current === generation && reads.current[chatId] === read && !hasLoaded) {setLoadError(error instanceof Error ? error.message : String(error));setLoadingId(null);}
       } finally {fetching = false;}
     };
-    void registerPageLoad(load());
+    void load();
     const isCurrent=()=>active&&currentId.current===chatId&&navigation.current===generation&&!deletedIds.current.has(chatId);
     const received=()=>{
       streamVersions.current[chatId]=(streamVersions.current[chatId]??0)+1;
@@ -175,7 +176,7 @@ export default function ChatPage() {
     }catch{fallback=true;setStreamStatus('fallback');}
     const timer = setInterval(() => {if(fallback)void load();}, 1000);
     return () => {active = false;source?.close();clearInterval(timer);};
-  }, [api, chatId, refresh, loadRetry]);
+  }, [api, chatId, loadRetry]);
 
   useEffect(() => {
     if (nearBottom.current && messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
@@ -314,7 +315,7 @@ export default function ChatPage() {
         return <div key={item.id} className="conversation-row" title={protectedRow?t('对话仍有待处理消息，请等待执行结束后删除。'):undefined}>
           <button type="button" className={'conversation-item' + (item.id === chatId ? ' active' : '')}
             aria-current={item.id === chatId ? 'true' : undefined} title={item.title} onClick={() => selectConversation(item.id)}><span>{item.title}</span>{pendingCount>0 && <small className="conversation-pending">{t('待处理')} {pendingCount}</small>}</button>
-          <Button className="conversation-delete" type="text" danger size="small" aria-label={t('删除对话：{title}',{title:item.title})} title={protectedRow?t('对话仍有待处理消息，请等待执行结束后删除。'):t('删除对话')} disabled={protectedRow||deleting!==null} loading={deleting===item.id} onClick={()=>{setDeleteError('');setDeleteTarget(item);}}><span aria-hidden="true">×</span></Button>
+          <Button className="conversation-delete" type="text" danger size="small" icon={<Icon name="trash"/>} aria-label={t('删除对话：{title}',{title:item.title})} title={protectedRow?t('对话仍有待处理消息，请等待执行结束后删除。'):t('删除对话')} disabled={protectedRow||deleting!==null} loading={deleting===item.id} onClick={()=>{setDeleteError('');setDeleteTarget(item);}}/>
         </div>;
       })}
     </nav>
@@ -338,17 +339,21 @@ export default function ChatPage() {
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
         {!!loadingId && loadingId===chatId && !visibleConversation && <div className="chat-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
         {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
-        {transcript.map(({message,key,live}) => <article key={key} className={'message ' + message.role}>
+        {transcript.map(({message,key,live}) => {
+          const source=message.role==='assistant'?messages.find(item=>item.role==='user'&&item.id===message.reply_to):undefined;
+          return <article key={key} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
             <div className="message-label"><span>{message.role === 'user' ? t('你 · ') + t(messageStatuses[message.status] ?? message.status) : t('管理 AGENT')}</span><MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t('回复中')}</span>}</div>
             <div className="message-bubble">{message.role === 'assistant' ? live?<div className="message-partial" aria-live="off">{message.text?<AgentMessage text={message.text}/>:<Spin size="small"/>}</div>:<AgentMessage text={message.text}/> : <div className="message-text">{message.text}</div>}
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
-            {message.role==='user' && <MessageProgress message={message} actions={visibleConversation?.actions?.filter(action=>action.message_id===message.id)}/>}
-            {message.role==='assistant' && !live && <CopyButton text={message.text} label={t('复制回复')}/>}
+            {message.role==='assistant' && <div className="message-footer">
+              {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
+              {source && <MessageProgress message={source} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/>}
+            </div>}
           </div>
-        </article>)}
+        </article>;})}
         {!messages.length && !loadError && !listLoading && (!loadingId||loadingId!==chatId) && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
@@ -372,8 +377,8 @@ export default function ChatPage() {
         <div className="composer-toolbar">
           <AgentPicker id="chat" value={selection} defaults={defaults} inherit compact disabled={busy} onChange={changeSelection}/>
           <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
-          <Button className="chat-image-picker" disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}>{t('添加图片')}</Button>
-          <Button type="primary" className="composer-send" loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}>{t('发送')}</Button>
+          <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
+          <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}/>
         </div>
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>
           {draft.length>20000 && <span className="danger-text">{t('消息不能超过 20000 个字符。')}</span>}

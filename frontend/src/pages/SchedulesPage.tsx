@@ -9,9 +9,9 @@ function nextRun(plan:Schedule) {
   return new Intl.DateTimeFormat(undefined,{timeZone:plan.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(plan.next_run_at));
 }
 export default function SchedulesPage() {
-  const {api,operation,t,refresh}=useConsole();
+  const {api,operation,t}=useConsole();
   const [selectedId,setSelectedId]=useState<string>();
-  const {data:plans=[],setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api,refresh]);
+  const {data:plans=[],setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
   const selected=plans.find(plan=>plan.id===selectedId);
   return <>
     <AgentGuidance title={t('定时计划配置')} description={t('可在此启用或停用。新增和编辑定时任务，请通过管理 Agent 操作。')}/>

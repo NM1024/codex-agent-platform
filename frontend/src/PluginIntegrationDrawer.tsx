@@ -1,5 +1,6 @@
 import {useEffect,useState} from 'react';
-import {Alert,Button,Descriptions,Drawer,Spin,Tabs,Typography} from 'antd';
+import {Alert,Button,Descriptions,Drawer,Spin,Tabs,Tooltip,Typography} from 'antd';
+import {Icon} from './Icon';
 import {AgentMessage,CopyButton} from './ChatMessage';
 import {useConsole} from './context';
 import type {Plugin,PluginIntegration} from './types';
@@ -30,7 +31,7 @@ export default function PluginIntegrationDrawer({plugin,onClose,onConfigure}:{pl
         {key:'connection',label:t('接入配置版本'),children:document.connectionRevision??'—'},
       ]}/>
       {!document.ready&&<Alert type="warning" showIcon title={t('请先通过「配置接入」完成必填设置，再启用插件并提交任务。文档仍可查阅。')} action={<Button onClick={onConfigure}>{t('配置接入')}</Button>}/>}
-      <div className="integration-export"><CopyButton text={document.markdown} label="复制 Markdown"/><Button size="small" onClick={download}>{t('下载 Markdown')}</Button></div>
+      <div className="integration-export"><CopyButton text={document.markdown} label="复制 Markdown"/><Tooltip title={t('下载 Markdown')}><Button type="text" size="small" icon={<Icon name="download"/>} aria-label={t('下载 Markdown')} onClick={download}/></Tooltip></div>
       <Tabs className="integration-tabs" items={document.sections.map(section=>({key:section.key,label:section.title,children:<AgentMessage text={section.markdown}/>}))}/>
     </>}
   </Drawer>;

@@ -7,11 +7,11 @@ export const messageStatuses:Record<string,string>={queued:'排队中',running:'
 export const isPending=(status:string)=>['queued','running','interrupted','recovering'].includes(status);
 export function MessageProgress({message,actions=[]}:{message:Message;actions?:Action[]}) {
   const {t}=useConsole();const [now,setNow]=useState(Date.now());
-  const pending=isPending(message.status),activity=message.activity??[];
+  const pending=isPending(message.status),activity=(message.activity??[]).filter(item=>item.kind!=='assistant_message');
   useEffect(()=>{if(!pending)return;const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[pending]);
   const end=message.completed_at??(pending?now:message.updated_at??message.created_at);
   const duration=Math.max(0,Math.floor((end-(message.started_at??message.created_at))/1000));
-  const latest=Math.max(message.updated_at??message.created_at,...activity.map(item=>item.updated_at));
+  const latest=Math.max(message.updated_at??message.created_at,...(message.activity??[]).map(item=>item.updated_at));
   return <>
     <div className="message-progress" data-status={message.status}><span>{t(messageStatuses[message.status]??message.status)}</span><span>{t('耗时')} {duration}s</span><span>{t('最近活动')} <MessageTime value={latest}/></span></div>
     {(activity.length>0 || actions.length>0) && <details className="message-activity"><summary>{t('执行过程')} ({activity.length+actions.length})</summary><ol>

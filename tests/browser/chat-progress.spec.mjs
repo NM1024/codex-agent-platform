@@ -19,14 +19,19 @@ test.beforeEach(async({page})=>{
 test('running turns show partial replies, collapsed activity and FIFO pending messages',async({page})=>{
   const conversation={id:'progress-chat',title:'Synthetic progress',execution:{},messages:[
     {...user('first','running','First request'),activity:[{id:'summary',kind:'reasoning_summary',label:'Progress summary',text:'Inspecting synthetic queue',status:'running',created_at:stamp,updated_at:stamp+5000},{id:'partial',kind:'assistant_message',label:'Assistant',text:'Partial answer while working',status:'running',created_at:stamp,updated_at:stamp+5000}]},
-    user('second','queued','Second request'),user('third','queued','Third request')],actions:[]};
+    user('second','queued','Second request'),user('third','queued','Third request')],actions:[{id:'tool-action',message_id:'first',name:'configuration_get',status:'completed'}]};
   await synthetic(page,conversation);
   await expect(page.locator('.chat-pending')).toContainText('2');
   await expect(page.locator('.message-progress').first()).toContainText('运行中');
   await expect(page.locator('.message-partial')).toContainText('Partial answer while working');
   await expect(page.getByText('Inspecting synthetic queue',{exact:true})).not.toBeVisible();
   await page.locator('.message-activity summary').first().click();
+  await expect(page.locator('.user .message-activity')).toHaveCount(0);
+  await expect(page.locator('.assistant .message-activity')).toBeVisible();
+  await expect(page.locator('.assistant .message-activity')).toContainText('configuration_get');
+  await expect(page.locator('.message-activity summary')).toHaveText('执行过程 (2)');
   await expect(page.getByText('Inspecting synthetic queue',{exact:true})).toBeVisible();
+  await expect(page.locator('.message-activity')).not.toContainText('Partial answer while working');
   await expect(page.locator('.message-progress').first()).toContainText('最近活动');
   await page.locator('#message-input').fill('Queue another request');
   await expect(page.getByRole('button',{name:'发送',exact:true})).toBeEnabled();
@@ -35,6 +40,20 @@ test('running turns show partial replies, collapsed activity and FIFO pending me
   await expect(page.locator('.message-progress').first()).toContainText('执行完成');
   await expect(page.locator('.message-partial')).toHaveCount(0);
   await expect(page.locator('.assistant')).toContainText('Final answer');
+  await expect(page.locator('.assistant .message-activity')).not.toContainText('Final answer');
+});
+
+test('completed replies appear once and assistant-only activity does not leave an empty timeline',async({page})=>{
+  const text='Synthetic final reply appears once';
+  const conversation={id:'unique-reply',title:'Unique reply',execution:{},messages:[
+    {...user('request','completed','Show one reply'),activity:[{id:'final',kind:'assistant_message',label:'Assistant',text,status:'completed',created_at:stamp,updated_at:stamp}]},
+    {id:'reply',role:'assistant',text,status:'completed',reply_to:'request',created_at:stamp}],actions:[]};
+  await synthetic(page,conversation);
+  await expect(page.locator('.assistant .message-bubble')).toHaveText(text);
+  await expect(page.locator('.message-activity')).toHaveCount(0);
+  const copy=page.getByRole('button',{name:'复制回复',exact:true});
+  await expect(copy.locator('svg')).toBeVisible();
+  await expect(copy).toHaveText('');
 });
 
 test('image drafts and a pending queue leave readable transcript space on short phones',async({page})=>{
@@ -160,7 +179,7 @@ test('switching conversations shows an independent loader and ignores a late pre
   await page.locator('.conversation-list').getByRole('button',{name:'Fast second',exact:true}).click();
   await expect(page.locator('#messages')).toContainText('New conversation content');release();
   await page.waitForTimeout(250);await expect(page.locator('#messages')).not.toContainText('Old conversation content');
-  await expect(page.locator('.message-progress')).toContainText('执行失败');
+  await expect(page.locator('.user .message-label')).toContainText('执行失败');
 });
 
 test('leaving chat during compression cannot repopulate the image draft after logout',async({page})=>{

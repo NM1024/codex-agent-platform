@@ -4,13 +4,13 @@ import {useConsole} from '../context';
 import {AsyncButton,JsonView,Panel,Status,taskStatuses,time,useLoad} from '../components';
 import type {Conversation,Task} from '../types';
 export default function TasksPage(){
-  const {api,operation,act,t,refresh,notify,setChatId,navigate}=useConsole();
+  const {api,operation,act,t,notify,setChatId,navigate}=useConsole();
   const screens=Grid.useBreakpoint();
   const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
   const retryLock=useRef(false),[retrying,setRetrying]=useState(false),detailsRef=useRef<HTMLDivElement>(null),detailRequest=useRef(0),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),offset:String(offset),limit:'50'});
-  const {data:rows=[],loading}=useLoad(()=>api<Task[]>('/tasks?'+query),[api,filter,offset,refresh,tick]);
+  const {data:rows=[],loading}=useLoad(()=>api<Task[]>('/tasks?'+query),[api,filter,offset,tick]);
   useEffect(()=>{setArtifacts([]);if(!detail)return;let active=true;const urls:string[]=[];
     void Promise.allSettled((detail.artifacts??[]).map(async artifact=>{
       const response=await fetch(`/admin/api/artifacts/${detail.task_id}/${artifact.artifact_id}`,{credentials:'same-origin'});

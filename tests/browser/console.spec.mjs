@@ -22,6 +22,36 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#workspace")).toBeVisible();
 });
 
+test('header uses the project brand and icons without a refresh control',async({page})=>{
+  await expect(page.locator('.console-brand')).toHaveText('Codex Agent Platform');
+  await expect(page.locator('#refresh')).toHaveCount(0);
+  for(const selector of ['#repository-link','#logout'])await expect(page.locator(selector+' svg')).toBeVisible();
+  await expect(page.locator('.console-header .ant-select-prefix svg')).toBeVisible();
+});
+
+test('configuration labels and inputs share a row in desktop and phone layouts',async({page})=>{
+  for(const locale of ['zh-CN','en']){
+  await choose(page,'#app-language',locale);
+  for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:844}]){
+    await page.setViewportSize(viewport);await navigate(page,'settings');
+    const input=page.locator('#setting-manager-timeoutMs');await expect(input).toBeVisible();
+    const label=page.locator('label[for="setting-manager-timeoutMs"]');
+    const fieldBox=await input.boundingBox(),labelBox=await label.boundingBox();
+    expect(Math.abs(fieldBox.y-labelBox.y)).toBeLessThan(8);expect(fieldBox.x).toBeGreaterThan(labelBox.x+labelBox.width);
+    expect(fieldBox.width).toBeGreaterThan(100);expect(fieldBox.x+fieldBox.width).toBeLessThanOrEqual(viewport.width-8);
+    await navigate(page,'plugins');await page.getByRole('button',{name:locale==='en'?'Configure connection':'配置接入',exact:true}).first().click();
+    const field=page.locator('#plugin-entry-address');await expect(field).toBeVisible();
+    // Clicking waits for the modal to finish moving and proves the field is usable.
+    await field.click();
+    const {box,caption}=await field.evaluate(element=>({box:element.getBoundingClientRect().toJSON(),caption:document.querySelector('label[for="plugin-entry-address"]').getBoundingClientRect().toJSON()}));
+    expect(Math.abs(box.y-caption.y)).toBeLessThan(8);expect(box.x).toBeGreaterThan(caption.x+caption.width);
+    expect(box.width).toBeGreaterThan(100);expect(box.x+box.width).toBeLessThanOrEqual(viewport.width-8);
+    await page.getByRole('button',{name:locale==='en'?'Cancel':'取消',exact:true}).click();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  }
+});
+
 test('plugin connection modal is human-only, explains fields and generates independent secrets',async({page,context})=>{
   await context.grantPermissions(['clipboard-read','clipboard-write']);
   const type='browser.connections';
@@ -87,7 +117,7 @@ test('pending plugins cannot be enabled or trialed before a human configures the
   expect(trial.status()).toBe(409);expect((await trial.json()).error.code).toBe('PLUGIN_CONNECTION_NOT_READY');
   const response=await page.request.post('/admin/api/plugins/'+type+'/connection',{data:{entryKey:'synthetic-pending-human-entry-key-0123456789'}});
   expect(response.ok()).toBeTruthy();
-  await page.getByRole('button',{name:'刷新',exact:true}).click();await expect(row.getByRole('switch')).toBeEnabled();
+  await navigate(page,'overview');await navigate(page,'plugins');await expect(row.getByRole('switch')).toBeEnabled();
   await row.getByRole('switch').click();await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','true');
 });
 
@@ -241,7 +271,7 @@ test('short English phone layouts keep header controls and send inside the viewp
   await choose(page,'#app-language','en');await navigate(page,'chat');
   for(const viewport of [{width:390,height:568},{width:320,height:568},{width:844,height:390}]){
     await page.setViewportSize(viewport);await page.locator('#message-input').fill('one\ntwo\nthree\nfour\nfive\nsix');
-    for(const locator of [page.locator('#repository-link'),page.locator('#app-language'),page.locator('#refresh'),page.locator('#logout')]){
+    for(const locator of [page.locator('#repository-link'),page.locator('#app-language'),page.locator('#logout')]){
       await expect(locator).toBeInViewport({ratio:1});
       const header=await page.locator('.console-header').boundingBox(),box=await locator.boundingBox();
       expect(box.y).toBeGreaterThanOrEqual(header.y);expect(box.y+box.height).toBeLessThanOrEqual(header.y+header.height);
@@ -401,12 +431,13 @@ test('unavailable model catalog preserves saved settings and other fields can st
   expect(config.values.model).toBe('saved-unlisted-model');
   expect(config.values.reasoningEffort).toBe('high');
 });
-test('business plugin details refresh after an Agent operation',async({page})=>{
+test('business plugin details reload after an Agent operation and navigation',async({page})=>{
   await operation(page,'plugin_save',{definition:pluginDefinition});
   await navigate(page,'plugins');
   await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
   await operation(page,'plugin_save',{definition:{...pluginDefinition,instructions:'管理 Agent 更新后的说明'}});
-  await page.getByRole('button',{name:'刷新',exact:true}).click();
+  await navigate(page,'overview');await navigate(page,'plugins');
+  await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
   await expect(page.locator('#plugin-detail')).toContainText('管理 Agent 更新后的说明');
 });
 test('schedules are read-only and inspection details preserve disabled state',async({page})=>{

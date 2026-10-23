@@ -65,7 +65,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   };
 
   return <Panel title={t(group.title)}>
-    <Form id={'configuration-' + group.scope} layout="vertical" onFinish={() => {void save();}}>
+    <Form id={'configuration-' + group.scope} className="settings-form" layout="horizontal" colon={false} onFinish={() => {void save();}}>
       <Typography.Paragraph>{t(group.description)}</Typography.Paragraph>
       {group.error && <Alert type="error" showIcon title={t(group.error.message)}/>}
       {properties.model && <><CatalogNote/><AgentPicker id={'setting-' + group.scope} value={agent ?? savedAgent} onChange={value => {if (!saving) setAgent(value);}}/></>}
@@ -98,8 +98,8 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
 }
 
 export default function SettingsPage() {
-  const {api, operation, act, notify, t, refresh, setAuthenticated, setChatId} = useConsole();
-  const {data,setData,loading}=useLoad(()=>operation<ConfigurationList>('configuration_list'),[operation,refresh]);
+  const {api, operation, act, notify, t,  setAuthenticated, setChatId} = useConsole();
+  const {data,setData,loading}=useLoad(()=>operation<ConfigurationList>('configuration_list'),[operation]);
   const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''),[currentPassword,setCurrentPassword]=useState('');
   const [tab,setTab]=useState('manager');
   const [savingPassword, setSavingPassword] = useState(false);
@@ -121,7 +121,7 @@ export default function SettingsPage() {
     setSavingPassword(false);passwordLock.current=false;
   };
   const passwordPanel=<Panel title={t('Admin 密码')}>
-      <Form layout="vertical" onFinish={() => {void changePassword();}}>
+      <Form className="settings-form" layout="horizontal" colon={false} onFinish={() => {void changePassword();}}>
         <Typography.Paragraph>{t('修改后所有网页会话退出，请使用新密码重新登录。业务入口密钥保持独立。')}</Typography.Paragraph>
         <Form.Item label={t('当前密码')} htmlFor="current-admin-password"><Input.Password id="current-admin-password" autoComplete="current-password" maxLength={1024} required value={currentPassword} disabled={savingPassword} onChange={event=>setCurrentPassword(event.target.value)}/></Form.Item>
         <Form.Item label={t('新密码（至少12个字符）')} htmlFor="new-admin-password"><Input.Password id="new-admin-password" autoComplete="new-password" minLength={12} maxLength={1024} required value={password} disabled={savingPassword} onChange={event => setPassword(event.target.value)}/></Form.Item>

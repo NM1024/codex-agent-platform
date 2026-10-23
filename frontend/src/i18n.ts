@@ -1,6 +1,7 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '主导航':'Main navigation',
   '项目仓库':'Repository',
   '对接文档':'Integration docs',
   '对接文档：{name}':'Integration docs: {name}',
@@ -120,14 +121,12 @@ const english: Record<string, string> = {
   '定时任务按 Cron 周期自动执行：业务任务调用指定插件处理固定输入；管理巡检把巡检要求交给管理 Agent，并在管理对话中保存结果。':'Schedules run automatically on a Cron cycle. Business tasks invoke a plugin with fixed input; inspections send instructions to the management Agent and save the results in management chat.',
   '例如：每天 09:00 检查队列与失败任务，Cron 为 0 9 * * *。触发时间以计划填写的时区为准；启用后实际执行会使用模型额度。':'For example, use 0 9 * * * to check queues and failed tasks daily at 09:00. The schedule’s configured time zone determines when it runs. Executions use model quota.',
   '部分产物暂时无法读取。':'Some artifacts are temporarily unavailable.',
-  "Agent · 运行工作台": "Agent · Operations console",
   "从这里，了解并管理运行。": "Understand and manage your system.",
   "使用独立 Admin 密码登录，初始密码由部署时生成。":
     "Sign in with your separate Admin password, generated during deployment.",
   "Admin 密码": "Admin password",
   "输入 Admin 密码": "Enter Admin password",
   登录工作台: "Sign in",
-  运行工作台: "Operations console",
   运行概览: "Overview",
   管理对话: "Management chat",
   任务记录: "Task history",

@@ -85,7 +85,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved}:{plugin:P
     <Typography.Paragraph>{t('Agent 负责业务逻辑；接入地址和凭证由管理员在此配置，请勿发送到管理对话。完成必填项后才能启用业务、提交任务、试运行或执行定时计划。')}</Typography.Paragraph>
     {loading&&<div role="status"><Spin/> {t('正在读取…')}</div>}
     {error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
-    {connection&&<Form id="plugin-connection-form" layout="vertical" onFinish={()=>{void save();}}>
+    {connection&&<Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}>
       <Form.Item label={t('入口地址')} htmlFor="plugin-entry-address" required>
         <Input id="plugin-entry-address" value={entryAddress} required maxLength={4096} autoComplete="off" disabled={locked} aria-describedby="plugin-entry-address-help" onChange={event=>setEntryAddress(event.target.value)}/>
         <Typography.Paragraph id="plugin-entry-address-help" type="secondary" className="connection-field-help">{t('必填。业务系统调用本平台的地址；默认路径已生成，可填写完整 HTTP(S) 公网 URL 或 /hooks/ 路径。域名和反向代理须已将该路径转发到本平台，填写地址不会创建域名或代理。')}{relativeAddress&&' '+t('相对路径的示例请将 <gateway-host> 替换为 Gateway 对外提供服务的域名和端口，并按部署选择 HTTP 或 HTTPS。Admin 端口不是业务入口。')}</Typography.Paragraph>

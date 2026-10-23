@@ -7,12 +7,12 @@ import PluginIntegrationDrawer from '../PluginIntegrationDrawer';
 import type {Plugin,PluginList} from '../types';
 
 export default function PluginsPage() {
-  const {api,operation,t,refresh,locale}=useConsole();
+  const {api,operation,t,locale}=useConsole();
   const [selectedType,setSelectedType]=useState<string>();
   const [connectionPlugin,setConnectionPlugin]=useState<Plugin>(),[loadVersion,setLoadVersion]=useState(0);
   const [integrationPlugin,setIntegrationPlugin]=useState<Plugin>();
   const screens=Grid.useBreakpoint();
-  const {data,setData,loading}=useLoad(()=>api<PluginList>('/plugins'),[api,refresh,loadVersion]);
+  const {data,setData,loading}=useLoad(()=>api<PluginList>('/plugins'),[api,loadVersion]);
   const selected=data?.configured.find(plugin=>plugin.type===selectedType);
   return <>
     <AgentGuidance title={t('业务插件配置')} description={t('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。接入地址和凭证请点击「配置接入」由管理员填写，勿发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。')}/>

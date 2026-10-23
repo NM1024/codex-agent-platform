@@ -47,7 +47,7 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   </div>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {
-  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t,registerPageLoad}=useConsole();
-  useEffect(()=>{let active=true;setLoading(true);void registerPageLoad(load()).then(value=>{if(active)setData(value);}).catch(error=>{if(active)notify(t(error.message));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
+  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t}=useConsole();
+  useEffect(()=>{let active=true;setLoading(true);void load().then(value=>{if(active)setData(value);}).catch(error=>{if(active)notify(t(error.message));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
   return {data,setData,loading};
 }

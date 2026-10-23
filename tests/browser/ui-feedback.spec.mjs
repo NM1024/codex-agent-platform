@@ -20,18 +20,6 @@ test('fenced code copies literal text with its trailing newline and local feedba
   await expect(block.locator('pre code')).toHaveText('const count = 3;\n');
 });
 
-test('refresh stays busy until page data settles and does not block unrelated actions',async({page})=>{
-  await expect(page.locator('#concurrency')).toBeVisible();
-  let release;const gate=new Promise(resolve=>{release=resolve;});let calls=0;
-  await page.route('**/admin/api/overview',async route=>{calls++;await gate;await route.continue();});
-  await page.locator('#refresh').click();
-  await expect(page.locator('#refresh')).toHaveClass(/ant-btn-loading/);
-  await expect(page.getByRole('button',{name:'保存',exact:true})).toBeEnabled();
-  await page.locator('#refresh').dispatchEvent('click');
-  expect(calls).toBe(1);
-  release();await expect(page.locator('#refresh')).not.toHaveClass(/ant-btn-loading/);
-});
-
 test('runtime actions prevent duplicate requests while another action can finish',async({page})=>{
   await expect(page.locator('#concurrency')).toBeVisible();
   let release;const gate=new Promise(resolve=>{release=resolve;});let pauses=0;
@@ -61,7 +49,7 @@ test('unsupported clipboard reports a manual copy error without claiming success
   await expect(block).not.toContainText('已复制');
 });
 
-test('initial overview error stops loading and a refresh can recover',async({page})=>{
+test('initial overview error stops loading and navigation can recover',async({page})=>{
   let release;const gate=new Promise(resolve=>{release=resolve;});
   await page.route('**/admin/api/overview',async route=>{await gate;await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{message:'Synthetic overview failure'}})});});
   await page.reload();
@@ -69,9 +57,9 @@ test('initial overview error stops loading and a refresh can recover',async({pag
   release();await expect(page.locator('#notice')).toContainText('Synthetic overview failure');
   await expect(page.locator('.page-loading')).toHaveCount(0);
   await page.unroute('**/admin/api/overview');
-  await page.locator('#refresh').click();
+  await page.locator('[data-view="plugins"]').click();
+  await page.locator('[data-view="overview"]').click();
   await expect(page.locator('#concurrency')).toBeVisible();
-  await expect(page.locator('#refresh')).not.toHaveClass(/ant-btn-loading/);
 });
 
 test('task row details are independent and a late earlier selection cannot replace the latest',async({page})=>{
@@ -92,12 +80,13 @@ test('task row details are independent and a late earlier selection cannot repla
   await expect(page.locator('#task-details')).toContainText(secondId);
 });
 
-test('logout is independent of a blocked refresh and prevents duplicate submissions',async({page})=>{
+test('logout is independent of a blocked page load and prevents duplicate submissions',async({page})=>{
   await expect(page.locator('#concurrency')).toBeVisible();
   let releaseRefresh,releaseLogout;const refreshGate=new Promise(resolve=>{releaseRefresh=resolve;}),logoutGate=new Promise(resolve=>{releaseLogout=resolve;});let logouts=0;
   await page.route('**/admin/api/overview',async route=>{await refreshGate;await route.continue();});
   await page.route('**/admin/api/logout',async route=>{logouts++;await logoutGate;await route.continue();});
-  await page.locator('#refresh').click();await expect(page.locator('#refresh')).toHaveClass(/ant-btn-loading/);
+  await page.locator('[data-view="plugins"]').click();
+  await page.locator('[data-view="overview"]').click();await expect(page.locator('.page-loading')).toBeVisible();
   await page.locator('#logout').click();await expect(page.locator('#logout')).toHaveClass(/ant-btn-loading/);
   await page.locator('#logout').dispatchEvent('click');expect(logouts).toBe(1);
   releaseLogout();await expect(page.locator('#login')).toBeVisible();

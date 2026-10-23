@@ -4,10 +4,10 @@ import {useConsole} from '../context';
 import {AsyncButton,DataLoading,bytes,Panel,Status,time,useLoad} from '../components';
 import type {Conversation,Overview,Task} from '../types';
 export default function OverviewPage(){
-  const {api,operation,t,refresh,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(5),alive=useRef(true);
+  const {api,operation,t,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(5),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const screens=Grid.useBreakpoint();
-  const {data,loading}=useLoad(()=>api<Overview>('/overview'),[api,refresh,tick]);
+  const {data,loading}=useLoad(()=>api<Overview>('/overview'),[api,tick]);
   useEffect(()=>{const timer=setInterval(()=>setTick(value=>value+1),10000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{if(data?.platform.runtime)setConcurrency(data.platform.runtime.concurrency);},[data?.platform.runtime?.concurrency]);
   if(!data)return loading?<DataLoading/>:null;
