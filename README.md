@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Status: preview.** The console and bundled prompts currently use Chinese; this README is available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Status: preview.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -274,7 +274,7 @@ npm test
 npm run check:release
 ```
 
-The initial snapshot passed 181 host tests, 175 isolated container tests and local console/Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
+Current checks pass 182 host tests, 176 isolated container tests and 14 browser checks, including Chinese/English switching and desktop/mobile workflows. The initial snapshot also passed isolated Compose checks. Those checks use synthetic inputs and fake Codex transports; they do not establish real-account availability or output quality. See [validation scope](docs/VALIDATION.md).
 
 | Document | Purpose |
 | --- | --- |
