@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 const navigate = (page, view) => page.locator(`[data-view="${view}"]`).click();
+const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
 const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
 const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
 async function choose(page,selector,value){
@@ -19,6 +20,170 @@ test.beforeEach(async ({ page }) => {
   await page.locator("#password").fill("local-browser-password");
   await page.getByRole("button", { name: "登录工作台" }).click();
   await expect(page.locator("#workspace")).toBeVisible();
+});
+
+test('settings show one category at a time and keep drafts across tabs',async({page})=>{
+  await navigate(page,'settings');await settingsTab(page,'manager');
+  await page.locator('#setting-manager-timeoutMs').fill('7654321');
+  await expect(page.locator('#configuration-execution')).toBeHidden();
+  await settingsTab(page,'execution');await page.locator('#setting-execution-concurrency').fill('3');
+  await expect(page.locator('#configuration-manager')).toBeHidden();
+  await settingsTab(page,'manager');await expect(page.locator('#setting-manager-timeoutMs')).toHaveValue('7654321');
+  await choose(page,'#app-language','en');await expect(page.locator('#setting-manager-timeoutMs')).toHaveValue('7654321');
+  await settingsTab(page,'security');await expect(page.locator('#current-admin-password')).toBeVisible();
+  await expect(page.locator('#configuration-manager')).toBeHidden();
+});
+
+test('password update rejects an incorrect current password without signing out',async({page})=>{
+  await navigate(page,'settings');await settingsTab(page,'security');
+  await page.locator('#current-admin-password').fill('wrong-synthetic-password');
+  await page.locator('#new-admin-password').fill('unused-synthetic-password');
+  await page.locator('#confirm-admin-password').fill('unused-synthetic-password');
+  await page.getByRole('button',{name:'修改 Admin 密码',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('当前密码不正确。');
+  await expect(page.locator('#workspace')).toBeVisible();
+  expect((await page.request.get('/admin/api/session')).status()).toBe(200);
+});
+
+test('chat uses separate bubbles and keeps its composer inside the viewport',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic layout conversation'}})).json();
+  for(let i=0;i<9;i++)await page.request.post('/admin/api/conversations/'+created.id+'/messages',{data:{text:'Synthetic layout message '+i}});
+  await navigate(page,'chat');await expect(page.locator('#messages .message.assistant').last()).toBeVisible();
+  for(const width of [1440,2560,390,768]){
+    await page.setViewportSize({width,height:900});
+    await expect(page.locator('.chat-compose')).toBeInViewport({ratio:1});
+    const transcript=await page.locator('#messages').boundingBox(),composer=await page.locator('.chat-compose').boundingBox();
+    expect(transcript.height).toBeGreaterThan(230);expect(composer.y).toBeGreaterThanOrEqual(transcript.y+transcript.height-2);expect(composer.y+composer.height).toBeLessThanOrEqual(900);
+    const alignment=await page.evaluate(()=>{const user=document.querySelector('.message.user .message-bubble').getBoundingClientRect(),assistant=document.querySelector('.message.assistant .message-bubble').getBoundingClientRect();return {user:user.right,assistant:assistant.left};});
+    expect(alignment.user).toBeGreaterThan(alignment.assistant+150);
+    await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollHeight)).toBeLessThanOrEqual(901);
+  }
+  await page.locator('#messages').evaluate(element=>{element.scrollTop=0;});
+  await expect.poll(()=>page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
+  await page.waitForResponse(response=>response.url().endsWith('/conversations/'+created.id)&&response.request().method()==='GET');
+  expect(await page.locator('#messages').evaluate(element=>element.scrollTop)).toBeLessThan(5);
+});
+
+test('chat Enter sends once, Shift Enter adds a line and IME Enter does not submit',async({page})=>{
+  await navigate(page,'chat');
+  const input=page.locator('#message-input'),sent=[];
+  page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/messages'))sent.push(request.postDataJSON().text);});
+  await input.fill('输入法候选');await input.dispatchEvent('compositionstart');await input.press('Enter');
+  expect(sent).toEqual([]);await input.dispatchEvent('compositionend');
+  await input.fill('first line');await input.press('Shift+Enter');await input.pressSequentially('second line');
+  await expect(input).toHaveValue('first line\nsecond line');expect(sent).toEqual([]);
+  await input.press('Enter');await expect.poll(()=>sent).toEqual(['first line\nsecond line']);
+  await expect(input).toHaveValue('');
+  await expect(page.locator('#messages .message.user').last()).toContainText('second line');
+});
+
+test('chat failed model saves retain the choice and offer a working retry',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic autosave retry'}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  let failing=true;
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()==='POST'&&failing)await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_SAVE_FAILURE',message:'Synthetic save failure'}}});else await route.continue();
+  });
+  await choose(page,'#chat-model','fixture-fast');await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toBeVisible();
+  await expectChoice(page,'#chat-model','fixture-fast');failing=false;
+  await page.getByRole('button',{name:'保存失败，重试',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toHaveCount(0);
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution.model).toBe('fixture-fast');
+});
+
+test('phone conversation drawer switches chats while the composer stays reachable',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Phone drawer conversation'}})).json();
+  await navigate(page,'chat');await page.getByRole('button',{name:'会话列表',exact:true}).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button',{name:created.title,exact:true}).click();
+  await expect(page.getByRole('dialog')).toBeHidden();await expect(page.locator('.chat-header')).toContainText(created.title);
+  await expect(page.locator('.chat-compose')).toBeInViewport({ratio:1});
+});
+
+test('inherited model option names the global default rather than the override',async({page})=>{
+  await operation(page,'configuration_update',{scope:'manager',patch:{model:'gpt-6.1-sol'}});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic default label',execution:{model:'fixture-fast'}}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  await page.locator('#chat-model').click();
+  await page.locator('.ant-select-dropdown:visible').getByText('默认：Fixture Default',{exact:true}).click();
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});
+});
+
+test('expanded long activity stays scrollable without hiding the phone send button',async({page})=>{
+  await page.setViewportSize({width:390,height:667});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic long activity'}})).json();
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()!=='GET')return route.continue();
+    await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'failed',error:{code:'SYNTHETIC',message:'Synthetic long error '.repeat(15)}}))}});
+  });
+  await navigate(page,'chat');await page.getByRole('button',{name:'执行记录 (8)',exact:true}).click();
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  const panel=page.locator('#actions .ant-collapse-body');
+  await expect.poll(()=>panel.evaluate(element=>element.clientHeight)).toBeLessThanOrEqual(122);
+  expect(await panel.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+});
+
+test('landscape phone keeps send visible with six input lines and expanded activity',async({page})=>{
+  await page.setViewportSize({width:844,height:390});
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic landscape'}})).json();
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(route.request().method()!=='GET')return route.continue();
+    await route.fulfill({json:{...created,actions:Array.from({length:8},(_,index)=>({id:String(index),name:'configuration_get',status:'completed'}))}});
+  });
+  await navigate(page,'chat');await page.locator('#message-input').fill('line1\nline2\nline3\nline4\nline5\nline6');
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  await page.getByRole('button',{name:'执行记录 (8)',exact:true}).click();
+  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeInViewport({ratio:1});
+  await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('#message-input')).toHaveValue('');
+});
+
+test('short English phone layouts keep header controls and send inside the viewport',async({page})=>{
+  await choose(page,'#app-language','en');await navigate(page,'chat');
+  for(const viewport of [{width:390,height:568},{width:320,height:568},{width:844,height:390}]){
+    await page.setViewportSize(viewport);await page.locator('#message-input').fill('one\ntwo\nthree\nfour\nfive\nsix');
+    for(const locator of [page.locator('#app-language'),page.locator('#refresh'),page.locator('#logout')]){
+      await expect(locator).toBeInViewport({ratio:1});
+      const header=await page.locator('.console-header').boundingBox(),box=await locator.boundingBox();
+      expect(box.y).toBeGreaterThanOrEqual(header.y);expect(box.y+box.height).toBeLessThanOrEqual(header.y+header.height);
+    }
+    await expect(page.getByRole('button',{name:'Send',exact:true})).toBeInViewport({ratio:1});
+  }
+});
+
+test('phone task and overview actions fit without horizontal table scrolling',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  for(const language of ['zh-CN','en']){
+    await choose(page,'#app-language',language);
+    for(const view of ['tasks','overview']){
+      await navigate(page,view);await expect(page.locator('#view tbody tr[data-row-key]').first()).toBeVisible();
+      const table=page.locator('#view .ant-table-content').first();
+      expect(await table.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
+      for(const button of await page.locator('#view tbody tr[data-row-key]').first().getByRole('button').all()){
+        const box=await button.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(390);
+      }
+    }
+  }
+});
+
+test('model autosaves remain ordered when leaving and reopening chat',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic navigation ordering'}})).json();
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+  let release,started;const gate=new Promise(resolve=>{release=resolve;}),held=new Promise(resolve=>{started=resolve;});let first=true;
+  await page.route('**/admin/api/conversations/'+created.id,async route=>{
+    if(first&&route.request().method()==='POST'){first=false;started();await gate;}
+    await route.continue();
+  });
+  try {
+    await choose(page,'#chat-model','fixture-fast');await held;
+    await navigate(page,'overview');await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
+    await choose(page,'#chat-reasoningEffort','high');
+    // Give the later selection a network round trip while the older save is held.
+    await page.request.get('/admin/api/session');
+    release();
+    await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({reasoningEffort:'high'});
+    await expectChoice(page,'#chat-reasoningEffort','high');
+  }finally{release();}
 });
 
 test('cold login defers other pages and serves compressed scripts',async({browser})=>{
@@ -84,15 +249,16 @@ test('business plugin configuration is read-only and displays persisted model se
 });
 
 test('management conversations save independent model settings and defaults are selectable',async({page})=>{
+  const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic model selection'}})).json();
   await navigate(page,'chat');
+  await expect(page.locator('.chat-header')).toContainText('Synthetic model selection');
   await choose(page,'#chat-model','fixture-fast');
   await choose(page,'#chat-reasoningEffort','low');
-  await page.getByRole('button',{name:'保存对话配置',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('对话配置已保存');
-  const conversations=await (await page.request.get('/admin/api/conversations')).json();
-  expect(conversations[0].execution).toEqual({model:'fixture-fast',reasoningEffort:'low'});
+  await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({model:'fixture-fast',reasoningEffort:'low'});
+  await expect(page.getByRole('button',{name:'保存对话配置',exact:true})).toHaveCount(0);
   await navigate(page,'settings');
   await expect(page.locator('#setting-manager-model')).toHaveAttribute('role','combobox');
+  await settingsTab(page,'execution');
   await expect(page.locator('#setting-execution-reasoningEffort')).toHaveAttribute('role','combobox');
 });
 
@@ -108,9 +274,11 @@ test('manager model and effort drafts survive language switching and saving anot
   await choose(page,'#setting-manager-reasoningEffort','high');
   await choose(page,'#app-language','en');
   await expectChoice(page,'#setting-manager-reasoningEffort','high');
+  await settingsTab(page,'execution');
   await page.locator('#setting-execution-concurrency').fill('2');
   await page.locator('#configuration-execution').getByRole('button',{name:'Save settings'}).click();
   await expect(page.getByRole('status')).toContainText('Saved');
+  await settingsTab(page,'manager');
   await expectChoice(page,'#setting-manager-model','gpt-6.1-sol');
   await expectChoice(page,'#setting-manager-reasoningEffort','high');
 });
@@ -160,15 +328,19 @@ test("saving one settings group retains unsaved changes in other groups", async 
   page,
 }) => {
   await navigate(page, "settings");
+  await settingsTab(page,'execution');
   await choose(page,"#setting-execution-model","fixture-fast");
+  await settingsTab(page,'manager');
   await page
     .locator("#setting-manager-timeoutMs")
     .fill("1234567");
+  await settingsTab(page,'execution');
   await page
     .locator("#configuration-execution")
     .getByRole("button", { name: "保存配置" })
     .click();
   await expect(page.getByRole("status")).toContainText("已保存");
+  await settingsTab(page,'manager');
   await expect(page.locator("#setting-manager-timeoutMs")).toHaveValue(
     "1234567",
   );
@@ -477,6 +649,8 @@ test("task investigation uses the server-owned prompt and opens its existing con
 test('changing Admin password signs out and the new password works',async({page})=>{
   await navigate(page,'chat');await page.locator('#message-input').fill('Sensitive unsent synthetic draft');
   await navigate(page,'settings');
+  await settingsTab(page,'security');
+  await page.locator('#current-admin-password').fill('local-browser-password');
   await page.locator('#new-admin-password').fill('replacement-browser-password');
   await page.locator('#confirm-admin-password').fill('replacement-browser-password');
   await page.getByRole('button',{name:'修改 Admin 密码',exact:true}).click();
@@ -485,7 +659,7 @@ test('changing Admin password signs out and the new password works',async({page}
   await page.locator('#password').fill('replacement-browser-password');
   await page.getByRole('button',{name:'登录工作台'}).click();
   await navigate(page,'chat');await expect(page.locator('#message-input')).toHaveValue('');
-  await page.request.post('/admin/api/password',{data:{password:'local-browser-password'}});
+  expect((await page.request.post('/admin/api/password',{data:{currentPassword:'replacement-browser-password',password:'local-browser-password'}})).status()).toBe(200);
 });
 
 
@@ -493,14 +667,14 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
   test.setTimeout(90000);
   for(const language of ['zh-CN','en']){
     await choose(page,'#app-language',language);
-    for(const width of [390,768,1440]){
+    for(const width of [390,768,1440,2560]){
       await page.setViewportSize({width,height:1000});
       for(const view of ['overview','chat','tasks','plugins','schedules','settings']){
-        await navigate(page,view);await expect(page.locator('#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
+        await navigate(page,view);await expect(page.locator(view==='chat'?'.chat-compose':'#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
         await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:language+' '+width+' '+view}).toBeLessThanOrEqual(width);
         if(view==='settings'){
-          const cards=page.locator('#view > .ant-card');expect(await cards.count()).toBeGreaterThan(2);
-          const first=await cards.nth(0).boundingBox(),second=await cards.nth(1).boundingBox();expect(second.y-first.y-first.height).toBeGreaterThanOrEqual(16);
+          await expect(page.getByRole('tabpanel',{includeHidden:false})).toHaveCount(1);
+          await expect(page.locator('.settings-tabs .ant-card:visible')).toHaveCount(1);
         }
         if(view==='plugins'||view==='schedules'){
           const action=page.getByRole('button',{name:language==='en'?'Open management chat':'前往管理对话',exact:true});await expect(action).toBeVisible();
@@ -508,7 +682,7 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
           const details=page.getByRole('button',{name:language==='en'?'View details':'查看详情',exact:true});
           for(const button of await details.all()){const rect=await button.boundingBox();expect(rect.x+rect.width).toBeLessThanOrEqual(width);}
         }
-        if(width!==768)await page.screenshot({path:'.tmp/readonly-ui/final/'+view+'-'+language+'-'+width+'.png',animations:'disabled'});
+        if(width!==768)await page.screenshot({path:'.tmp/chat-layout/screenshots/'+view+'-'+language+'-'+width+'.png',animations:'disabled'});
       }
     }
   }
@@ -540,11 +714,14 @@ test('complex settings are readable without JSON or prompt editors and Agent ope
   await navigate(page,'settings');
   await expect(page.locator('#setting-manager-instructions')).toHaveCount(0);
   await expect(page.locator('#setting-http-targets')).toHaveCount(0);
+  await page.locator('#configuration-manager').getByText('管理提示词',{exact:true}).click();
   await expect(page.locator('#configuration-manager')).toContainText(text);
-  await expect(page.locator('#configuration-http')).toContainText('请通过管理 Agent 修改复杂配置。');
   await expect(page.locator('#setting-manager-model')).toBeVisible();
-  await expect(page.locator('#setting-execution-concurrency')).toBeVisible();
+  await settingsTab(page,'http');
+  await expect(page.locator('#configuration-http')).toContainText('请通过管理 Agent 修改复杂配置。');
   await expect(page.locator('#configuration-http').getByRole('button',{name:'保存配置',exact:true})).toHaveCount(0);
+  await settingsTab(page,'execution');
+  await expect(page.locator('#setting-execution-concurrency')).toBeVisible();
 });
 
 test('a failed enable operation preserves state and can be tried again',async({page})=>{

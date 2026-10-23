@@ -148,7 +148,7 @@ On **your own computer**, keep this SSH tunnel open:
 ssh -N -L 3007:127.0.0.1:3007 user@your-server
 ```
 
-Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Admin password** and set a new Admin password. Password changes sign out existing web sessions. The initial-password file does not override a password already saved in the Manager database.
+Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Security & sign-in → Admin password** and enter your current password and a new password. Successful changes sign out every web session; an incorrect current password leaves sessions active. The initial-password file does not override a password already saved in the Manager database.
 
 A public domain, HTTPS certificates and the external access gateway are managed by the deployment operator using their own infrastructure. This tutorial uses private SSH access. Keep internal service ports private; connection requirements for an existing gateway are described in the [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access).
 

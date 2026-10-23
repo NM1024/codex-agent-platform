@@ -1,5 +1,5 @@
-import {useCallback, useEffect, useState} from 'react';
-import {Alert, Button, Checkbox, Form, Input, InputNumber, Spin, Typography} from 'antd';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Spin, Tabs, Typography} from 'antd';
 import {AgentPicker, CatalogNote, JsonView, Panel} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
@@ -87,10 +87,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       </div>
       {!!complexFields.length&&<div className="complex-settings">
         <Typography.Paragraph type="secondary">{t('请通过管理 Agent 修改复杂配置。')}</Typography.Paragraph>
-        {complexFields.map(([key,schema])=><div key={key}>
-          <Typography.Title level={3}>{t(schema.title??key)}</Typography.Title>
-          {typeof group.values[key]==='string'?<Typography.Paragraph className="literal-text">{String(group.values[key])}</Typography.Paragraph>:<JsonView value={group.values[key]??{}}/>}
-        </div>)}
+        <Collapse items={complexFields.map(([key,schema])=>({key,label:t(schema.title??key),children:typeof group.values[key]==='string'?<Typography.Paragraph className="literal-text">{String(group.values[key])}</Typography.Paragraph>:<JsonView value={group.values[key]??{}}/>}))}/>
         <Button onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button>
       </div>}
       {!!group.configured_secrets.length && <Typography.Paragraph type="secondary">{t('已配置凭证：') + group.configured_secrets.join('、') + t('。省略字段保留原值，显式空值表示清除。')}</Typography.Paragraph>}
@@ -102,34 +99,48 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
 export default function SettingsPage() {
   const {api, operation, act, notify, t, refresh, setAuthenticated, setChatId} = useConsole();
   const [data, setData] = useState<ConfigurationList>();
-  const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState('');
+  const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''),[currentPassword,setCurrentPassword]=useState('');
+  const [tab,setTab]=useState('manager');
   const [savingPassword, setSavingPassword] = useState(false);
+  const passwordLock=useRef(false);
   const reload = useCallback(async () => {setData(await operation<ConfigurationList>('configuration_list'));}, [operation]);
   useEffect(() => {let active=true; void operation<ConfigurationList>('configuration_list').then(value => {if(active)setData(value);}).catch(error => {if(active)notify(t(error instanceof Error ? error.message : String(error)));}); return () => {active=false;};}, [operation, refresh]);
   const changePassword = async () => {
+    if(passwordLock.current)return;
+    passwordLock.current=true;
     setSavingPassword(true);
     await act(async () => {
+      if(!currentPassword)throw new Error(t('请输入当前密码。'));
       if (password !== confirmation) throw new Error(t('两次密码不一致。'));
       if (password.length < 12 || password.length > 1024) throw new Error(t('密码须为12至1024个字符。'));
-      await api('/password', {password});
-      setPassword(''); setConfirmation(''); setChatId(null); setAuthenticated(false);
+      await api('/password', {currentPassword,password});
+      setCurrentPassword('');setPassword(''); setConfirmation(''); setChatId(null); setAuthenticated(false);
       notify(t('密码已修改，请重新登录。'));
     });
-    setSavingPassword(false);
+    setSavingPassword(false);passwordLock.current=false;
   };
-  return <>
-    <Typography.Paragraph>{t('配置持久保存在服务端，页面和管理 Agent 使用相同接口。修改无需重启，正在执行的任务保留自己的参数。密钥只写不读。')}</Typography.Paragraph>
-    {!data && <Spin tip={t('正在读取…')}/>}
-    {data?.gateway_unavailable && <Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
-    {data?.groups.map(group => <ConfigurationForm key={group.scope} group={group} reload={reload}/>)}
-    <Panel title={t('Admin 密码')}>
+  const passwordPanel=<Panel title={t('Admin 密码')}>
       <Form layout="vertical" onFinish={() => {void changePassword();}}>
         <Typography.Paragraph>{t('修改后所有网页会话退出，请使用新密码重新登录。业务入口密钥保持独立。')}</Typography.Paragraph>
+        <Form.Item label={t('当前密码')} htmlFor="current-admin-password"><Input.Password id="current-admin-password" autoComplete="current-password" maxLength={1024} required value={currentPassword} disabled={savingPassword} onChange={event=>setCurrentPassword(event.target.value)}/></Form.Item>
         <Form.Item label={t('新密码（至少12个字符）')} htmlFor="new-admin-password"><Input.Password id="new-admin-password" autoComplete="new-password" minLength={12} maxLength={1024} required value={password} disabled={savingPassword} onChange={event => setPassword(event.target.value)}/></Form.Item>
         <Form.Item label={t('再次输入新密码')} htmlFor="confirm-admin-password"><Input.Password id="confirm-admin-password" autoComplete="new-password" required value={confirmation} disabled={savingPassword} onChange={event => setConfirmation(event.target.value)}/></Form.Item>
         <Button type="primary" htmlType="submit" loading={savingPassword}>{t('修改 Admin 密码')}</Button>
       </Form>
-    </Panel>
-    <Panel title={t('部署配置')}>{data?.bootstrap?.map(item => <Typography.Paragraph key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><br/>{t(item.description)}</Typography.Paragraph>)}</Panel>
-  </>;
+    </Panel>;
+  const groups=data?.groups??[],admin=groups.find(group=>group.scope==='admin');
+  const order=['manager','execution','http','access'];
+  const items=[...groups.filter(group=>group.scope!=='admin').sort((a,b)=>{
+    const rank=(scope:string)=>order.includes(scope)?order.indexOf(scope):order.length;
+    return rank(a.scope)-rank(b.scope);
+  }).map(group=>({key:group.scope,label:<span data-settings-tab={group.scope}>{t(group.title)}</span>,forceRender:true,children:<ConfigurationForm group={group} reload={reload}/>})),
+    {key:'security',label:<span data-settings-tab="security">{t('安全与登录')}</span>,forceRender:true,children:<div className="settings-stack">{passwordPanel}{admin&&<ConfigurationForm group={admin} reload={reload}/>}</div>},
+    {key:'deployment',label:<span data-settings-tab="deployment">{t('部署配置')}</span>,children:<Panel title={t('部署配置')}><Typography.Paragraph type="secondary">{t('这些配置通过服务器环境变量设置，修改后需要重启相应服务。')}</Typography.Paragraph>{data?.bootstrap?.map(item=><div className="deployment-setting" key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><Typography.Paragraph>{t(item.description)}</Typography.Paragraph></div>)}</Panel>},
+  ];
+  return <section className="settings-page">
+    <Typography.Paragraph type="secondary">{t('按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。')}</Typography.Paragraph>
+    {!data&&<div role="status"><Spin/> {t('正在读取…')}</div>}
+    {data?.gateway_unavailable&&<Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
+    {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} items={items}/>}
+  </section>;
 }

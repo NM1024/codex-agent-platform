@@ -22,6 +22,6 @@ export const managementTools=[
   tool('configuration_list','List live configuration groups, schemas, configured-secret flags and bootstrap-only deployment settings. Never returns secret values.'),
   tool('configuration_get','Read one configuration group. Omitted secret fields mean keep current credentials when saving.',{scope:string},['scope']),
   tool('configuration_update','Persist and apply a partial configuration group. Read its schema first. Omit secrets to preserve them; use an explicit empty value only if clearing is allowed. Does not interrupt active work.',{scope:string,patch:{type:'object'}},['scope','patch']),
-  tool('admin_password_set','Set the independent Admin password and revoke existing web sessions. Password is write-only.',{password:{type:'string',minLength:12,maxLength:1024}},['password']),
+  tool('admin_password_set','Change the independent Admin password after verifying currentPassword and revoke existing web sessions. Both passwords are write-only.',{currentPassword:{type:'string',maxLength:1024},password:{type:'string',minLength:12,maxLength:1024}},['currentPassword','password']),
   tool('service_restart','Request a graceful gateway or runner restart; then check overview to verify recovery.',{service:{enum:['gateway','runner']}},['service']),
 ];

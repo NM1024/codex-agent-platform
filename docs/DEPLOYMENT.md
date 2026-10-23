@@ -90,7 +90,7 @@ docker compose --env-file /data/codex-agent-platform/.env exec -T runner node sc
 
 Neither probe starts a model turn. Real tasks and Manager messages do use your account; automated tests do not.
 
-For a forgotten Admin password, supply a new password over stdin without a command-line literal:
+Remote Admin password changes require the current password, including the management operation. Use the **Security & sign-in** settings tab, rather than sending passwords in chat. For a forgotten Admin password, trusted local recovery can supply a new password over stdin without a command-line literal:
 
 ```bash
 read -r -s -p 'New Admin password: ' admin_password; printf '\n'

@@ -1,5 +1,19 @@
 # Validation
 
+## Admin workspace, settings tabs and verified password changes
+
+Verified on 2026-10-23 with Node.js 24 and synthetic data:
+
+- Rebuilt the shared shell and responsive styles. Chat has separate user/Agent bubbles, a desktop conversation list/mobile drawer, a scrolling transcript, compact model/effort controls and a persistent composer. Execution records collapse and scroll separately. Enter sends, Shift+Enter adds a line, and IME composition does not send. Settings categories use separate tabs and preserve drafts across tabs/languages.
+- Every remote password update (direct HTTP, operations and management MCP) requires the current password. Wrong/missing passwords preserve active sessions; successful changes revoke all sessions. Version-conditional replacement prevents concurrent use of an outdated password. The trusted local stdin recovery path remains available. Regression tests check both remote routes, MCP schema enforcement, races and absence of submitted passwords in action records.
+- 206 isolated Linux `npm test` checks plus the separate host Compose configuration check passed (207 total). The frontend build/typecheck ran separately before the read-only Linux test run with lifecycle hooks skipped. `npm run check:release` passed for 77 JavaScript modules and 3 JSON resources, including every deferred/compressed Admin resource.
+- 46 browser checks passed against the production bundle. All six views were checked in Chinese/English at 390, 768, 1440 and 2560 pixels. Short English phones at 320×568/390×568 and landscape at 844×390 keep header and Send controls reachable. Tests cover long transcripts, scroll retention, six-line input, long expanded activity, model-save retry/order across page unmounts, global-default labels, tab isolation/drafts and password rejection/session revocation.
+- Task and overview tables now keep phone status/actions visible without horizontal scrolling. UUIDs retain their full text/title while truncating visually; hidden secondary columns remain available in task details. Search, investigation, artifact downloads, retry and pagination remain intact.
+- All four isolated Docker targets built; the final non-root, read-only, network-disabled test image passed 201 tests. The previously documented temporary validation Dockerfile accommodations for blocked apt downloads and verified production dependency-layer reuse still apply.
+- Independent review reproduced model-save ordering, inherited-model labeling, expanded activity and short-screen layout issues. Failing regressions were added and the fixes re-reviewed. No remaining actionable findings. Fresh screenshots from every page, all six settings categories and desktop/phone security/chat previews were inspected.
+
+No actual credentials, real account/model tasks or local platform deployment were used. Preview text is synthetic; `.tmp/chat-layout/` contains temporary logs and screenshots and is excluded from distribution.
+
 ## Admin loading and compressed assets
 
 Verified on 2026-10-23 with Node.js 24 and synthetic data:

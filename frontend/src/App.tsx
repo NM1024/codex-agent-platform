@@ -5,6 +5,8 @@ import zhCN from 'antd/locale/zh_CN';
 import {useConsole} from './context';
 import type {View} from './types';
 const titles:Record<View,string>={overview:'运行概览',chat:'管理对话',tasks:'任务记录',plugins:'业务插件',schedules:'定时计划',settings:'系统配置'};
+const icons:Record<View,string>={overview:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',chat:'M21 11a8 8 0 0 1-8 8H7l-4 3V11a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z',tasks:'M8 5h13 M8 12h13 M8 19h13 M3 5h.01 M3 12h.01 M3 19h.01',plugins:'m8 8-5 4 5 4 M16 8l5 4-5 4 M14 4l-4 16',schedules:'M12 8v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',settings:'M4 6h16 M4 12h16 M4 18h16 M9 3v6 M15 9v6 M9 15v6'};
+function NavIcon({view}:{view:View}){return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icons[view]}/></svg>;}
 const pages={
   overview:lazy(()=>import('./pages/OverviewPage')),
   chat:lazy(()=>import('./pages/ChatPage')),
@@ -24,6 +26,23 @@ function Console(){
   const {authenticated,setAuthenticated,api,act,t,view,navigate,notice,pending,refreshPage}=useConsole(),[password,setPassword]=useState(''),[loginError,setLoginError]=useState('');
   if(!authenticated)return <main id="login" className="login-shell"><Card className="login-card"><Space className="brand-row"><Typography.Text strong>A / AGENT</Typography.Text><Language id="login-language"/></Space><Typography.Title level={1}>{t('从这里，了解并管理运行。')}</Typography.Title><Typography.Paragraph type="secondary">{t('使用独立 Admin 密码登录，初始密码由部署时生成。')}</Typography.Paragraph><Form layout="vertical" onFinish={()=>void act(async()=>{setLoginError('');try{await api('/login',{password});setPassword('');setAuthenticated(true);}catch(error){setLoginError(t(error instanceof Error?error.message:String(error)));}})}><Form.Item label={t('Admin 密码')} htmlFor="password"><Input.Password id="password" autoComplete="current-password" required placeholder={t('输入 Admin 密码')} value={password} onChange={event=>setPassword(event.target.value)}/></Form.Item><Button htmlType="submit" type="primary" loading={pending>0} block>{t('登录工作台')}</Button></Form>{(loginError||notice)&&<Alert type="error" title={loginError||notice} showIcon role="alert"/>}</Card></main>;
   const Page=pages[view];
-  return <Layout id="workspace" className="console-layout"><Layout.Sider width={220} breakpoint="lg" collapsedWidth={0} trigger={null} className="console-sidebar"><Typography.Title level={3}>A / AGENT</Typography.Title><Typography.Text type="secondary">{t('运行工作台')}</Typography.Text>{screens.lg && <nav id="navigation">{(Object.keys(titles) as View[]).map(key=><Button key={key} data-view={key} type={view===key?'primary':'text'} onClick={()=>navigate(key)} block>{t(titles[key])}</Button>)}</nav>}</Layout.Sider><Layout><Layout.Header className="console-header"><Typography.Title id="page-title" level={1}>{t(titles[view])}</Typography.Title><Space wrap><Language id="app-language"/><Button id="refresh" onClick={refreshPage}>{t('刷新')}</Button><Button id="logout" onClick={()=>void act(async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}})}>{t('退出')}</Button></Space></Layout.Header>{!screens.lg && <nav className="mobile-navigation">{(Object.keys(titles) as View[]).map(key=><Button key={key} data-view={key} type={view===key?'primary':'default'} onClick={()=>navigate(key)}>{t(titles[key])}</Button>)}</nav>}<Layout.Content className="console-content">{notice&&<Alert id="notice" role="status" type="info" showIcon title={notice}/>}<main id="view"><PageBoundary key={view} message={t('页面加载失败，请刷新后重试。')} reload={t('刷新')}><Suspense fallback={<div role="status"><Spin/> {t('正在加载页面…')}</div>}><Page/></Suspense></PageBoundary></main></Layout.Content></Layout></Layout>;
+  const navigation=(Object.keys(titles) as View[]).map(key=><Button key={key} data-view={key} aria-current={view===key?'page':undefined} icon={<NavIcon view={key}/>} type={view===key?'primary':'text'} onClick={()=>navigate(key)}>{t(titles[key])}</Button>);
+  return <Layout id="workspace" className="console-layout">
+    <Layout.Sider width={210} breakpoint="lg" collapsedWidth={0} trigger={null} className="console-sidebar">
+      <div className="console-brand"><Typography.Title level={3}>A / AGENT</Typography.Title><Typography.Text type="secondary">{t('运行工作台')}</Typography.Text></div>
+      {screens.lg&&<nav id="navigation" aria-label={t('运行工作台')}>{navigation}</nav>}
+    </Layout.Sider>
+    <Layout className="console-main">
+      <Layout.Header className="console-header">
+        <Typography.Title id="page-title" level={1}>{t(titles[view])}</Typography.Title>
+        <Space wrap><Language id="app-language"/><Button id="refresh" onClick={refreshPage}>{t('刷新')}</Button><Button id="logout" onClick={()=>void act(async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}})}>{t('退出')}</Button></Space>
+      </Layout.Header>
+      {!screens.lg&&<nav className="mobile-navigation" aria-label={t('运行工作台')}>{navigation}</nav>}
+      <Layout.Content className={'console-content view-'+view}>
+        {notice&&<Alert id="notice" role="status" type="info" showIcon title={notice}/>}
+        <main id="view"><PageBoundary key={view} message={t('页面加载失败，请刷新后重试。')} reload={t('刷新')}><Suspense fallback={<div className="page-loading" role="status"><Spin/> {t('正在加载页面…')}</div>}><Page/></Suspense></PageBoundary></main>
+      </Layout.Content>
+    </Layout>
+  </Layout>;
 }
-export default function App(){const {locale}=useConsole(),nonce=document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content;return <ConfigProvider button={{autoInsertSpace:false}} locale={locale==='en'?enUS:zhCN} csp={{nonce:nonce??''}} theme={{token:{colorPrimary:'#345e4f',borderRadius:10,fontFamily:'Inter, "Segoe UI", "Microsoft YaHei", sans-serif',controlHeight:40}}}><Console/></ConfigProvider>;}
+export default function App(){const {locale}=useConsole(),nonce=document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content;return <ConfigProvider button={{autoInsertSpace:false}} locale={locale==='en'?enUS:zhCN} csp={{nonce:nonce??''}} theme={{token:{colorPrimary:'#345e4f',colorBgLayout:'#f7f8fa',borderRadius:8,fontFamily:'Inter, "Segoe UI", "Microsoft YaHei", sans-serif',controlHeight:36}}}><Console/></ConfigProvider>;}

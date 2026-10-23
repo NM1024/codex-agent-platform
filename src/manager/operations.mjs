@@ -12,7 +12,7 @@ export function createManagerOperations({client,store,metrics,configuration,auth
       const check=checks.get(action);
       if(!check||!check(args))throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','管理操作或参数不正确。');
       if(action==='models')return models();
-      if(action==='admin_password_set'){if(!auth)throw new HttpError(503,'AUTH_UNAVAILABLE','密码服务不可用。');await auth.setPassword(args.password);return {updated:true,sessions_revoked:true};}
+      if(action==='admin_password_set'){if(!auth)throw new HttpError(503,'AUTH_UNAVAILABLE','密码服务不可用。');await auth.changePassword(args.currentPassword,args.password);return {updated:true,sessions_revoked:true};}
       if(action==='configuration_list') {
         let remote;try{remote=await client.execute(action,args);}catch{remote={groups:[],bootstrap:bootstrapSettings,gateway_unavailable:true};}
         return {...remote,groups:[...remote.groups,...configuration.list()]};

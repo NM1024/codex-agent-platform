@@ -1,6 +1,21 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '默认：{value}':'Default: {value}',
+  '思考':'Think',
+  '自动':'Auto',
+  '会话列表':'Conversations',
+  '最近对话':'Recent chats',
+  'Enter 发送，Shift + Enter 换行':'Enter to send · Shift + Enter for a new line',
+  '执行记录':'Activity',
+  '保存失败，重试':'Save failed, retry',
+  '当前密码':'Current password',
+  '请输入当前密码。':'Enter your current password.',
+  '当前密码不正确。':'The current password is incorrect.',
+  '登录已过期，请重新登录。':'Your session expired. Sign in again.',
+  '安全与登录':'Security & sign-in',
+  '按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。':'Manage settings by category. Drafts stay when switching tabs; save each category separately.',
+  '这些配置通过服务器环境变量设置，修改后需要重启相应服务。':'Set these values through server environment variables, then restart the affected service.',
   '页面加载失败，请刷新后重试。':'Could not load this page. Refresh to try again.',
   '正在加载页面…':'Loading page…',
   '请通过管理 Agent 修改复杂配置。':'Ask the management Agent to change complex configuration.',
@@ -137,7 +152,7 @@ const english: Record<string, string> = {
     "Starting at {start} · {count} on this page",
   "执行完成不等于所有业务项都成功。查看详情可区分最终结果、具体错误与交付状态。":
     "A completed execution may contain unsuccessful business items. Open details to check results, errors and delivery status.",
-  执行记录: "Execution history",
+
   执行状态: "Execution status",
   错误: "Error",
   创建时间: "Created",

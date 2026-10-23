@@ -29,9 +29,9 @@ flowchart LR
 | `operations/` | Preset task/plugin/configuration operations and persistent cron plans. |
 | `manager/` | Independent management conversation, MCP adapter, Admin authentication and web console. |
 | `frontend/` | React + TypeScript + Ant Design Admin source. Vite bundles it into generated `src/manager/web-dist/`; Manager serves only those production assets. |
+| `contracts/`, `observability/` | Shared management schemas and bounded resource measurements. |
 
 Admin pages load on demand. The build generates Brotli and gzip variants of every hashed JS/CSS resource; Manager negotiates `Accept-Encoding` and returns `Vary: Accept-Encoding` with immutable caching. Nonce HTML and authenticated API responses are not compressed by this path. Release validation requires the complete manifest graph and both compressed variants, including deferred pages.
-| `contracts/`, `observability/` | Shared management schemas and bounded resource measurements. |
 
 The Manager accesses Gateway operations through an internal authenticated API. It does not import the task runtime or query an external business database. Both management and task Agents use preset MCP tools plus their explicitly permitted native Codex capabilities; arbitrary shell, code editing and foreign MCP tools are denied.
 
@@ -51,7 +51,9 @@ Admin offers simple enable/disable controls for plugins and schedules, plus scal
 
 Gateway owns `tasks.sqlite`; Manager owns `manager.sqlite`. Runner owns isolated work directories, Codex session state and artifacts. Gateway reads artifacts through a read-only workspace mount. Neither service has a Docker socket. Internal ports are not published; public ports bind loopback by default.
 
-Admin uses its own password hash and expiring hashed cookie sessions. API credentials and named destination tokens are separate. Persisted destination secrets remain deployment data; configuration reads return only configured-secret flags. Deployments must protect runtime volumes and backups.
+Admin uses its own password hash and expiring hashed cookie sessions. Every remote password update, including the management operation, requires the current password; a version-conditional update prevents concurrent verification against an outdated hash. Failure preserves sessions and success revokes all sessions. Trusted local recovery over stdin remains separate. API credentials and named destination tokens are separate. Persisted destination secrets remain deployment data; configuration reads return only configured-secret flags. Deployments must protect runtime volumes and backups.
+
+The Admin shell bounds scrolling to each workspace. Chat has a desktop conversation sidebar/mobile drawer, separate user and Agent bubbles, a scrolling transcript and a persistent composer with compact model/effort controls. Existing conversation selections save automatically in request order; new conversations apply selections when sending. Configuration categories use separate tabs with retained drafts; password changes live in the security tab.
 
 `callback_once` records the attempt before sending. A transport failure can leave delivery `unknown`; the platform does not promise exactly-once remote effects or automatically replay an ambiguous callback. An HTTP acceptance response does not prove downstream storage succeeded.
 
