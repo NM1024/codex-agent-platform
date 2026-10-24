@@ -1,6 +1,6 @@
 // State projections are sent from durable storage, never from raw Codex events.
 export function streamConversation({req,res,store,auth,id,onClose}) {
-  const initial=store.getConversation(id);
+  const initial=store.getConversationPage(id);
   let closed=false,pending,timer,heartbeat;const messages=new Set();
   const close=()=>{if(closed)return;closed=true;clearTimeout(timer);clearInterval(heartbeat);unwatch();onClose?.(close);res.end();};
   const send=(event,data)=>{
@@ -13,8 +13,8 @@ export function streamConversation({req,res,store,auth,id,onClose}) {
   const flush=()=>{
     timer=null;if(closed||!pending)return;pending=false;
     try {
-      const conversation=store.metadata(id),changed=[...messages].map(messageId=>store.message(messageId)).filter(Boolean);messages.clear();
-      send('patch',{conversation,messages:changed,actions:store.actions(id)});
+      const conversation={...store.metadata(id),...store.counts(id)},changed=[...messages].map(messageId=>store.message(messageId)).filter(Boolean);messages.clear();
+      send('patch',{conversation,messages:changed,actions:store.actionsPage(id)});
     }catch(error){if(error.code==='CONVERSATION_NOT_FOUND'){send('deleted',{id});close();}else close();}
   };
   const unwatch=store.watch(id,change=>{

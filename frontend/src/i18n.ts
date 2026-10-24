@@ -1,6 +1,9 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '加载更多对话':'Load more conversations',
+  '加载更早消息':'Load earlier messages',
+  '下载图片':'Download image',
   '新增 HTTP 目标':'Add HTTP target',
   '编辑 HTTP 目标':'Edit HTTP target',
   '编辑 HTTP 目标：{name}':'Edit HTTP target: {name}',

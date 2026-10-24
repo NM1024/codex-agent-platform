@@ -186,6 +186,13 @@ button, input, textarea { font: inherit; }
 .chat-image-drafts figcaption { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; color: #738078; }
 .chat-image-drafts .ant-btn { font-size: 10px; height: 22px; margin-top: 3px; }
 .message-images a { display: block; max-width: 100%; }
+.message-images figure { margin: 0; max-width: 100%; min-width: 0; }
+.message-images figcaption { padding-top: 6px; font-size: 12px; }
+.conversation-more { width: 100%; margin-top: 10px; flex-shrink: 0; }
+.history-more { display: flex; justify-content: center; margin: 4px 0 20px; }
+.message-markdown[data-typing="true"]::after { content: ''; display: inline-block; width: 5px; height: 14px; margin-left: 3px; vertical-align: text-bottom; border-radius: 2px; background: #738078; animation: reply-caret 1s step-end infinite; }
+@keyframes reply-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .message-markdown[data-typing="true"]::after { animation: none; } }
 .message-images img { display: block; width: auto; height: auto; max-width: min(260px,100%); max-height: 220px; object-fit: contain; border-radius: 6px; }
 .chat-image-busy { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #738078; margin-bottom: 6px; }
 .chat-image-picker { flex-shrink: 0; font-size: 12px; }

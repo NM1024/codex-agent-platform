@@ -9,6 +9,8 @@ import {validateAnswers} from './questions.mjs';
 const checkExecution=new Ajv({strict:true}).compile(agentOverridesSchema);
 const conversationRow=row=>({...row,execution:JSON.parse(row.execution ?? '{}')});
 const messageRow=row=>({...row,execution:row.execution?JSON.parse(row.execution):null});
+const pageSize=(limit,fallback)=>{const value=limit??fallback;if(!Number.isInteger(value)||value<1||value>100)throw new HttpError(400,'INVALID_PAGINATION','每页数量必须是 1 到 100 的整数。');return value;};
+const invalidCursor=()=>new HttpError(400,'INVALID_CURSOR','分页位置无效，请重新打开对话。');
 
 export class ManagerStore {
   constructor(path) {
@@ -23,11 +25,13 @@ export class ManagerStore {
       CREATE TABLE IF NOT EXISTS manager_message_activity(message_id TEXT NOT NULL,id TEXT NOT NULL,kind TEXT NOT NULL,label TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(message_id,id));
       CREATE TABLE IF NOT EXISTS manager_reply_items(message_id TEXT NOT NULL,id TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(message_id,id));
       CREATE TABLE IF NOT EXISTS manager_questions(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,questions TEXT NOT NULL,answers TEXT,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS manager_generated_images(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,conversation_id TEXT NOT NULL,item_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,width INTEGER NOT NULL,height INTEGER NOT NULL,size INTEGER NOT NULL,bytes BLOB NOT NULL,UNIQUE(message_id,item_id));
     `);
     for(const table of ['manager_conversations','manager_messages'])
       if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(column=>column.name==='execution'))this.db.exec(`ALTER TABLE ${table} ADD COLUMN execution TEXT`);
     for(const [table,columns] of [['manager_messages',{reply_to:'TEXT',started_at:'INTEGER',completed_at:'INTEGER',updated_at:'INTEGER',partial_text:'TEXT'}],['manager_actions',{message_id:'TEXT'}]])
       for(const [name,type] of Object.entries(columns))if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    this.db.exec('CREATE INDEX IF NOT EXISTS manager_history_order ON manager_messages(conversation_id,created_at); CREATE INDEX IF NOT EXISTS manager_reply_parent ON manager_messages(reply_to); CREATE INDEX IF NOT EXISTS manager_recent_conversations ON manager_conversations(updated_at DESC,id DESC);');
   }
   close(){this.events.removeAllListeners();this.db.close();}
   watch(id,listener){const handler=change=>{if(change.conversationId===id)listener(change);};this.events.on('change',handler);return()=>this.events.off('change',handler);}
@@ -35,18 +39,55 @@ export class ManagerStore {
   changedMessage(id){const row=this.db.prepare('SELECT conversation_id FROM manager_messages WHERE id=?').get(id);if(row)this.changed(row.conversation_id,id);}
   replies(id){return this.db.prepare('SELECT id,text,status,created_at,updated_at FROM manager_reply_items WHERE message_id=? ORDER BY created_at,rowid').all(id);}
   questions(id){return this.db.prepare('SELECT * FROM manager_questions WHERE message_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,questions:JSON.parse(row.questions),answers:row.answers?JSON.parse(row.answers):null}));}
-  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.db.prepare('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
+  questionMessage(conversationId,id){return this.db.prepare('SELECT m.id FROM manager_messages m JOIN manager_questions q ON q.message_id=m.id WHERE q.id=? AND m.conversation_id=?').get(id,conversationId);}
+  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),generated_images:this.generatedImages(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.db.prepare('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
   message(id){const row=this.db.prepare('SELECT * FROM manager_messages WHERE id=?').get(id);return row?this.publicMessage(row):null;}
   metadata(id){const row=this.db.prepare('SELECT * FROM manager_conversations WHERE id=?').get(id);if(!row)throw new HttpError(404,'CONVERSATION_NOT_FOUND','找不到管理会话。');return conversationRow(row);}
   observe(key,value){this.db.prepare('INSERT OR REPLACE INTO manager_observations VALUES(?,?,?)').run(key,JSON.stringify(value),Date.now());}
   observation(key){const row=this.db.prepare('SELECT value,observed_at FROM manager_observations WHERE key=?').get(key);return row?{...JSON.parse(row.value),observed_at:row.observed_at}:null;}
   createConversation(title='新会话',sourceId=null) {
-    if (sourceId) {const old=this.db.prepare('SELECT * FROM manager_conversations WHERE source_id=?').get(sourceId);if(old)return this.getConversation(old.id);}
+    if (sourceId) {const old=this.db.prepare('SELECT * FROM manager_conversations WHERE source_id=?').get(sourceId);if(old)return this.getConversationPage(old.id);}
     const id=randomUUID(),now=Date.now();this.db.prepare('INSERT INTO manager_conversations(id,title,thread_id,source_id,created_at,updated_at) VALUES(?,?,NULL,?,?,?)').run(id,String(title).slice(0,100),sourceId,now,now);
-    return this.getConversation(id);
+    return this.getConversationPage(id);
   }
   getConversation(id) {
     return {...this.metadata(id),messages:this.db.prepare('SELECT * FROM manager_messages WHERE conversation_id=? ORDER BY created_at,rowid').all(id).map(message=>this.publicMessage(message)),actions:this.actions(id)};
+  }
+  getConversationPage(id,{limit,before}={}) {
+    const metadata=this.metadata(id),size=pageSize(limit,20);
+    let boundary=Number.MAX_SAFE_INTEGER;
+    if(before!==undefined){
+      if(typeof before!=='string'||!/^[a-f0-9-]{36}$/.test(before))throw invalidCursor();
+      const row=this.db.prepare("SELECT rowid FROM manager_messages WHERE id=? AND conversation_id=? AND (role='user' OR reply_to IS NULL)").get(before,id);
+      if(!row)throw invalidCursor();boundary=row.rowid;
+    }
+    const roots=this.db.prepare("SELECT id,rowid FROM manager_messages WHERE conversation_id=? AND (role='user' OR reply_to IS NULL) AND rowid<? ORDER BY rowid DESC LIMIT ?").all(id,boundary,size+1);
+    const hasMore=roots.length>size,selected=roots.slice(0,size).reverse(),ids=selected.map(row=>row.id);
+    // Keep an older active clarification reachable without moving the history cursor.
+    if(before===undefined){const active=this.db.prepare("SELECT id FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('running','interrupted') ORDER BY rowid LIMIT 1").get(id);if(active&&!ids.includes(active.id))ids.push(active.id);}
+    const messages=ids.length?this.db.prepare(`SELECT * FROM manager_messages WHERE conversation_id=? AND (id IN (${ids.map(()=>'?').join(',')}) OR reply_to IN (${ids.map(()=>'?').join(',')})) ORDER BY created_at,rowid`).all(id,...ids,...ids).map(row=>this.publicMessage(row)):[];
+    return {...metadata,...this.counts(id),messages,actions:this.actionsPage(id,ids),history:{has_more:hasMore,before:selected[0]?.id??null}};
+  }
+  counts(id){return this.db.prepare("SELECT sum(status='queued') AS queued_count,sum(status IN ('running','interrupted')) AS running_count FROM manager_messages WHERE conversation_id=? AND role='user'").get(id);}
+  messageGroups(id,ids){
+    this.metadata(id);
+    if(!Array.isArray(ids)||!ids.length||ids.length>100||ids.some(value=>typeof value!=='string'||!/^[a-f0-9-]{36}$/.test(value)))throw new HttpError(400,'INVALID_INPUT','消息编号不正确。');
+    const unique=[...new Set(ids)],placeholders=unique.map(()=>'?').join(',');
+    const roots=this.db.prepare(`SELECT id FROM manager_messages WHERE conversation_id=? AND role='user' AND id IN (${placeholders})`).all(id,...unique);
+    if(roots.length!==unique.length)throw new HttpError(404,'MESSAGE_NOT_FOUND','找不到消息。');
+    return {messages:this.db.prepare(`SELECT * FROM manager_messages WHERE conversation_id=? AND (id IN (${placeholders}) OR reply_to IN (${placeholders})) ORDER BY created_at,rowid`).all(id,...unique,...unique).map(row=>this.publicMessage(row)),actions:this.actionsPage(id,unique)};
+  }
+  hasExecutionEffort(id){return !!this.db.prepare("SELECT 1 FROM manager_messages WHERE conversation_id=? AND execution IS NOT NULL AND json_type(execution,'$.reasoningEffort') IS NOT NULL LIMIT 1").get(id);}
+  listPage({limit,before}={}) {
+    const size=pageSize(limit,30);let cursor;
+    if(before!==undefined){
+      if(typeof before!=='string'||before.length>100)throw invalidCursor();
+      const match=/^(\d+):([a-f0-9-]{36})$/.exec(before);if(!match||!Number.isSafeInteger(Number(match[1])))throw invalidCursor();
+      cursor={time:Number(match[1]),id:match[2]};
+    }
+    const rows=this.db.prepare(`SELECT c.*,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status='queued') AS queued_count,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('running','interrupted')) AS running_count FROM manager_conversations c ${cursor?'WHERE c.updated_at<? OR (c.updated_at=? AND c.id<?)':''} ORDER BY c.updated_at DESC,c.id DESC LIMIT ?`).all(...(cursor?[cursor.time,cursor.time,cursor.id]:[]),size+1);
+    const items=rows.slice(0,size).map(conversationRow),last=items.at(-1);
+    return {items,next_cursor:rows.length>size?`${last.updated_at}:${last.id}`:null};
   }
   deleteConversation(id) {
     this.metadata(id);
@@ -56,7 +97,7 @@ export class ManagerStore {
       this.db.prepare('DELETE FROM manager_message_activity WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       this.db.prepare('DELETE FROM manager_reply_items WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       this.db.prepare('DELETE FROM manager_questions WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
-      for(const table of ['manager_chat_images','manager_actions','manager_messages'])this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(id);
+      for(const table of ['manager_chat_images','manager_generated_images','manager_actions','manager_messages'])this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(id);
       this.db.prepare('DELETE FROM manager_conversations WHERE id=?').run(id);
       this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
@@ -65,10 +106,10 @@ export class ManagerStore {
   list(){return this.db.prepare("SELECT c.*,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status='queued') AS queued_count,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('running','interrupted')) AS running_count FROM manager_conversations c ORDER BY c.updated_at DESC").all().map(conversationRow);}
   validateExecution(execution){if(!checkExecution(execution))throw new HttpError(400,'INVALID_CONFIGURATION','模型或思考程度配置不正确。');}
   setConversationExecution(id,execution){
-    this.validateExecution(execution);this.getConversation(id);
+    this.validateExecution(execution);this.metadata(id);
     this.db.prepare('UPDATE manager_conversations SET execution=?,updated_at=? WHERE id=?').run(JSON.stringify(execution),Date.now(),id);
     this.changed(id);
-    return this.getConversation(id);
+    return this.getConversationPage(id);
   }
   recordMessageExecution(id,execution){this.db.prepare('UPDATE manager_messages SET execution=? WHERE id=? AND execution IS NULL').run(JSON.stringify(execution),id);}
   investigations(){return this.db.prepare("SELECT c.id,c.source_id,c.updated_at,EXISTS(SELECT 1 FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('queued','running','interrupted')) AS active FROM manager_conversations c WHERE c.source_id LIKE 'task:%' ORDER BY c.updated_at DESC LIMIT 100").all().map(row=>({...row,task_id:row.source_id.slice(5)}));}
@@ -76,13 +117,13 @@ export class ManagerStore {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const old=this.db.prepare('SELECT id FROM manager_conversations WHERE source_id=?').get(sourceId);
-      if(old){const conversation=this.getConversation(old.id);this.db.exec('COMMIT');return {created:false,conversation};}
+      if(old){const conversation=this.getConversationPage(old.id);this.db.exec('COMMIT');return {created:false,conversation};}
       const conversation=this.createConversation('定时巡检',sourceId),message=this.enqueue(conversation.id,text);
       this.db.exec('COMMIT');return {created:true,conversation,message};
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   enqueue(id,text,images=[]) {
-    this.getConversation(id);
+    this.metadata(id);
     if(typeof text!=='string'||text.length>20000||(!text.trim()&&!images.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
     const now=Date.now(),message={id:randomUUID(),conversation_id:id,role:'user',text,status:'queued',created_at:now,updated_at:now,started_at:null,completed_at:null,reply_to:null,activity:[],error:null};
     // Images have already passed asynchronous byte/decode validation at admission.
@@ -99,7 +140,17 @@ export class ManagerStore {
     return message;
   }
   attachments(messageId){return this.db.prepare('SELECT id,name,mime,width,height,size,conversation_id FROM manager_chat_images WHERE message_id=? ORDER BY rowid').all(messageId).map(({conversation_id,...image})=>({...image,url:`/admin/api/conversations/${conversation_id}/images/${image.id}`}));}
-  getImage(conversationId,attachmentId){const image=this.db.prepare('SELECT * FROM manager_chat_images WHERE conversation_id=? AND id=?').get(conversationId,attachmentId);if(!image)throw new HttpError(404,'IMAGE_NOT_FOUND','找不到图片。');return image;}
+  generatedImages(messageId){return this.db.prepare('SELECT id,name,mime,width,height,size,conversation_id FROM manager_generated_images WHERE message_id=? ORDER BY rowid').all(messageId).map(({conversation_id,...image})=>({...image,url:`/admin/api/conversations/${conversation_id}/images/${image.id}`}));}
+  generatedImage(messageId,itemId){return this.db.prepare('SELECT id FROM manager_generated_images WHERE message_id=? AND item_id=?').get(messageId,itemId);}
+  saveGeneratedImage(messageId,itemId,image){
+    const message=this.db.prepare('SELECT conversation_id,status FROM manager_messages WHERE id=?').get(messageId);
+    if(!message||!['running','interrupted'].includes(message.status))return;
+    const total=this.db.prepare('SELECT COALESCE(sum(size),0) AS bytes FROM manager_generated_images WHERE message_id=?').get(messageId).bytes;
+    if(total+image.size>64*1024*1024)throw new Error('IMAGE_BUDGET_EXCEEDED');
+    this.db.prepare('INSERT OR IGNORE INTO manager_generated_images VALUES(?,?,?,?,?,?,?,?,?,?)').run(randomUUID(),messageId,message.conversation_id,itemId,image.name,image.mime,image.width,image.height,image.size,image.bytes);
+    this.changedMessage(messageId);
+  }
+  getImage(conversationId,attachmentId){const image=this.db.prepare('SELECT * FROM manager_chat_images WHERE conversation_id=? AND id=?').get(conversationId,attachmentId)??this.db.prepare('SELECT * FROM manager_generated_images WHERE conversation_id=? AND id=?').get(conversationId,attachmentId);if(!image)throw new HttpError(404,'IMAGE_NOT_FOUND','找不到图片。');return image;}
   imageInputs(messageId){return this.db.prepare('SELECT mime,bytes FROM manager_chat_images WHERE message_id=? ORDER BY rowid').all(messageId).map(image=>({type:'image',url:`data:${image.mime};base64,${Buffer.from(image.bytes).toString('base64')}`}));}
   next(id) {const row=this.db.prepare("SELECT * FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','interrupted') ORDER BY created_at,rowid LIMIT 1").get(id);return row?messageRow(row):undefined;}
   markRunning(id){const now=Date.now();this.db.prepare("UPDATE manager_messages SET status='running',started_at=COALESCE(started_at,?),updated_at=? WHERE id=? AND status IN ('queued','interrupted')").run(now,now,id);this.changedMessage(id);}
@@ -183,4 +234,5 @@ export class ManagerStore {
     const row=this.db.prepare('SELECT conversation_id FROM manager_actions WHERE id=?').get(id);if(row?.conversation_id)this.changed(row.conversation_id);
   }
   actions(id){return this.db.prepare('SELECT * FROM manager_actions WHERE conversation_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,summary:row.summary?JSON.parse(row.summary):null,error:row.error?JSON.parse(row.error):null}));}
+  actionsPage(id,messageIds=[]){return this.db.prepare(`SELECT * FROM (SELECT * FROM manager_actions WHERE conversation_id=? ${messageIds.length?`AND (message_id IS NULL OR message_id IN (${messageIds.map(()=>'?').join(',')}))`:''} ORDER BY created_at DESC,rowid DESC LIMIT 100) ORDER BY created_at`).all(id,...messageIds).map(row=>({...row,summary:row.summary?JSON.parse(row.summary):null,error:row.error?JSON.parse(row.error):null}));}
 }

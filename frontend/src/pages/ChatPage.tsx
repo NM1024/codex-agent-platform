@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
 import {AgentPicker, CatalogNote, Status} from '../components';
@@ -15,13 +15,30 @@ interface ChatAction extends Omit<Action, 'error'> {
   summary?: {task_id?: string};
   error?: {code: string; message?: string};
 }
-interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: ChatAction[]}
+type History=NonNullable<Conversation['history']>;
+interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: ChatAction[];olderLoaded?:boolean;historyBacklog?:{resume?:History;boundary:string[]}[]}
+interface ConversationPage {items:Conversation[];next_cursor:string|null}
+const mergeRows=<T extends {id:string}>(older:T[]=[],newer:T[]=[])=>Array.from(new Map([...older,...newer].map(row=>[row.id,row])).values());
+const rootIds=(item:ChatConversation)=>item.messages?.filter(message=>message.role==='user'||!message.reply_to).map(message=>message.id)??[];
+const mergeConversation=(current:ChatConversation|undefined,item:ChatConversation):ChatConversation=>{
+  if(current?.id!==item.id)return item;
+  const previous=rootIds(current),roots=rootIds(item),start=roots.indexOf(item.history?.before??''),window=roots.slice(Math.max(0,start));
+  const gap=!!item.history?.has_more&&previous.length>0&&window.length>0&&!window.some(id=>previous.includes(id));
+  return {...current,...item,messages:mergeRows(current.messages,item.messages).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,item.actions),
+    ...(gap?{history:item.history,olderLoaded:true,historyBacklog:[{resume:current.history,boundary:previous},...current.historyBacklog??[]]}:current.olderLoaded?{history:current.history,olderLoaded:true}:{})};
+};
 const conversationCounts=(item:Conversation)=>({queued_count:item.queued_count??item.messages?.filter(message=>message.role==='user'&&message.status==='queued').length,running_count:item.running_count??item.messages?.filter(message=>message.role==='user'&&['running','interrupted','recovering'].includes(message.status)).length});
 
 export default function ChatPage() {
   const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [listLoading,setListLoading]=useState(true);
+  const [listCursor,setListCursor]=useState<string|null>(null);
+  const [moreLoading,setMoreLoading]=useState(false);
+  const [historyLoading,setHistoryLoading]=useState(false);
+  const [historyError,setHistoryError]=useState('');
+  const listExpanded=useRef(false),listLock=useRef(false),historyLock=useRef<string|null>(null);
+  const prependAnchor=useRef<{height:number;top:number;messageId?:string;offset?:number}|null>(null);
   const [defaults, setDefaults] = useState<AgentSettings>({});
   const [selections, setSelections] = useState<Record<string, AgentSettings>>({});
   const [saveErrors, setSaveErrors] = useState<Record<string, string | undefined>>({});
@@ -40,6 +57,7 @@ export default function ChatPage() {
   const deleteLock=useRef<string|null>(null);
   const deletedIds=useRef(new Set<string>());
   const streamVersions=useRef<Record<string,number>>({});
+  const messageVersions=useRef<Record<string,number>>({});
   const mounted = useRef(true);
   const submitting = useRef(false);
   const composing = useRef(false);
@@ -63,9 +81,12 @@ export default function ChatPage() {
   const selected = conversations.find(item => item.id === chatId);
   const selection = selections[selectedKey] ?? selected?.execution ?? {};
   const visibleConversation = conversation?.id === chatId ? conversation : undefined;
+  const conversationRef=useRef(conversation);conversationRef.current=conversation;
   const messages=visibleConversation?.messages??[];
   const pending=messages.filter(message=>message.role==='user'&&isPending(message.status));
   const queued=pending.filter(message=>message.status==='queued');
+  const totals=visibleConversation?conversationCounts(visibleConversation):{queued_count:0,running_count:0};
+  const pendingTotal=(totals.queued_count??0)+(totals.running_count??0);
   const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
   // Associate the public reply with its request so completion retains the live bubble's identity.
   const transcript=messages.flatMap<{message:Message;key:string;live:boolean;tail?:boolean}>(message=>{
@@ -78,7 +99,7 @@ export default function ChatPage() {
       return [{message,key:message.id,live:false},...parts];
     }
     const partial=message.partial_text??message.activity?.filter(item=>item.kind==='assistant_message').map(item=>item.text).filter(Boolean).join('\n\n')??'';
-    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false,tail:true}]:['running','interrupted','recovering'].includes(message.status)?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:true,tail:true}]:[])];
+    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false,tail:true}]:['running','interrupted','recovering'].includes(message.status)||message.generated_images?.length?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:isPending(message.status),tail:true}]:[])];
   });
 
   const forgetConversation=(id:string)=>{
@@ -98,9 +119,11 @@ export default function ChatPage() {
   useEffect(() => {
     let active = true,fetchingList=false;
     setListLoading(true);
-    void Promise.all([api<Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})])
-      .then(([items, group]) => {
+    void Promise.all([api<ConversationPage|Conversation[]>('/conversations'), operation<ConfigGroup>('configuration_get', {scope:'manager'})])
+      .then(([page, group]) => {
         if (!active) return;
+        const items=Array.isArray(page)?page:page.items;
+        if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);
         const available=items.filter(item=>!deletedIds.current.has(item.id));
         setConversations(current => [...available, ...current.filter(row => !deletedIds.current.has(row.id)&&!items.some(item => item.id === row.id))]);
         setDefaults({...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
@@ -112,7 +135,7 @@ export default function ChatPage() {
       }).catch(error => {if (active) notify(t(error instanceof Error ? error.message : String(error)));}).finally(()=>{if(active)setListLoading(false);});
     const timer=setInterval(async()=>{
       if(fetchingList)return;fetchingList=true;
-      try {const items=await api<Conversation[]>('/conversations');if(active)setConversations(items.filter(item=>!deletedIds.current.has(item.id)));}catch{/* Background list failures preserve the sidebar. */}
+      try {const page=await api<ConversationPage|Conversation[]>('/conversations');if(active){const items=Array.isArray(page)?page:page.items;setConversations(current=>mergeRows(items,current.filter(row=>!items.some(item=>item.id===row.id))).filter(item=>!deletedIds.current.has(item.id)));if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);}}catch{/* Background list failures preserve the sidebar. */}
       finally {fetchingList=false;}
     },5000);
     return () => {active = false;clearInterval(timer);};
@@ -123,6 +146,21 @@ export default function ChatPage() {
     let active = true, fetching = false, fallback=false;
     let source:EventSource|undefined;
     const generation = navigation.current;
+    const isCurrent=()=>active&&currentId.current===chatId&&navigation.current===generation&&!deletedIds.current.has(chatId);
+    const reconcileOmitted=async(item:ChatConversation)=>{
+      const cached=conversationRef.current;
+      if(cached?.id!==chatId)return;
+      const omitted=(cached.messages??[]).filter(message=>message.role==='user'&&isPending(message.status)&&!item.messages?.some(row=>row.id===message.id)).map(message=>message.id);
+      for(let start=0;start<omitted.length;start+=100){
+        const ids=omitted.slice(start,start+100),versions=Object.fromEntries(ids.map(id=>[id,messageVersions.current[id]??0]));
+        try {
+          const groups=await api<{messages:Message[];actions:ChatAction[]}>('/conversations/'+chatId+'/messages?ids='+encodeURIComponent(ids.join(',')));
+          if(!isCurrent())return;
+          const valid=ids.filter(id=>(messageVersions.current[id]??0)===versions[id]);
+          setConversation(current=>current?.id!==chatId?current:{...current,messages:mergeRows(current.messages,groups.messages.filter(message=>valid.includes(message.reply_to??message.id))).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,groups.actions)});
+        }catch{/* A later snapshot/fallback read retries reconciliation without resubmitting work. */}
+      }
+    };
     setLoadingId(chatId);setLoadError('');
     let hasLoaded=conversation?.id===chatId;
     const load = async () => {
@@ -134,7 +172,9 @@ export default function ChatPage() {
       try {
         const item = await api<ChatConversation>('/conversations/' + chatId);
         if (!active || currentId.current !== chatId || navigation.current !== generation || reads.current[chatId] !== read || (streamVersions.current[chatId]??0)!==streamVersion || deletedIds.current.has(chatId)) return;
-        setConversation(item);
+        setConversation(current=>mergeConversation(current,item));
+        for(const message of item.messages??[])messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
+        void reconcileOmitted(item);
         hasLoaded=true;setLoadingId(null);setLoadError('');
         setConversations(current => current.map(row => row.id === item.id ? {...row, title:item.title,...conversationCounts(item)} : row));
         setSelections(current => Object.hasOwn(current, chatId) ? current : {...current, [chatId]:item.execution ?? {}});
@@ -144,7 +184,6 @@ export default function ChatPage() {
       } finally {fetching = false;}
     };
     void load();
-    const isCurrent=()=>active&&currentId.current===chatId&&navigation.current===generation&&!deletedIds.current.has(chatId);
     const received=()=>{
       streamVersions.current[chatId]=(streamVersions.current[chatId]??0)+1;
       fallback=false;hasLoaded=true;setStreamStatus('connected');setLoadingId(null);setLoadError('');
@@ -159,7 +198,9 @@ export default function ChatPage() {
         try {
           const item=JSON.parse((event as MessageEvent).data) as ChatConversation;
           if(item.id!==chatId)return;
-          received();setConversation(item);
+          received();setConversation(current=>mergeConversation(current,item));
+          for(const message of item.messages??[])messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
+          void reconcileOmitted(item);
           setConversations(current=>current.map(row=>row.id===chatId?{...row,...item,...conversationCounts(item)}:row));
           setSelections(current=>Object.hasOwn(current,chatId)?current:{...current,[chatId]:item.execution??{}});
         }catch{fallback=true;setStreamStatus('fallback');}
@@ -170,10 +211,11 @@ export default function ChatPage() {
           const patch=JSON.parse((event as MessageEvent).data) as {conversation:Partial<ChatConversation>&{id:string};messages:Message[];actions:ChatAction[]};
           if(patch.conversation.id!==chatId)return;
           received();
+          for(const message of patch.messages)messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
           setConversation(current=>{
             if(current?.id!==chatId)return current;
             const changed=new Map(patch.messages.map(message=>[message.id,message]));
-            return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.get(message.id)??message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:patch.actions};
+            return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.get(message.id)??message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:mergeRows(current.actions,patch.actions)};
           });
           setConversations(current=>current.map(row=>row.id===chatId?{...row,...patch.conversation}:row));
         }catch{fallback=true;setStreamStatus('fallback');}
@@ -185,12 +227,14 @@ export default function ChatPage() {
     return () => {active = false;source?.close();clearInterval(timer);};
   }, [api, chatId, loadRetry]);
 
+  useLayoutEffect(()=>{
+    if(prependAnchor.current&&messagesRef.current){const anchor=prependAnchor.current,element=Array.from(messagesRef.current.querySelectorAll<HTMLElement>('[data-message-id]')).find(element=>element.dataset.messageId===anchor.messageId);messagesRef.current.scrollTop=element&&anchor.offset!==undefined?messagesRef.current.scrollTop+element.getBoundingClientRect().top-anchor.offset:anchor.top+messagesRef.current.scrollHeight-anchor.height;prependAnchor.current=null;}
+  },[visibleConversation]);
+  const followReply=()=>{if(nearBottom.current&&messagesRef.current)messagesRef.current.scrollTop=messagesRef.current.scrollHeight;};
   useEffect(() => {
     if (nearBottom.current && messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     if(visibleConversation){
-      const queued_count=messages.filter(message=>message.role==='user'&&message.status==='queued').length;
-      const running_count=messages.filter(message=>message.role==='user'&&isPending(message.status)&&message.status!=='queued').length;
-      setConversations(current=>current.map(row=>row.id===visibleConversation.id?{...row,title:visibleConversation.title,queued_count,running_count}:row));
+      setConversations(current=>current.map(row=>row.id===visibleConversation.id?{...row,title:visibleConversation.title,...conversationCounts(visibleConversation)}:row));
     }
   }, [visibleConversation]);
 
@@ -201,9 +245,35 @@ export default function ChatPage() {
     currentId.current = id;
     navigation.current += 1;
     nearBottom.current = true;
+    prependAnchor.current=null;setHistoryError('');
     setConversation(undefined);
     setLoadingId(id);setLoadError('');
     setChatId(id);
+  };
+
+  const loadMoreConversations=async()=>{
+    if(!listCursor||listLock.current)return;
+    listLock.current=true;setMoreLoading(true);
+    try {const page=await api<ConversationPage>('/conversations?before='+encodeURIComponent(listCursor));if(mounted.current){listExpanded.current=true;setConversations(current=>mergeRows(current,page.items).filter(item=>!deletedIds.current.has(item.id)));setListCursor(page.next_cursor);}}
+    catch(error){if(mounted.current)notify(t(error instanceof Error?error.message:String(error)));}
+    finally{listLock.current=false;if(mounted.current)setMoreLoading(false);}
+  };
+  const loadEarlierMessages=async()=>{
+    const id=chatId,cursor=visibleConversation?.history?.before,generation=navigation.current;
+    if(!id||!cursor||historyLock.current)return;
+    historyLock.current=id;setHistoryLoading(true);setHistoryError('');
+    try {
+      const page=await api<ChatConversation>('/conversations/'+id+'?before='+encodeURIComponent(cursor));
+      if(!mounted.current||currentId.current!==id||navigation.current!==generation)return;
+      nearBottom.current=false;
+      setConversation(current=>{
+        if(current?.id!==id)return current;
+        if(messagesRef.current){const box=messagesRef.current.getBoundingClientRect(),first=Array.from(messagesRef.current.querySelectorAll<HTMLElement>('[data-message-id]')).find(element=>element.getBoundingClientRect().bottom>box.top);prependAnchor.current={height:messagesRef.current.scrollHeight,top:messagesRef.current.scrollTop,messageId:first?.dataset.messageId,offset:first?.getBoundingClientRect().top};}
+        const backlog=current.historyBacklog??[],bridge=backlog[0]&&rootIds(page).some(id=>backlog[0].boundary.includes(id));
+        return {...current,messages:mergeRows(page.messages,current.messages).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(page.actions,current.actions),history:bridge?backlog[0].resume:page.history,historyBacklog:bridge?backlog.slice(1):page.history?.has_more?backlog:[],olderLoaded:true};
+      });
+    }catch(error){if(mounted.current&&currentId.current===id&&navigation.current===generation)setHistoryError(error instanceof Error?error.message:String(error));}
+    finally{historyLock.current=null;if(mounted.current)setHistoryLoading(false);}
   };
 
   // A send's configuration write and enqueue share the same queue as automatic saves.
@@ -289,7 +359,7 @@ export default function ChatPage() {
       try {updated=await api<ChatConversation>('/conversations/' + sentId);}catch{return;}
       if (!mounted.current || reads.current[sentId] !== read || (streamVersions.current[sentId]??0)!==streamVersion || deletedIds.current.has(sentId)) return;
       setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution,...conversationCounts(updated)} : row));
-      if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(updated);
+      if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(current=>mergeConversation(current,updated));
     } catch (error) {
       if (stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));
     } finally {
@@ -325,6 +395,7 @@ export default function ChatPage() {
           <Button className="conversation-delete" type="text" danger size="small" icon={<Icon name="trash"/>} aria-label={t('删除对话：{title}',{title:item.title})} title={protectedRow?t('对话仍有待处理消息，请等待执行结束后删除。'):t('删除对话')} disabled={protectedRow||deleting!==null} loading={deleting===item.id} onClick={()=>{setDeleteError('');setDeleteTarget(item);}}/>
         </div>;
       })}
+      {listCursor&&<Button className="conversation-more" loading={moreLoading} onClick={()=>void loadMoreConversations()}>{t('加载更多对话')}</Button>}
     </nav>
   </>;
 
@@ -346,14 +417,17 @@ export default function ChatPage() {
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
         {!!loadingId && loadingId===chatId && !visibleConversation && <div className="chat-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
         {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
+        {visibleConversation?.history?.has_more&&<div className="history-more"><Button loading={historyLoading} onClick={()=>void loadEarlierMessages()}>{t('加载更早消息')}</Button></div>}
+        {historyError&&<Alert type="error" title={t(historyError)}/>}
         {transcript.map(({message,key,live,tail}) => {
           const source=message.role==='assistant'?messages.find(item=>item.role==='user'&&item.id===message.reply_to):undefined;
-          return <article key={key} className={'message ' + message.role}>
+          return <article key={key} data-message-id={key} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
             <div className="message-label"><span>{message.role === 'user' ? t('你 · ') + t(messageStatuses[message.status] ?? message.status) : t('管理 AGENT')}</span><MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t(source?.questions?.some(q=>q.status==='pending')?'等待回答':'回复中')}</span>}</div>
-            <div className="message-bubble">{message.role === 'assistant' ? live?<div className="message-partial" aria-live="off">{message.text?<AgentMessage text={message.text}/>:<Spin size="small"/>}</div>:<AgentMessage text={message.text}/> : <div className="message-text">{message.text}</div>}
+            <div className="message-bubble">{message.role === 'assistant' ? <div className={live?'message-partial':undefined} aria-live="off"><AgentMessage text={message.text} live={live} onReveal={followReply}/>{live&&!message.text&&!source?.generated_images?.length&&<Spin size="small"/>}</div> : <div className="message-text">{message.text}</div>}
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
+              {tail&&!!source?.generated_images?.length&&<MessageImages images={source.generated_images} generated/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
             {message.role==='assistant' && <div className="message-footer">
               {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
@@ -365,7 +439,7 @@ export default function ChatPage() {
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
         onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
-        {pending.length>0 && <div className="chat-pending" role="status"><span>{t('待处理')} {pending.length} · {t('排队中')} {queued.length}</span><ol>{pending.map(message=><li key={message.id}>{message.text||t('图片消息')} · {t(messageStatuses[message.status]??message.status)}</li>)}</ol></div>}
+        {pendingTotal>0 && <div className="chat-pending" role="status"><span>{t('待处理')} {pendingTotal} · {t('排队中')} {totals.queued_count??queued.length}</span><ol>{pending.map(message=><li key={message.id}>{message.text||t('图片消息')} · {t(messageStatuses[message.status]??message.status)}</li>)}</ol></div>}
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}

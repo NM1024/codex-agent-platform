@@ -71,7 +71,7 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         return json(res,200,{sampled_at:Date.now(),manager:{alive:true},platform,resources:platform.resources ?? await metrics.sample(),investigations:store.investigations()});
       }
       if(path==='/admin/api/conversations') {
-        if(req.method==='GET')return json(res,200,store.list());
+        if(req.method==='GET')return json(res,200,store.listPage({...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST') {
           const body=await readJson(req);
           store.validateExecution(body.execution ?? {});
@@ -80,13 +80,14 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
           if(body.execution)store.setConversationExecution(conversation.id,body.execution);
           if(body.investigate===true&&body.task_id&&!conversation.messages.length)
             agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
-          return json(res,201,store.getConversation(conversation.id));
+          return json(res,201,store.getConversationPage(conversation.id));
         }
       }
       const conversation=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})(\/messages)?$/);
       if(conversation) {
+        if(req.method==='GET'&&conversation[2])return json(res,200,store.messageGroups(conversation[1],(url.searchParams.get('ids')??'').split(',')));
         if(req.method==='DELETE'&&!conversation[2])return json(res,200,await agent.deleteConversation(conversation[1]));
-        if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversation(conversation[1]));
+        if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversationPage(conversation[1],{...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
         if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images));}
       }

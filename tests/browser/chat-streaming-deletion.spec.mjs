@@ -40,7 +40,7 @@ test('stream patches render one live assistant bubble and finalize it without lo
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/chat-streaming/chat-live-mobile.png',animations:'disabled'});
   await page.setViewportSize({width:1440,height:1000});
-  await emit(page,'patch',{conversation:{id:first.id},messages:[{...turn,status:'completed',completed_at:Date.now(),partial_text:null},{id:'final',role:'assistant',text:'Public answer arriving now',status:'completed',created_at:Date.now(),reply_to:turn.id}],actions:[]});
+  await emit(page,'patch',{conversation:{id:first.id,queued_count:0,running_count:0},messages:[{...turn,status:'completed',completed_at:Date.now(),partial_text:null},{id:'final',role:'assistant',text:'Public answer arriving now',status:'completed',created_at:Date.now(),reply_to:turn.id}],actions:[]});
   await expect(page.locator('.assistant')).toHaveCount(1);await expect(page.locator('.message-partial')).toHaveCount(0);
   await expect(page.locator('.user')).toContainText('Synthetic request');
   await expect(page.getByRole('button',{name:'删除对话：Streaming title',exact:true})).toBeEnabled();
