@@ -17,33 +17,33 @@ const saved=async(page,id)=>(await(await page.request.get('/admin/api/conversati
 
 test('same-model inherited reasoning names the effective global effort in the unified picker',async({page})=>{
   const conversation=await setup(page);await openChatPicker(page);
-  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','中等');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('继承全局设置');
+  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','medium');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('继承全局设置');
   expect(await saved(page,conversation.id)).toEqual({});await page.keyboard.press('Escape');
   await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();await openChatPicker(page);
-  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','Medium');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('Inherit global settings');
+  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','medium');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('Inherit global settings');
 });
 
 test('explicit chat effort stays visible and reset removes the override without materializing the default',async({page})=>{
   const conversation=await setup(page,{execution:{reasoningEffort:'high'}});await openChatPicker(page);
-  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','高');await page.keyboard.press('Escape');
+  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','high');await page.keyboard.press('Escape');
   await chooseChatEffort(page,'__inherit__');await expect.poll(()=>saved(page,conversation.id)).toEqual({});
-  await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','中等');await page.keyboard.press('Escape');
+  await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','medium');await page.keyboard.press('Escape');
   await chooseChatEffort(page,'high');await expect.poll(()=>saved(page,conversation.id)).toEqual({reasoningEffort:'high'});
 });
 
 test('choosing another model uses that model default and preserves an omitted reasoning override',async({page})=>{
   const conversation=await setup(page);await chooseChatModel(page,'Fixture Fast');await openChatPicker(page);
-  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','高');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('所选模型默认');
+  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','high');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('所选模型默认');
   await expect.poll(()=>saved(page,conversation.id)).toEqual({model:'fixture-fast'});
 });
 
 test('null global effort uses catalog default while unknown model defaults stay readable',async({page})=>{
-  const conversation=await setup(page,{globalEffort:null});await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','低');await page.keyboard.press('Escape');
-  await chooseChatModel(page,'Fixture Unknown');await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveCount(0);await expect(chatPicker(page).locator('.chat-effort-heading strong')).toHaveText('模型默认');
+  const conversation=await setup(page,{globalEffort:null});await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','low');await page.keyboard.press('Escape');
+  await chooseChatModel(page,'Fixture Unknown');await openChatPicker(page);await expect(chatPicker(page).getByRole('slider')).toHaveCount(0);await expect(chatPicker(page).locator('.chat-effort-heading strong')).toHaveText('default');
   await expect.poll(()=>saved(page,conversation.id)).toEqual({model:'fixture-unknown-default'});
 });
 
 test('an explicit null chat effort keeps the model-default choice separate from inherited global effort',async({page})=>{
   const conversation=await setup(page,{execution:{reasoningEffort:null}});await openChatPicker(page);
-  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','低');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('模型默认');expect(await saved(page,conversation.id)).toEqual({reasoningEffort:null});
+  await expect(chatPicker(page).getByRole('slider')).toHaveAttribute('aria-valuetext','low');await expect(chatPicker(page).locator('#chat-reasoning-source')).toHaveText('模型默认');expect(await saved(page,conversation.id)).toEqual({reasoningEffort:null});
 });

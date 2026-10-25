@@ -1,6 +1,5 @@
 import {expect} from '@playwright/test';
 
-export const reasoningLabel=value=>({none:'关闭',minimal:'最低',low:'低',medium:'中等',high:'高',xhigh:'最高'}[value]??value);
 export const chatPicker=page=>page.locator('.chat-agent-panel:visible');
 export async function openChatPicker(page){if(await page.locator('#chat-model').getAttribute('aria-expanded')!=='true')await page.locator('#chat-model').click();await expect(chatPicker(page)).toBeInViewport({ratio:1});await chatPicker(page).hover({position:{x:8,y:8}});}
 export async function chooseChatModel(page,label){await openChatPicker(page);await chatPicker(page).getByRole('radio',{name:label,exact:true}).click();await page.keyboard.press('Escape');await expect(chatPicker(page)).toHaveCount(0);}

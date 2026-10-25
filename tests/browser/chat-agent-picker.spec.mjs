@@ -28,17 +28,17 @@ test('one compact entry opens model and stepped reasoning controls and keyboard 
   const {saved}=await setup(page);await page.locator('#message-input').fill('Preserved composer draft');
   await page.screenshot({path:'.tmp/model-picker/before-or-current-desktop.png'});
   await expect(page.locator('.composer-toolbar .ant-select')).toHaveCount(0);
-  await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 中等');await open(page);
+  await expect(page.locator('#chat-model')).toHaveText('Fixture Default - medium');await open(page);
   await expect(panel(page).locator('.chat-effort-heading > svg')).toHaveCount(0);
   const slider=panel(page).getByRole('slider',{name:'思考程度',exact:true});
-  await expect(slider).toHaveAttribute('min','0');await expect(slider).toHaveAttribute('max','3');await expect(slider).toHaveAttribute('aria-valuetext','中等');
+  await expect(slider).toHaveAttribute('min','0');await expect(slider).toHaveAttribute('max','3');await expect(slider).toHaveAttribute('aria-valuetext','medium');
   expect(await saved()).toEqual({});
-  await slider.focus();await page.keyboard.press('ArrowRight');await expect(slider).toHaveAttribute('aria-valuetext','高');
-  await expect.poll(saved).toEqual({reasoningEffort:'high'});await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 高');
+  await slider.focus();await page.keyboard.press('ArrowRight');await expect(slider).toHaveAttribute('aria-valuetext','high');
+  await expect.poll(saved).toEqual({reasoningEffort:'high'});await expect(page.locator('#chat-model')).toHaveText('Fixture Default - high');
   await page.keyboard.press('End');await expect.poll(saved).toEqual({reasoningEffort:'xhigh'});
   await page.keyboard.press('Escape');await expect(panel(page)).toHaveCount(0);await expect(page.locator('#chat-model')).toBeFocused();
   await expect(page.locator('#message-input')).toHaveValue('Preserved composer draft');
-  await expect(page.locator('#chat-model')).toHaveAttribute('title',/最高/);
+  await expect(page.locator('#chat-model')).toHaveAttribute('title',/xhigh/);
 });
 
 test('drag previews the level locally and persists only the released step',async({page})=>{
@@ -47,7 +47,7 @@ test('drag previews the level locally and persists only the released step',async
   await open(page);const slider=panel(page).getByRole('slider',{name:'思考程度',exact:true}),box=await slider.boundingBox();
   const x=box.x+10+(box.width-20)/3,y=box.y+box.height/2;
   await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(box.x+box.width-11,y,{steps:5});
-  await expect(slider).toHaveAttribute('aria-valuetext','最高');expect(writes).toHaveLength(0);expect(await saved()).toEqual({});
+  await expect(slider).toHaveAttribute('aria-valuetext','xhigh');expect(writes).toHaveLength(0);expect(await saved()).toEqual({});
   await page.mouse.up();await expect.poll(saved).toEqual({reasoningEffort:'xhigh'});await page.keyboard.press('Tab');expect(writes).toHaveLength(1);
 });
 
@@ -55,32 +55,32 @@ test('model changes reset the previous effort and use only the new model support
   const {saved}=await setup(page,{execution:{reasoningEffort:'xhigh'}});await open(page);
   await panel(page).getByRole('radio',{name:'Fixture Fast',exact:true}).click();
   await expect.poll(saved).toEqual({model:'fixture-fast'});
-  const slider=panel(page).getByRole('slider',{name:'思考程度',exact:true});await expect(slider).toHaveAttribute('max','1');await expect(slider).toHaveAttribute('aria-valuetext','低');
-  await panel(page).getByRole('button',{name:'高',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});
+  const slider=panel(page).getByRole('slider',{name:'思考程度',exact:true});await expect(slider).toHaveAttribute('max','1');await expect(slider).toHaveAttribute('aria-valuetext','low');
+  await panel(page).getByRole('button',{name:'high',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});
   await panel(page).getByRole('radio',{name:'Fixture Fixed',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-fixed'});
   await expect(panel(page).getByRole('slider')).toHaveCount(0);await expect(panel(page)).toContainText('仅支持此档位');
 });
 
 test('reset and model default remain distinct and opening never materializes inherited values',async({page})=>{
   const {saved}=await setup(page,{execution:{reasoningEffort:null}});await open(page);
-  const slider=panel(page).getByRole('slider');await expect(slider).toHaveAttribute('aria-valuetext','低');await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 低');expect(await saved()).toEqual({reasoningEffort:null});
+  const slider=panel(page).getByRole('slider');await expect(slider).toHaveAttribute('aria-valuetext','low');await expect(page.locator('#chat-model')).toHaveText('Fixture Default - low');expect(await saved()).toEqual({reasoningEffort:null});
   await panel(page).getByRole('button',{name:'恢复默认思考程度',exact:true}).click();
-  await expect.poll(saved).toEqual({});await expect(slider).toHaveAttribute('aria-valuetext','中等');await expect(panel(page)).toContainText('继承全局设置');
+  await expect.poll(saved).toEqual({});await expect(slider).toHaveAttribute('aria-valuetext','medium');await expect(panel(page)).toContainText('继承全局设置');
   await panel(page).getByRole('button',{name:'使用模型默认',exact:true}).click();
-  await expect.poll(saved).toEqual({reasoningEffort:null});await expect(slider).toHaveAttribute('aria-valuetext','低');
+  await expect.poll(saved).toEqual({reasoningEffort:null});await expect(slider).toHaveAttribute('aria-valuetext','low');
 });
 
 test('saved unsupported models and efforts stay readable when the catalog is unavailable',async({page})=>{
   const {saved}=await setup(page,{execution:{model:'retired-fixture',reasoningEffort:'xhigh'},catalog:{models:[],unavailable:true}});
   await expect(page.locator('#chat-model')).toContainText('retired-fixture');await open(page);
-  await expect(panel(page)).toContainText('最高');await expect(panel(page)).toContainText('暂时无法获取思考档位');await expect(panel(page).getByRole('slider')).toHaveCount(0);
+  await expect(panel(page)).toContainText('xhigh');await expect(panel(page)).toContainText('暂时无法获取思考档位');await expect(panel(page).getByRole('slider')).toHaveCount(0);
   expect(await saved()).toEqual({model:'retired-fixture',reasoningEffort:'xhigh'});
 });
 
 test('an unsupported saved effort is retained until an explicit supported level is chosen',async({page})=>{
   const {saved}=await setup(page,{execution:{model:'fixture-fast',reasoningEffort:'xhigh'}});await open(page);
   await expect(panel(page)).toContainText('当前保存值');await expect(panel(page).getByRole('slider')).toHaveCount(0);expect(await saved()).toEqual({model:'fixture-fast',reasoningEffort:'xhigh'});
-  await panel(page).getByRole('button',{name:'高',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});await expect(panel(page).getByRole('slider')).toBeVisible();
+  await panel(page).getByRole('button',{name:'high',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});await expect(panel(page).getByRole('slider')).toBeVisible();
 });
 
 test('long catalogs can be searched and failed writes retain the choice with an actionable retry',async({page})=>{
@@ -89,7 +89,7 @@ test('long catalogs can be searched and failed writes retain the choice with an 
   await page.route('**/admin/api/conversations/'+id,route=>route.request().method()==='POST'&&failing?route.fulfill({status:503,json:{error:{message:'Synthetic save failure'}}}):route.continue());
   await open(page);await panel(page).getByRole('searchbox',{name:'搜索模型',exact:true}).fill('选择 8');
   await panel(page).getByRole('radio',{name:extras[8].displayName,exact:true}).click();
-  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName+' - 低');expect(await saved()).toEqual({});
+  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName+' - low');expect(await saved()).toEqual({});
   failing=false;await panel(page).getByRole('button',{name:'重试保存',exact:true}).click();await expect.poll(saved).toEqual({model:'extra-8'});
   await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
 });
@@ -117,7 +117,7 @@ test('actual desktop and phone panels stay within view and keep labels and compo
       await page.screenshot({path:`.tmp/model-picker/${locale}-${viewport.width}x${viewport.height}.png`,animations:'disabled'});
       await page.keyboard.press('Escape');await expect(panel(page)).toHaveCount(0);await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
       await expect(page.locator('#message-input')).toHaveValue('Unsent layout draft');
-      await expect(page.locator('.chat-agent-trigger-effort')).toHaveText(locale==='en'?' - Medium':' - 中等');
+      await expect(page.locator('.chat-agent-trigger-effort')).toHaveText(' - medium');
       await expect(page.locator('.chat-agent-trigger-effort')).toBeInViewport({ratio:1});
       await page.screenshot({path:`.tmp/model-picker/${locale}-${viewport.width}x${viewport.height}-closed.png`,animations:'disabled'});
     }
@@ -148,7 +148,7 @@ test.describe('phone touch slider',()=>{
     await open(page);const box=await panel(page).getByRole('slider').boundingBox(),client=await context.newCDPSession(page),y=box.y+box.height/2;
     await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+12+(box.width-24)/3,y}]});
     await client.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:box.x+box.width-13,y}]});
-    await expect(panel(page).getByRole('slider')).toHaveAttribute('aria-valuetext','最高');expect(writes).toHaveLength(0);
+    await expect(panel(page).getByRole('slider')).toHaveAttribute('aria-valuetext','xhigh');expect(writes).toHaveLength(0);
     await client.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await expect.poll(saved).toEqual({reasoningEffort:'xhigh'});expect(writes).toHaveLength(1);
   });
 });

@@ -4,7 +4,6 @@ import {useConsole} from './context';
 import {Icon} from './Icon';
 import type {AgentSettings} from './types';
 
-const effortNames:Record<string,string>={none:'关闭',minimal:'最低',low:'低',medium:'中等',high:'高',xhigh:'最高'};
 const effortOrder=['none','minimal','low','medium','high','xhigh'];
 interface Props {
   value:AgentSettings;defaults:AgentSettings;onChange:(value:AgentSettings)=>void;
@@ -27,7 +26,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
     .sort((a,b)=>{const ai=effortOrder.indexOf(a.reasoningEffort),bi=effortOrder.indexOf(b.reasoningEffort);return ai<0||bi<0?0:ai-bi;});
   const effortKey=efforts.map(item=>item.reasoningEffort).join(','),effectiveIndex=efforts.findIndex(item=>item.reasoningEffort===effective);
   const [preview,setPreview]=useState(effectiveIndex),previewRef=useRef(effectiveIndex),dirty=useRef(false);
-  const label=(effort:string|null|undefined)=>effort==null?t('模型默认'):t(effortNames[effort]??effort);
+  const label=(effort:string|null|undefined)=>effort??'default';
   const source=overridden?(value.reasoningEffort===null?t('模型默认'):t('自定义思考程度')):t(differentModel?'所选模型默认':'继承全局设置');
   const shown=preview>=0?efforts[preview]?.reasoningEffort:effective;
   useLayoutEffect(()=>{previewRef.current=effectiveIndex;dirty.current=false;setPreview(effectiveIndex);},[chosen,effective,effortKey,effectiveIndex]);

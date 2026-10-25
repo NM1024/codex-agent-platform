@@ -32,7 +32,7 @@ test('phone composer fits the unified model entry upload and send on one line an
     expect(centers).toHaveLength(3);expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
     await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
   }
-  await chooseChatModel(page,'Fixture Fast');await openChatPicker(page);await expect(chatPicker(page).locator('.chat-effort-labels')).toContainText('低');await page.keyboard.press('Escape');
+  await chooseChatModel(page,'Fixture Fast');await openChatPicker(page);await expect(chatPicker(page).locator('.chat-effort-labels')).toContainText('low');await page.keyboard.press('Escape');
 });
 
 test('chat follows keyboard visual viewport resize and offset then restores without losing draft',async({page})=>{
