@@ -20,6 +20,8 @@ Use the shared `Status` component for execution/readiness tags. Success is green
 
 Enable/disable switches communicate their checked state directly; omit adjacent repeated enabled/disabled text. Retain accessible labels and checked states, along with separate connection readiness or blocked-trigger explanations.
 
+All modal dialogs inherit viewport centering and the `console-modal` class from the root ConfigProvider. Bound the container to the viewport with internal body scrolling, retaining visible headers and footer actions; do not add per-dialog top offsets. Side drawers retain their edge placement.
+
 The global theme owns control sizing, borders, focus rings, disabled colors, dropdowns and modal surfaces. Local CSS may handle layout, not redefine component density. Scope compact toolbar styling explicitly; do not shrink table controls or tags merely because the viewport is narrow. Multiline textareas and long labels may grow as needed.
 
 Maintain visible keyboard focus, readable text contrast, and reduced-motion support. Preserve responsive list fields, usable dialog/composer scrolling, and actions in Chinese and English at desktop, tablet and phone widths.

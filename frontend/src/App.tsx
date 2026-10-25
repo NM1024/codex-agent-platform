@@ -48,4 +48,4 @@ function Console(){
     </Layout>
   </Layout>;
 }
-export default function App(){const {locale}=useConsole(),nonce=document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content;return <ConfigProvider componentSize="middle" button={{autoInsertSpace:false}} locale={locale==='en'?enUS:zhCN} csp={{nonce:nonce??''}} theme={consoleTheme}><Console/></ConfigProvider>;}
+export default function App(){const {locale}=useConsole(),nonce=document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content;return <ConfigProvider componentSize="middle" button={{autoInsertSpace:false}} modal={{centered:true,className:'console-modal'}} locale={locale==='en'?enUS:zhCN} csp={{nonce:nonce??''}} theme={consoleTheme}><Console/></ConfigProvider>;}

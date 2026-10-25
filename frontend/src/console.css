@@ -367,10 +367,12 @@ button, input, textarea { font: inherit; }
   .plugin-integration-drawer .ant-drawer-header { padding: 16px; }
   .plugin-integration-drawer .ant-tabs-tab { padding-block: 12px; }
 }
-.plugin-connection-modal { top: 32px; max-width: calc(100vw - 24px); padding-bottom: 32px; }
+.console-modal .ant-modal-container { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+.console-modal .ant-modal-header, .console-modal .ant-modal-footer { flex-shrink: 0; }
+.console-modal .ant-modal-body { min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.plugin-connection-modal { max-width: calc(100vw - 24px); }
 .plugin-connection-modal .ant-modal-title { padding-right: 24px; overflow-wrap: anywhere; }
 .connection-subtitle { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; }
-.plugin-connection-modal .ant-modal-body { max-height: calc(100dvh - 220px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 .plugin-connection-modal .ant-form { margin-top: 12px; }
 .plugin-connection-modal .ant-tabs-tabpane { min-width: 0; }
 .plugin-connection-modal .ant-form-item { margin-bottom: 22px; }
@@ -456,9 +458,7 @@ button, input, textarea { font: inherit; }
   .console-layout .ant-btn { transition: none; }
 }
 @media (max-width: 600px) {
-  .plugin-connection-modal { top: 16px; padding-bottom: 16px; }
   .plugin-connection-modal .ant-modal-container { padding: 16px; }
-  .plugin-connection-modal .ant-modal-body { max-height: calc(100dvh - 210px); }
   .plugin-connection-modal .connection-footer .ant-btn { height: auto; min-height: var(--ui-control-height); margin-inline-start: 0; white-space: normal; }
   .plugin-connection-modal .connection-form { --settings-label-width: 76px; --settings-label-gap: 10px; }
 }
