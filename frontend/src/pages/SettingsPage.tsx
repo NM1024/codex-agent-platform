@@ -1,6 +1,6 @@
 import {useCallback, useRef, useState} from 'react';
-import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Spin, Tabs, Typography} from 'antd';
-import {AgentPicker, CatalogNote, JsonView, Panel,useLoad} from '../components';
+import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Tabs, Typography} from 'antd';
+import {AgentPicker, CatalogNote, DataLoading, JsonView, Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
 import HttpTargetsPanel from '../HttpTargetsPanel';
@@ -139,9 +139,9 @@ export default function SettingsPage() {
     {key:'security',label:<span data-settings-tab="security">{t('安全与登录')}</span>,forceRender:true,children:<div className="settings-stack">{passwordPanel}{admin&&<ConfigurationForm group={admin} reload={reload}/>}</div>},
     {key:'deployment',label:<span data-settings-tab="deployment">{t('部署配置')}</span>,children:<Panel title={t('部署配置')}><Typography.Paragraph type="secondary">{t('这些配置通过服务器环境变量设置，修改后需要重启相应服务。')}</Typography.Paragraph>{data?.bootstrap?.map(item=><div className="deployment-setting" key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><Typography.Paragraph>{t(item.description)}</Typography.Paragraph></div>)}</Panel>},
   ];
+  if(loading&&!data)return <DataLoading/>;
   return <section className="settings-page">
     <Typography.Paragraph type="secondary">{t('按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。')}</Typography.Paragraph>
-    {loading&&<div role="status"><Spin/> {t('正在读取…')}</div>}
     {data?.gateway_unavailable&&<Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
     {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} items={items}/>}
   </section>;

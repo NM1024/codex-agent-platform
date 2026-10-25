@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Table,Typography} from 'antd';
-import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,useLoad} from '../components';
+import {AgentGuidance,DataLoading,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {Schedule} from '../types';
 
@@ -11,8 +11,10 @@ function nextRun(plan:Schedule) {
 export default function SchedulesPage() {
   const {api,operation,t,locale}=useConsole();
   const [selectedId,setSelectedId]=useState<string>();
-  const {data:plans=[],setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
+  const {data:loadedPlans,setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
+  const plans=loadedPlans??[];
   const selected=plans.find(plan=>plan.id===selectedId);
+  if(loading&&loadedPlans===undefined)return <DataLoading/>;
   return <>
     <AgentGuidance title={t('定时计划配置')} description={t('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。')}/>
     <Panel title={t('定时计划')}>

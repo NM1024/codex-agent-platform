@@ -16,7 +16,11 @@ export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loadi
     void act(onClick).finally(()=>{locked.current=false;setBusy(false);});
   }}/>;
 }
-export function DataLoading(){const {t}=useConsole();return <div className="page-loading" role="status"><Spin/> {t('正在加载数据…')}</div>;}
+export function LoadingState({label='正在加载数据…',className='',compact=false}:{label?:string;className?:string;compact?:boolean}) {
+  const {t}=useConsole();
+  return <div className={'loading-state '+(compact?'loading-state--compact ':'')+className} role="status" aria-live="polite" aria-atomic="true"><div className="loading-state-content"><span aria-hidden="true"><Spin size={compact?'small':'default'}/></span><span className="loading-state-label">{t(label)}</span></div></div>;
+}
+export function DataLoading(){return <LoadingState className="page-loading"/>;}
 export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
   const {t}=useConsole(),locked=useRef(false);
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');

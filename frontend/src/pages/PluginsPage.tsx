@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Switch,Table,Typography} from 'antd';
-import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,TableIdentifier,useLoad} from '../components';
+import {AgentGuidance,DataLoading,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,TableIdentifier,useLoad} from '../components';
 import {useConsole} from '../context';
 import PluginConnectionModal from '../PluginConnectionModal';
 import PluginIntegrationDrawer from '../PluginIntegrationDrawer';
@@ -14,6 +14,7 @@ export default function PluginsPage() {
   const {data,setData,loading}=useLoad(()=>api<PluginList>('/plugins'),[api,loadVersion]);
   const updateConnection=(connection:PluginConnection)=>setData(current=>current?{...current,configured:current.configured.map(plugin=>plugin.type===connection.type?{...plugin,enabled:connection.ready?plugin.enabled:false,connection:{ready:connection.ready,entryAddress:connection.entryAddress,entryPath:connection.entryPath,entryKeyClaimable:connection.entryKeyClaimable,callbackConfigured:!!connection.callbackUrl,missingFields:connection.missingFields}}:plugin)}:current);
   const selected=data?.configured.find(plugin=>plugin.type===selectedType);
+  if(loading&&!data)return <DataLoading/>;
   return <>
     <AgentGuidance title={t('业务插件配置')} description={t('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。Agent 可初始化缺失的入口密钥；请点击「配置接入」由管理员领取一次、修改凭证或设置回调，勿将凭证发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。')}/>
     <Panel title={t('已注册业务')}>

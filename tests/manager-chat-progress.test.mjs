@@ -83,7 +83,7 @@ test('manager image HTTP routes validate admission and require authentication an
   assert.equal((await fetch(base+image.url)).status,401);
   assert.equal((await fetch(`${base}/admin/api/conversations/${other.id}/images/${image.id}`,{headers})).status,404);
   const preview=await fetch(base+image.url,{headers});assert.equal(preview.status,200);assert.equal(preview.headers.get('content-type'),'image/webp');
-  assert.equal(preview.headers.get('cache-control'),'no-store');assert.deepEqual(Buffer.from(await preview.arrayBuffer()),bytes);
+  assert.equal(preview.headers.get('cache-control'),'private, no-cache');assert.deepEqual(Buffer.from(await preview.arrayBuffer()),bytes);
   const rejected=await fetch(`${base}/admin/api/conversations/${conversation.id}/messages`,{method:'POST',headers,body:JSON.stringify({text:'hello',attachments:[{name:'fake.png',dataUrl:'data:image/png;base64,AA=='}]})});
   assert.equal(rejected.status,400);assert.equal(store.getConversation(conversation.id).messages.length,1);
 });

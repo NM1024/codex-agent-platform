@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import {randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
@@ -12,6 +12,8 @@ import {buildPluginIntegration} from './plugin-integration.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
+const entityTag=bytes=>'"'+createHash('sha256').update(bytes).digest('base64url')+'"';
+const matchesTag=(header,etag)=>(header??'').split(',').some(value=>value.trim()==='*'||value.trim().replace(/^W\//,'')===etag);
 export function createManagerServer({store,agent,operations,auth,metrics}) {
   const streams=new Set();let eventsClosed=false;
   const server=createServer(async(req,res)=>{
@@ -28,7 +30,10 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         catch(error){if(error.code==='ENOENT')throw new HttpError(404,'NOT_FOUND','找不到接口。');throw error;}
         const type=file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.md')?'text/plain; charset=utf-8':'image/svg+xml';
         if(index)data=Buffer.from(data.toString('utf8').replace('__CSP_NONCE__',nonce));
-        res.writeHead(200,{'content-type':type,'content-length':data.length,...(hashed?{'vary':'Accept-Encoding'}:{}),...(encoding!=='identity'?{'content-encoding':encoding}:{}),'cache-control':index?'no-store':hashed?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'});return res.end(req.method==='HEAD'?undefined:data);
+        const etag=index?null:entityTag(data);
+        const headers={'content-type':type,...(etag?{'etag':etag}:{}),...(hashed?{'vary':'Accept-Encoding'}:{}),...(encoding!=='identity'?{'content-encoding':encoding}:{}),'cache-control':index?'no-store':hashed?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'};
+        if(etag&&matchesTag(req.headers['if-none-match'],etag)){res.writeHead(304,headers);return res.end();}
+        res.writeHead(200,{...headers,'content-length':data.length});return res.end(req.method==='HEAD'?undefined:data);
       }
       if(!path.startsWith('/admin/api/'))throw new HttpError(404,'NOT_FOUND','找不到接口。');
       if(['POST','DELETE'].includes(req.method)&&req.headers.origin) {
@@ -48,10 +53,16 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       const events=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/events$/);
       if(req.method==='GET'&&events){if(eventsClosed)throw new HttpError(503,'SERVER_SHUTTING_DOWN','服务正在重启，请稍后重连。');const close=streamConversation({req,res,store,auth,id:events[1],onClose:closed=>streams.delete(closed)});if(!res.writableEnded)streams.add(close);return;}
       const chatImage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/images\/([a-f0-9-]{36})$/);
-      if(req.method==='GET'&&chatImage) {
+      if(['GET','HEAD'].includes(req.method)&&chatImage) {
         const image=store.getImage(chatImage[1],chatImage[2]);
-        res.writeHead(200,{'content-type':image.mime,'content-length':image.size,'cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",'referrer-policy':'no-referrer'});
-        return res.end(Buffer.from(image.bytes));
+        const etag=entityTag(image.bytes);
+        const headers={'content-type':image.mime,'cache-control':'private, no-cache','etag':etag,'vary':'Cookie','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",'referrer-policy':'no-referrer'};
+        // Revalidate only after authentication and ownership/deletion checks.
+        if(matchesTag(req.headers['if-none-match'],etag)){
+          res.writeHead(304,headers);return res.end();
+        }
+        res.writeHead(200,{...headers,'content-length':image.size});
+        return res.end(req.method==='HEAD'?undefined:Buffer.from(image.bytes));
       }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);

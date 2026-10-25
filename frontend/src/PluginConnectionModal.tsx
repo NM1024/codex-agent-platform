@@ -1,7 +1,8 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Checkbox,Form,Input,Modal,Spin,Switch,Tabs,Tooltip,Typography} from 'antd';
+import {Alert,Button,Checkbox,Form,Input,Modal,Switch,Tabs,Tooltip,Typography} from 'antd';
 import {ApiError} from './api';
 import {Icon} from './Icon';
+import {LoadingState} from './components';
 import PluginIntegrationDrawer from './PluginIntegrationDrawer';
 import {useConsole} from './context';
 import type {Plugin,PluginConnection} from './types';
@@ -102,7 +103,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}
   const copyAction=(key:string,value:string,label:string)=> <Tooltip title={t(label)}><Button icon={<Icon name="copy"/>} aria-label={t(label)} loading={copying[key]} disabled={locked||!value} onClick={()=>{void copy(key,value);}}/></Tooltip>;
   return <>
     <Modal className="plugin-connection-modal" title={<><span>{t('配置接入：{name}',{name:plugin.name})}</span><Typography.Text className="connection-subtitle" type="secondary">{plugin.type} · {t(connection?.ready?'接入已就绪':connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></>} open width={800} onCancel={close} footer={<div className="connection-footer"><Button type="link" onClick={()=>setShowDocs(true)}>{t('对接文档')}</Button><div><Button onClick={close}>{t('取消')}</Button><Button type="primary" disabled={!connection||loading||claiming||conflict} loading={saving} onClick={()=>{void save();}}>{t('保存接入配置')}</Button></div></div>}>
-      {loading&&<div className="integration-loading" role="status"><Spin/> {t('正在读取…')}</div>}
+      {loading&&<LoadingState className="integration-loading" label="正在读取…"/>}
       {error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
       {connection&&<Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}>
         <Tabs activeKey={tab} onChange={setTab} items={[

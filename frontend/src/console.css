@@ -45,7 +45,15 @@ button, input, textarea { font: inherit; }
 #view > .ant-space { display: flex; }
 #view .ant-space-item { min-width: 0; }
 #view > .ant-typography { margin-bottom: 0; }
-.page-loading { display: flex; align-items: center; gap: 12px; padding: 32px; }
+#view:has(> .page-loading) { flex: 1; align-content: stretch; }
+.loading-state { display: flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 120px; padding: 24px; text-align: center; color: var(--ui-muted); }
+.loading-state-content { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.loading-state-content > [aria-hidden] { display: flex; align-items: center; justify-content: center; }
+.loading-state-label { font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
+.loading-state--compact { padding: 16px; }
+.loading-state--compact .loading-state-content { gap: 10px; }
+.loading-state--compact .loading-state-label { font-size: 12px; line-height: 20px; }
+.page-loading { flex: 1; min-height: 0; }
 .console-panel { min-width: 0; border-color: var(--ui-border-soft); border-radius: var(--ui-radius-panel); box-shadow: 0 2px 8px rgb(28 48 38 / 3%); }
 .console-panel .ant-card-head { border-bottom-color: var(--ui-border-soft); background: #fbfdfc; border-radius: var(--ui-radius-panel) var(--ui-radius-panel) 0 0; }
 .console-panel .ant-card-head-wrapper { gap: 12px; }
@@ -141,6 +149,7 @@ button, input, textarea { font: inherit; }
 .conversation-heading h2.ant-typography { margin: 0; font-size: 14px; color: #69766e; }
 .conversation-heading .ant-btn { width: 100%; }
 .conversation-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.conversation-list-loading { flex: 1; min-height: 0; }
 .conversation-item { flex-shrink: 0; display: block; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #47574c; text-align: left; cursor: pointer; }
 .conversation-item span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .conversation-item:hover { background: #edf1ee; }
@@ -192,7 +201,8 @@ button, input, textarea { font: inherit; }
 .actions .ant-collapse .ant-collapse-header { padding: 4px 0; color: #708076; font-size: 12px; }
 .actions .ant-collapse-body { max-height: 120px; overflow: auto; }
 .chat-action { padding: 3px 0; overflow-wrap: anywhere; }
-.chat-loading { display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 160px; color: #738078; }
+.messages:has(> .chat-loading) { display: flex; padding: 0; }
+.chat-loading { flex: 1; min-height: 0; }
 .chat-load-error { max-width: 800px; margin: 20px auto; }
 .conversation-pending { display: block; font-size: 10px; color: #5d7465; font-weight: 400; margin-top: 3px; }
 .chat-pending { display: flex; align-items: baseline; gap: 8px 16px; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: #f4f7f5; color: #617468; font-size: 11px; min-width: 0; }
@@ -231,6 +241,8 @@ button, input, textarea { font: inherit; }
 .chat-image-drafts figcaption { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; color: #738078; }
 .chat-image-drafts .ant-btn { margin-top: 4px; }
 .message-images a { display: block; max-width: 100%; }
+.message-image-open { display: block; max-width: 100%; padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: zoom-in; }
+.message-image-open:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 3px; }
 .message-images figure { margin: 0; max-width: 100%; min-width: 0; }
 .message-images figcaption { padding-top: 6px; font-size: 12px; }
 .conversation-more { width: 100%; margin-top: 10px; flex-shrink: 0; }
@@ -348,7 +360,9 @@ button, input, textarea { font: inherit; }
 .plugin-connection-status > .ant-typography { font-size: 12px; line-height: 1.5; white-space: nowrap; }
 .plugin-integration-drawer .ant-drawer-title { overflow-wrap: anywhere; }
 .plugin-integration-drawer .ant-drawer-body { min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.integration-loading { display: flex; align-items: center; gap: 10px; padding: 24px 0; }
+.integration-loading { min-height: min(240px, 30dvh); }
+.plugin-integration-drawer .ant-drawer-body:has(> .integration-loading) { display: flex; }
+.plugin-integration-drawer .integration-loading { flex: 1; min-height: 0; }
 .integration-metadata { margin-bottom: 16px; }
 .integration-metadata .ant-descriptions-item-content { overflow-wrap: anywhere; }
 .integration-export { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; margin-top: 16px; }

@@ -1,7 +1,7 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
-import {AgentPicker, CatalogNote, Status} from '../components';
+import {AgentPicker, CatalogNote, LoadingState, Status} from '../components';
 import {useConsole} from '../context';
 import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress, messageStatuses} from '../ChatActivity';
@@ -392,7 +392,7 @@ export default function ChatPage() {
       <Button type="primary" onClick={() => selectConversation(null)}>{t('＋ 新对话')}</Button>
     </div>
     <nav className="conversation-list" aria-label={t('会话列表')}>
-      {listLoading&&<div className="conversation-list-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
+      {listLoading&&<LoadingState className="conversation-list-loading" compact label="正在加载对话…"/>}
       {conversations.map(item => {
         const counts=conversationCounts(item),pendingCount=(counts.queued_count??0)+(counts.running_count??0);
         const protectedRow=pendingCount>0||(busy&&item.id===chatId);
@@ -422,7 +422,7 @@ export default function ChatPage() {
       </header>
       <div id="messages" className="messages" ref={messagesRef} role="log" aria-label={t('管理对话')}
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
-        {!!loadingId && loadingId===chatId && !visibleConversation && <div className="chat-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}
+        {!visibleConversation&&((!!loadingId&&loadingId===chatId)||(listLoading&&!chatId))&&<LoadingState className="chat-loading" label="正在加载对话…"/>}
         {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
         {visibleConversation?.history?.has_more&&<div className="history-more"><Button loading={historyLoading} onClick={()=>void loadEarlierMessages()}>{t('加载更早消息')}</Button></div>}
         {historyError&&<Alert type="error" title={t(historyError)}/>}

@@ -57,6 +57,41 @@ test('generated images appear in the assistant reply with preview and download w
   await page.screenshot({path:'.tmp/chat-media-pagination/mobile.png',animations:'disabled'});
 });
 
+test('chat image previews stay in-page with zoom rotation navigation keyboard close and mobile controls',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});await setup(page);
+  const buffer=await sharp({create:{width:640,height:480,channels:3,background:'#769d8b'}}).png().toBuffer();
+  const images=await Promise.all(['99999999-9999-4999-8999-999999999999','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'].map(async(imageId,index)=>{
+    const url=`/admin/api/conversations/${id}/images/${imageId}`;
+    await page.route('**'+url,route=>route.fulfill({contentType:'image/png',body:buffer}));
+    return {id:imageId,name:`synthetic-${index}.png`,mime:'image/png',width:640,height:480,size:buffer.length,url};
+  }));
+  await emit(page,'patch',{conversation:{id},messages:[{...request,generated_images:images,partial_text:'Synthetic gallery'}],actions:[]});
+  const thumbnail=page.locator('.assistant .message-images img').first();
+  const originalUrl=page.url();await thumbnail.click();
+  const preview=page.locator('.ant-image-preview[role="dialog"]');await expect(preview).toBeVisible();
+  expect(page.url()).toBe(originalUrl);expect(page.context().pages()).toHaveLength(1);
+  const full=preview.locator('.ant-image-preview-img');await expect(full).toHaveAttribute('src',images[0].url);
+  await expect(preview).toHaveAccessibleName(images[0].name);
+  const transform=()=>full.evaluate(element=>getComputedStyle(element).transform);
+  const before=await transform();await preview.getByRole('button',{name:'zoomIn',exact:true}).click();await expect.poll(transform).not.toBe(before);
+  await expect(preview.getByRole('button',{name:'zoomOut',exact:true})).toBeEnabled();
+  await preview.getByRole('button',{name:'zoomOut',exact:true}).click();await expect.poll(transform).toBe(before);
+  await preview.getByRole('button',{name:'zoomIn',exact:true}).click();
+  const zoomed=await transform();await preview.getByRole('button',{name:'rotateRight',exact:true}).click();await expect.poll(transform).not.toBe(zoomed);
+  await preview.getByRole('button',{name:'right',exact:true}).click();await expect(full).toHaveAttribute('src',images[1].url);
+  await expect(preview).toHaveAccessibleName(images[1].name);
+  await page.keyboard.press('Escape');await expect(preview).toHaveCount(0);
+  for(const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
+    await page.setViewportSize(viewport);await thumbnail.click();await expect(preview).toBeVisible();
+    await expect(preview.getByRole('button',{name:'关闭预览',exact:true})).toBeInViewport({ratio:1});
+    await expect(preview.getByRole('button',{name:'zoomIn',exact:true})).toBeInViewport({ratio:1});
+    if(viewport.width===390)await page.screenshot({path:'.tmp/chat-image-preview-phone.png',animations:'disabled'});
+    await preview.getByRole('button',{name:'关闭预览',exact:true}).click();await expect(preview).toHaveCount(0);
+  }
+  await page.locator('.assistant .message-images button').first().focus();await page.keyboard.press('Enter');await expect(preview).toBeVisible();
+  await page.keyboard.press('Escape');await expect(preview).toHaveCount(0);
+});
+
 test('reduced motion presents streamed text without an animation queue',async({page})=>{
   await page.emulateMedia({reducedMotion:'reduce'});await setup(page);
   const text='Reduced motion reply '.repeat(30);await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:text}],actions:[]});

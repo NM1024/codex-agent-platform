@@ -67,6 +67,21 @@ To upgrade for these controls, rebuild the images and run `start` with the same 
 
 The entire Admin interface uses React, TypeScript and Ant Design. Docker builds its static bundle in a dedicated `admin-build` stage; no frontend development server, Node installation on the host or additional container is required. The three-service deployment and `/admin/` reverse-proxy route stay the same. After upgrading, reload the browser page to receive the new hashed assets.
 
+### Browser and proxy caching
+
+Manager supplies the following cache policy; normal Nginx proxying can pass it through without an additional cache configuration.
+
+| Response | Cache policy |
+| --- | --- |
+| Content-hashed JS/CSS under `/admin/assets/` | `public, max-age=31536000, immutable`; new builds use new asset URLs. ETags support conditional reloads. Brotli, gzip and identity representations have distinct strong ETags and `Vary: Accept-Encoding`. |
+| `/admin/` HTML | `no-store`, with a fresh CSP nonce and current bundle references on each request. |
+| Favicon and third-party notices | `no-cache` with ETags; unchanged content can return 304. |
+| Authenticated conversation images | `private, no-cache`, content ETag and `Vary: Cookie`. The browser may store image bytes, but revalidates session and conversation ownership before reusing them. A match returns 304 without image bytes; deleted or unauthorized images do not. |
+| Admin JSON and credential responses | `no-store`; do not enable shared proxy/CDN caching. |
+| Conversation SSE | Retain `no-cache, no-transform`, unbuffered streaming and the browser's EventSource cache bypass; keep shared proxy/CDN caching disabled. |
+
+Preserve `Cache-Control`, `ETag`, `Vary`, `Content-Encoding` and cookies through your proxy. Avoid blanket `expires` or `add_header Cache-Control` rules that override or append contradictory policies for all `/admin/` responses. Do not strip image authorization or expose its private storage as a public static directory. In browser DevTools, turn off **Disable cache** while verifying normal caching: fresh hashed assets can use memory/disk cache directly; image revalidation and explicit conditional asset reloads can use 304. A browser-facing cached response may appear as 200 even when the underlying validation request received 304.
+
 Management Agent replies render Markdown, including lists, tables and fenced code. Raw HTML remains literal text; images are links rather than automatic remote loads. Both user and Agent messages show their saved timestamps in the browser's local locale and time zone. Schedule rules still use each plan's explicit time zone.
 
 Management chat also displays durable message states, queue order, elapsed time and collapsed activity. Available public reasoning summaries, assistant progress and tool lifecycle metadata are projected from the [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server); raw reasoning and tool arguments/results are not included in this activity view. Model output may omit summaries. Replies support Markdown copying and separate fenced-code copying. A message being accepted into the queue does not mean its Agent turn has completed.

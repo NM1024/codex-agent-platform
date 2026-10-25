@@ -1,10 +1,10 @@
 import {Component,lazy,Suspense,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Card,ConfigProvider,Form,Grid,Input,Layout,Select,Space,Spin,Typography} from 'antd';
+import {Alert,Button,Card,ConfigProvider,Form,Grid,Input,Layout,Select,Space,Typography} from 'antd';
 import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
 import {useConsole} from './context';
 import type {View} from './types';
-import {AsyncButton} from './components';
+import {AsyncButton,LoadingState} from './components';
 import {Icon} from './Icon';
 import {consoleTheme} from './theme';
 const titles:Record<View,string>={overview:'运行概览',chat:'管理对话',tasks:'任务记录',plugins:'业务插件',schedules:'定时计划',settings:'系统配置'};
@@ -43,7 +43,7 @@ function Console(){
       {!screens.lg&&<nav className="mobile-navigation" aria-label={t('主导航')}>{navigation}</nav>}
       <Layout.Content className={'console-content view-'+view}>
         {notice&&<Alert id="notice" role="status" type="info" showIcon title={notice}/>}
-        <main id="view"><PageBoundary key={view} message={t('页面加载失败，请刷新后重试。')} reload={t('刷新')}><Suspense fallback={<div className="page-loading" role="status"><Spin/> {t('正在加载页面…')}</div>}><Page/></Suspense></PageBoundary></main>
+        <main id="view"><PageBoundary key={view} message={t('页面加载失败，请刷新后重试。')} reload={t('刷新')}><Suspense fallback={<LoadingState className="page-loading" label="正在加载页面…"/>}><Page/></Suspense></PageBoundary></main>
       </Layout.Content>
     </Layout>
   </Layout>;

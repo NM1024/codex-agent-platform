@@ -11,6 +11,8 @@ const english: Record<string, string> = {
   '加载更多对话':'Load more conversations',
   '加载更早消息':'Load earlier messages',
   '下载图片':'Download image',
+  '预览图片：{name}':'Preview image: {name}',
+  '关闭预览':'Close preview',
   '新增 HTTP 目标':'Add HTTP target',
   '编辑 HTTP 目标':'Edit HTTP target',
   '编辑 HTTP 目标：{name}':'Edit HTTP target: {name}',

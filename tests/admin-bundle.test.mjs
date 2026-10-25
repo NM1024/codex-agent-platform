@@ -6,9 +6,9 @@ import {request} from 'node:http';
 import {brotliDecompressSync,gunzipSync,gzipSync} from 'node:zlib';
 import {readFile} from 'node:fs/promises';
 
-function raw(url,encoding,method='GET') {
+function raw(url,encoding,method='GET',headers={}) {
   return new Promise((resolve,reject)=>{
-    const req=request(url,{method,headers:{'accept-encoding':encoding}},res=>{
+    const req=request(url,{method,headers:{...headers,'accept-encoding':encoding}},res=>{
       const parts=[];res.on('data',part=>parts.push(part));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(parts)}));
     });req.on('error',reject);req.end();
   });
@@ -34,12 +34,18 @@ test('Manager negotiates compressed static assets with exact HEAD lengths and id
   const html=await (await fetch(root+'/admin/')).text();
   const path=html.match(/src="(\/admin\/assets\/[^" ]+\.js)"/)[1];
   const identity=await raw(root+path,'identity');
+  assert.match(identity.headers.etag,/^"[A-Za-z0-9_-]+"$/);
+  const hit=await raw(root+path,'identity','GET',{'if-none-match':identity.headers.etag});assert.equal(hit.status,304);assert.equal(hit.body.length,0);
   for(const [encoding,decode] of [['gzip',gunzipSync],['br',brotliDecompressSync]]){
     const result=await raw(root+path,encoding);
     assert.equal(result.status,200);assert.equal(result.headers['content-encoding'],encoding);
     assert.equal(result.headers.vary,'Accept-Encoding');assert.match(result.headers['content-type'],/javascript/);
     assert.deepEqual(decode(result.body),identity.body);assert.ok(result.body.length<identity.body.length/2);
     assert.equal(Number(result.headers['content-length']),result.body.length);
+    assert.notEqual(result.headers.etag,identity.headers.etag,'strong validators must distinguish encoded bytes');
+    const cached=await raw(root+path,encoding,'GET',{'if-none-match':result.headers.etag});assert.equal(cached.status,304);assert.equal(cached.body.length,0);assert.equal(cached.headers.vary,'Accept-Encoding');assert.equal(cached.headers['content-encoding'],encoding);
+    assert.equal((await raw(root+path,encoding,'HEAD',{'if-none-match':result.headers.etag})).status,304);
+    assert.equal((await raw(root+path,encoding,'GET',{'if-none-match':identity.headers.etag})).status,200);
     const head=await raw(root+path,encoding,'HEAD');assert.equal(head.body.length,0);assert.equal(head.headers['content-length'],result.headers['content-length']);assert.equal(head.headers['content-encoding'],encoding);
   }
   for(const [accept,expected] of [['br;q=0, gzip','gzip'],['gzip;q=1, br;q=0.5','gzip'],['gzip;q=0, br;q=0',undefined],['br;q=0, *;q=0.5','gzip'],['GZIP','gzip'],['identity;q=1, gzip;q=0.5',undefined]])assert.equal((await raw(root+path,accept)).headers['content-encoding'],expected,accept);
@@ -57,6 +63,7 @@ test('Manager serves only the React bundle, nonce styles and referenced immutabl
   const root=`http://127.0.0.1:${server.address().port}`;
   const response=await fetch(root+'/admin/'),html=await response.text();
   assert.equal(response.status,200);
+  assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.get('etag'),null);
   assert.match(html,/<div id="root"><\/div>/);
   const nonce=html.match(/name="csp-nonce" content="([^"]+)"/)?.[1];
   assert.ok(nonce && nonce!=='__CSP_NONCE__');
@@ -64,7 +71,13 @@ test('Manager serves only the React bundle, nonce styles and referenced immutabl
   assert.notEqual((await (await fetch(root+'/admin/')).text()).match(/name="csp-nonce" content="([^"]+)"/)?.[1],nonce);
   const scripts=[...html.matchAll(/(?:src|href)="(\/admin\/assets\/[^" ]+)"/g)].map(match=>match[1]);
   assert.ok(scripts.some(path=>path.endsWith('.js')));assert.ok(scripts.some(path=>path.endsWith('.css')));
-  for(const path of scripts){const asset=await fetch(root+path);assert.equal(asset.status,200);assert.match(asset.headers.get('cache-control'),/immutable/);}
+  for(const path of [...scripts,'/admin/favicon.svg','/admin/third-party-notices.md']){
+    const asset=await fetch(root+path);assert.equal(asset.status,200);
+    assert.equal(asset.headers.get('cache-control'),path.includes('/assets/')?'public, max-age=31536000, immutable':'no-cache');
+    const etag=asset.headers.get('etag');assert.ok(etag);
+    const cached=await fetch(root+path,{headers:{'if-none-match':etag}});assert.equal(cached.status,304);assert.equal((await cached.arrayBuffer()).byteLength,0);
+  }
+  const entry=await fetch(root+'/admin/',{headers:{'if-none-match':'*'}});assert.equal(entry.status,200);assert.equal(entry.headers.get('cache-control'),'no-store');
   const notices=await fetch(root+'/admin/third-party-notices.md');assert.equal(notices.status,200);assert.match(await notices.text(),/react/i);
   for(const path of ['/admin/app.js','/admin/style.css','/admin/i18n.js','/admin/agent-picker.js','/admin/assets/missing.js','/admin/assets/%2e%2e%2fserver.mjs'])assert.equal((await fetch(root+path)).status,404,path);
 });

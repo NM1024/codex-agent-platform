@@ -22,6 +22,8 @@ Enable/disable switches communicate their checked state directly; omit adjacent 
 
 All modal dialogs inherit viewport centering and the `console-modal` class from the root ConfigProvider. Bound the container to the viewport with internal body scrolling, retaining visible headers and footer actions; do not add per-dialog top offsets. Side drawers retain their edge placement.
 
+Use the shared `LoadingState` for initial page, conversation and panel loading. Center its stacked indicator and label inside the area being loaded, using the content area below navigation for page loaders and separate sidebar/transcript regions in chat. Use compact density for the conversation list. Keep existing data and local button/table indicators during subsequent operations; do not replace populated views with a full-page loading state.
+
 The global theme owns control sizing, borders, focus rings, disabled colors, dropdowns and modal surfaces. Local CSS may handle layout, not redefine component density. Scope compact toolbar styling explicitly; do not shrink table controls or tags merely because the viewport is narrow. Multiline textareas and long labels may grow as needed.
 
 Maintain visible keyboard focus, readable text contrast, and reduced-motion support. Preserve responsive list fields, usable dialog/composer scrolling, and actions in Chinese and English at desktop, tablet and phone widths.
