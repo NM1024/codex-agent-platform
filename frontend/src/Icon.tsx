@@ -22,7 +22,6 @@ const paths={
   edit:'m15 4 5 5 M4 20l4-1L21 6l-4-4L4 15l-1 6Z',
   chevron:'m7 10 5 5 5-5',
   inherit:'M6 4v9h13 m-5-5 5 5-5 5',
-  bolt:'m13 2-9 12h7l-1 8 10-13h-7l1-7Z',
   reset:'M3 11a9 9 0 1 0 3-6 M3 3v6h6',
   trash:'M3 6h18 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7',
   close:'m6 6 12 12 M18 6 6 18',

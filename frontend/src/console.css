@@ -204,6 +204,7 @@ button, input, textarea { font: inherit; }
 .chat-agent-picker { flex: 1; min-width: 0; }
 .composer-toolbar .chat-agent-trigger.ant-btn { display: inline-flex; align-items: center; gap: 7px; width: auto; min-width: 0; max-width: min(100%, 320px); padding-inline: 8px; font-size: 13px; }
 .chat-agent-trigger-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-agent-trigger-effort { flex-shrink: 0; white-space: nowrap; }
 .chat-agent-trigger > svg { width: 12px; flex-shrink: 0; color: #708577; }
 .chat-agent-inherit-dot { width: 5px; height: 5px; border-radius: 50%; background: #668976; flex-shrink: 0; }
 .chat-agent-popover { width: min(360px, calc(100vw - 24px)); }
@@ -227,8 +228,8 @@ button, input, textarea { font: inherit; }
 .chat-agent-option-copy small { display: block; margin-top: 2px; color: #5d7163; font-size: 11px; overflow-wrap: anywhere; }
 .chat-agent-unavailable, .chat-agent-empty { margin: 6px 8px; color: #607467; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .chat-effort-card { flex-shrink: 0; margin-top: 9px; padding: 10px 10px 8px; border: 1px solid #e3eae5; border-radius: 11px; background: #f3f7f4; }
-.chat-effort-heading { display: flex; justify-content: space-between; align-items: center; min-height: 28px; color: #668471; }
-.chat-effort-heading > strong { color: #345e4f; font-size: 17px; font-weight: 600; }
+.chat-effort-heading { display: grid; grid-template-columns: 27px minmax(0, 1fr) 27px; align-items: center; min-height: 28px; color: #668471; }
+.chat-effort-heading > strong { grid-column: 2; text-align: center; color: #345e4f; font-size: 17px; font-weight: 600; }
 .chat-effort-heading .ant-btn { width: 27px; height: 27px; padding: 0; color: #668471; }
 .chat-effort-caption { display: flex; justify-content: center; align-items: center; gap: 8px; min-width: 0; margin: 2px 0 7px; color: #607467; font-size: 11px; }
 .chat-effort-caption > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

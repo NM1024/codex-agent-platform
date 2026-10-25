@@ -28,12 +28,13 @@ test('one compact entry opens model and stepped reasoning controls and keyboard 
   const {saved}=await setup(page);await page.locator('#message-input').fill('Preserved composer draft');
   await page.screenshot({path:'.tmp/model-picker/before-or-current-desktop.png'});
   await expect(page.locator('.composer-toolbar .ant-select')).toHaveCount(0);
-  await expect(page.locator('#chat-model')).toHaveText('Fixture Default');await open(page);
+  await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 中等');await open(page);
+  await expect(panel(page).locator('.chat-effort-heading > svg')).toHaveCount(0);
   const slider=panel(page).getByRole('slider',{name:'思考程度',exact:true});
   await expect(slider).toHaveAttribute('min','0');await expect(slider).toHaveAttribute('max','3');await expect(slider).toHaveAttribute('aria-valuetext','中等');
   expect(await saved()).toEqual({});
   await slider.focus();await page.keyboard.press('ArrowRight');await expect(slider).toHaveAttribute('aria-valuetext','高');
-  await expect.poll(saved).toEqual({reasoningEffort:'high'});
+  await expect.poll(saved).toEqual({reasoningEffort:'high'});await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 高');
   await page.keyboard.press('End');await expect.poll(saved).toEqual({reasoningEffort:'xhigh'});
   await page.keyboard.press('Escape');await expect(panel(page)).toHaveCount(0);await expect(page.locator('#chat-model')).toBeFocused();
   await expect(page.locator('#message-input')).toHaveValue('Preserved composer draft');
@@ -62,7 +63,7 @@ test('model changes reset the previous effort and use only the new model support
 
 test('reset and model default remain distinct and opening never materializes inherited values',async({page})=>{
   const {saved}=await setup(page,{execution:{reasoningEffort:null}});await open(page);
-  const slider=panel(page).getByRole('slider');await expect(slider).toHaveAttribute('aria-valuetext','低');expect(await saved()).toEqual({reasoningEffort:null});
+  const slider=panel(page).getByRole('slider');await expect(slider).toHaveAttribute('aria-valuetext','低');await expect(page.locator('#chat-model')).toHaveText('Fixture Default - 低');expect(await saved()).toEqual({reasoningEffort:null});
   await panel(page).getByRole('button',{name:'恢复默认思考程度',exact:true}).click();
   await expect.poll(saved).toEqual({});await expect(slider).toHaveAttribute('aria-valuetext','中等');await expect(panel(page)).toContainText('继承全局设置');
   await panel(page).getByRole('button',{name:'使用模型默认',exact:true}).click();
@@ -88,7 +89,7 @@ test('long catalogs can be searched and failed writes retain the choice with an 
   await page.route('**/admin/api/conversations/'+id,route=>route.request().method()==='POST'&&failing?route.fulfill({status:503,json:{error:{message:'Synthetic save failure'}}}):route.continue());
   await open(page);await panel(page).getByRole('searchbox',{name:'搜索模型',exact:true}).fill('选择 8');
   await panel(page).getByRole('radio',{name:extras[8].displayName,exact:true}).click();
-  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName);expect(await saved()).toEqual({});
+  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName+' - 低');expect(await saved()).toEqual({});
   failing=false;await panel(page).getByRole('button',{name:'重试保存',exact:true}).click();await expect.poll(saved).toEqual({model:'extra-8'});
   await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
 });
@@ -116,6 +117,9 @@ test('actual desktop and phone panels stay within view and keep labels and compo
       await page.screenshot({path:`.tmp/model-picker/${locale}-${viewport.width}x${viewport.height}.png`,animations:'disabled'});
       await page.keyboard.press('Escape');await expect(panel(page)).toHaveCount(0);await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
       await expect(page.locator('#message-input')).toHaveValue('Unsent layout draft');
+      await expect(page.locator('.chat-agent-trigger-effort')).toHaveText(locale==='en'?' - Medium':' - 中等');
+      await expect(page.locator('.chat-agent-trigger-effort')).toBeInViewport({ratio:1});
+      await page.screenshot({path:`.tmp/model-picker/${locale}-${viewport.width}x${viewport.height}-closed.png`,animations:'disabled'});
     }
   }
 });

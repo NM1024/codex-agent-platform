@@ -87,7 +87,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         {!filtered.length&&<p className="chat-agent-empty">{t(catalog.models.length?'没有匹配的模型':'模型列表暂不可用，保留当前配置。')}</p>}
       </div>
       <section className="chat-effort-card" aria-label={t('思考程度')}>
-        <div className="chat-effort-heading"><Icon name="bolt"/><strong aria-live="polite">{label(shown)}</strong><Button type="text" size="small" icon={<Icon name="reset"/>} aria-label={t('恢复默认思考程度')} title={t('恢复默认思考程度')} disabled={disabled||!overridden} onClick={reset}/></div>
+        <div className="chat-effort-heading"><strong aria-live="polite">{label(shown)}</strong><Button type="text" size="small" icon={<Icon name="reset"/>} aria-label={t('恢复默认思考程度')} title={t('恢复默认思考程度')} disabled={disabled||!overridden} onClick={reset}/></div>
         <div className="chat-effort-caption"><span title={modelName}>{modelName}</span><small id="chat-reasoning-source">{source}</small></div>
         {efforts.length>1&&effectiveIndex>=0&&<div className="chat-effort-track" style={{'--effort-percent':`${Math.max(0,preview)/(efforts.length-1)*100}%`} as CSSProperties}>
           <input id="chat-reasoningEffort" type="range" min={0} max={efforts.length-1} step={1} value={Math.max(0,preview)} disabled={disabled} aria-label={t('思考程度')} aria-valuetext={label(shown)} aria-describedby="chat-reasoning-source"
@@ -107,7 +107,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
     <div className="chat-agent-footnote" role={saving?'status':undefined}>{t(saving?'正在保存…':'下一轮对话生效')}</div>
   </div>;
   const button=<Button ref={trigger} id="chat-model" type="text" className="chat-agent-trigger" aria-label={t('模型与思考设置')} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} title={`${modelName} · ${label(effective)} · ${source}`} onClick={()=>{if(mobile)setOpen(!open);}}>
-    {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><Icon name="chevron"/>
+    {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><span className="chat-agent-trigger-effort"> - {label(effective)}</span><Icon name="chevron"/>
   </Button>;
   // Keep only one live panel/slider in the DOM as the viewport changes.
   return <div className="chat-agent-picker" data-model={value.model??''} data-effort={value.reasoningEffort===null?'__model_default__':value.reasoningEffort??'__inherit__'} data-effective-effort={effective??''}>

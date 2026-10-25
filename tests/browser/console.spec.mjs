@@ -10,7 +10,7 @@ async function choose(page,selector,value){
   await page.locator(selector).click();
   await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(choiceLabel(value),{exact:true}).last().click();
 }
-async function expectChoice(page,selector,value){if(selector==='#chat-model'){await expect(page.locator('#chat-model')).toHaveText(choiceLabel(value));return;}if(selector==='#chat-reasoningEffort'){await expect(page.locator('.chat-agent-picker')).toHaveAttribute('data-effort',value);return;}await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
+async function expectChoice(page,selector,value){if(selector==='#chat-model'){await expect(page.locator('#chat-model .chat-agent-trigger-name')).toHaveText(choiceLabel(value));return;}if(selector==='#chat-reasoningEffort'){await expect(page.locator('.chat-agent-picker')).toHaveAttribute('data-effort',value);return;}await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
 async function operation(page, action, args = {}) {
   const response = await page.request.post("/admin/api/operations", {
     data: { action, args },
