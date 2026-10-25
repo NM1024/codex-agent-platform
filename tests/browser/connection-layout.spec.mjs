@@ -1,10 +1,11 @@
+import {navigate} from './navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 test.beforeEach(async({page})=>{
   await page.goto('/admin/');
   await page.locator('#password').fill('local-browser-password');
   await page.getByRole('button',{name:'登录工作台',exact:true}).click();
-  await page.locator('[data-view="plugins"]').click();
+  await navigate(page,'plugins');
 });
 
 test('connection tabs retain drafts, show one claimed secret and fit a normal desktop height',async({page})=>{
@@ -34,14 +35,26 @@ test('all list tables contain long content and usable actions on phone and deskt
     await route.fulfill({json:data});
   });
   for(const locale of ['en','zh-CN']){
-    await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
-    await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
-    for(const width of [390,768,1024,1440]){
+    await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
+    await expect(page.locator('.ant-select-dropdown:visible, .language-menu:visible')).toHaveCount(0);
+    for(const width of [2267,1440,1382,1024,768,390]){
       await page.setViewportSize({width,height:900});
       for(const view of ['plugins','schedules','tasks','overview']){
-        await page.locator(`[data-view="${view}"]`).click();
+        await navigate(page,view);
         const table=page.locator('#view .ant-table-content').first();await expect(table).toBeVisible();
         await expect(page.locator('#view .ant-spin-spinning')).toHaveCount(0);
+        if(width>=1382){
+          const headers={
+            plugins:locale==='en'?['Business name','Business ID','Enabled','Connection']:['业务名称','业务标识','启用状态','接入状态'],
+            tasks:locale==='en'?['Business type','Task ID','Request ID']:['业务类型','任务编号','请求编号'],
+            schedules:locale==='en'?['Schedule name','Trigger target','Cron rule','Time zone']:['计划名称','触发对象','Cron 规则','时区'],
+            overview:locale==='en'?['Business type','Task ID']:['业务类型','任务编号'],
+          }[view];
+          for(const name of headers)await expect(table.getByRole('columnheader',{name,exact:true})).toBeVisible();
+          const available=await page.locator('.console-content').evaluate(e=>e.clientWidth-parseFloat(getComputedStyle(e).paddingLeft)-parseFloat(getComputedStyle(e).paddingRight));
+          expect((await page.locator('#view').boundingBox()).width).toBeGreaterThanOrEqual(available-1);
+          if(view==='tasks')expect((await table.locator('tbody .table-text-cell .table-field-value').first().boundingBox()).width,`${locale} error summary at ${width}px`).toBeGreaterThanOrEqual(110);
+        }
         expect(await table.evaluate(e=>e.scrollWidth<=e.clientWidth+1),`${locale} ${view} ${width}`).toBe(true);
         expect(await page.evaluate(()=>document.documentElement.scrollWidth),JSON.stringify(await page.locator('body *').evaluateAll(nodes=>nodes.map(e=>({tag:e.tagName,cls:e.className,x:e.getBoundingClientRect().x,right:e.getBoundingClientRect().right})).filter(e=>e.right>window.innerWidth+2).slice(0,12)))).toBeLessThanOrEqual(width);
         for(const button of await table.locator('tbody tr[data-row-key]').first().getByRole('button').all()){

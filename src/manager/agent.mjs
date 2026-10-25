@@ -14,6 +14,7 @@ import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 import {validateModelEffort} from '../codex/models.mjs';
 import {ChatProgress,publicChatText} from './chat-progress.mjs';
 import {normalizeQuestions} from './questions.mjs';
+import {GeneratedChatImages} from './generated-images.mjs';
 
 const hash=token=>createHash('sha256').update(token).digest('hex');
 export class ManagementAgent {
@@ -23,7 +24,7 @@ export class ManagementAgent {
   authorize(token){return typeof token==='string'&&token.length<256?this.tokens.get(hash(token)):undefined;}
   answerQuestion(conversationId,questionId,answers) {
     this.store.metadata(conversationId);
-    const message=this.store.getConversation(conversationId).messages.find(m=>m.questions?.some(q=>q.id===questionId));
+    const message=this.store.questionMessage(conversationId,questionId);
     if(!message)throw new HttpError(404,'QUESTION_NOT_FOUND','找不到此对话的提问。');
     const state=this.active.get(message.id),pending=state?.questions?.get(questionId);
     if(!state||state.finalized||!pending)throw new HttpError(409,'QUESTION_EXPIRED','此提问已结束，请等待 Agent 重新提问。');
@@ -44,6 +45,38 @@ export class ManagementAgent {
     return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
   }
   enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  async steerQueued(conversationId,messageId) {
+    const message=this.store.queuedMessage(conversationId,messageId,['queued','steered']);
+    if(message.status==='steered')return message;
+    const active=[...this.active.entries()].find(([id,state])=>!state.finalized&&state.turnId&&this.store.message(id)?.conversation_id===conversationId);
+    if(this.closed||!active)throw new HttpError(409,'NO_ACTIVE_TURN','当前没有可引导的任务，请等待排队消息开始执行。');
+    const [parentId,state]=active,turnId=state.turnId;
+    this.store.reserveSteer(conversationId,messageId,parentId,turnId);
+    const sending=(async()=>{
+      try {
+        const result=await state.client.request('turn/steer',{threadId:state.threadId,expectedTurnId:turnId,clientUserMessageId:messageId,input:[{type:'text',text:`[management_message_id:${messageId}]\n${message.text}`},...this.store.imageInputs(messageId)]});
+        if(result.turnId!==turnId)throw new Error('STEER_TURN_MISMATCH');
+        return this.store.settleSteer(messageId,'steered');
+      }catch(error) {
+        if(error.message==='CODEX_RPC_ERROR'){
+          this.store.settleSteer(messageId,'queued');
+          throw new HttpError(409,'STEER_REJECTED','当前任务未接受引导，消息仍在队列中。');
+        }
+        this.store.settleSteer(messageId,'steer_unknown');
+        throw new HttpError(409,'STEER_UNCONFIRMED','引导发送状态尚未确认，系统不会自动重发。');
+      }
+    })();
+    state.steers.add(sending);
+    try{return await sending;}finally{state.steers.delete(sending);}
+  }
+  reconcileSteers(parentId,turns) {
+    for(const message of this.store.pendingSteers(parentId)) {
+      const marker=`[management_message_id:${message.id}]`;
+      const found=turns.some(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))));
+      this.store.settleSteer(message.id,found?'steered':'steer_unknown');
+    }
+  }
   kick(id) {
     if(this.closed||this.running.has(id))return;
     const pending=this.loop(id).finally(()=>{this.running.delete(id);if(!this.closed&&!this.waiting.has(id)&&this.store.next(id))this.kick(id);});
@@ -59,22 +92,23 @@ export class ManagementAgent {
     }
   }
   async execute(message) {
-    const conversation=this.store.getConversation(message.conversation_id),recovering=message.status==='interrupted';
+    const conversation=this.store.metadata(message.conversation_id),recovering=message.status==='interrupted';
     const settings=message.execution ?? resolveAgentSettings({model:this.model,...(this.reasoningEffort!==undefined?{reasoningEffort:this.reasoningEffort}:{}),timeoutMs:this.timeoutMs,toolTimeoutMs:this.toolTimeoutMs},conversation.execution);
     // An omitted legacy global effort must clear an earlier conversation override.
-    if(settings.reasoningEffort===undefined && conversation.thread_id && conversation.messages.some(item=>item.execution?.reasoningEffort!==undefined))settings.reasoningEffort=null;
+    if(settings.reasoningEffort===undefined && conversation.thread_id && this.store.hasExecutionEffort(conversation.id))settings.reasoningEffort=null;
     this.store.recordMessageExecution(message.id,settings);
     const marker=`[management_message_id:${message.id}]`;
     this.store.markRunning(message.id);
     const token=randomBytes(32).toString('base64url');this.tokens.set(hash(token),conversation.id);
     const home=join(this.root,'codex',conversation.id),workDir=join(this.root,'work',conversation.id);
-    let client,unsubscribe,timer,unhandle;const state={text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set()};this.active.set(message.id,state);
+    let client,unsubscribe,timer,unhandle;const state={text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set(),steers:new Set()};this.active.set(message.id,state);
     let ready;const startedReady=new Promise(resolve=>{ready=resolve;});
     const progress=new ChatProgress({store:this.store,messageId:message.id,secrets:[token]});
+    const images=new GeneratedChatImages({store:this.store,messageId:message.id,workDir,home});
     try {
       await safeDirectory(home);await safeDirectory(workDir);
       try{await lstat(join(home,'auth.json'));}catch(error){if(error.code!=='ENOENT')throw error;await symlink(this.authFile,join(home,'auth.json'));}
-      const env={...filteredCodexEnv(),HOME:home,CODEX_HOME:home,AGENT_TASK_MCP_TOKEN:token,AGENT_TASK_WORK_DIR:workDir,AGENT_TASK_READ_ROOTS:JSON.stringify([workDir]),AGENT_TASK_REFERENCE_FILES:'[]',AGENT_ALLOW_USER_INPUT:'1'};
+      const env={...filteredCodexEnv(),HOME:home,CODEX_HOME:home,AGENT_TASK_MCP_TOKEN:token,AGENT_TASK_WORK_DIR:workDir,AGENT_TASK_READ_ROOTS:JSON.stringify([workDir,join(home,'generated_images')]),AGENT_TASK_REFERENCE_FILES:'[]',AGENT_ALLOW_USER_INPUT:'1'};
       client=this.createClient({cwd:workDir,env});state.client=client;
       unhandle=client.handleServerRequest?.('item/tool/requestUserInput',async(params,requestId)=>{
         await startedReady;
@@ -86,7 +120,7 @@ export class ManagementAgent {
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
       const prompt=[this.instructions ?? readSystemPrompt('manager'),renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY}),readSystemPrompt('manager-connections')].join('\n\n');
-      const config=runtimeConfig({native:{},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs,userInput:true});
+      const config=runtimeConfig({native:{imageGeneration:true,webSearch:true},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs,userInput:true});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),
         model:settings.model,cwd:workDir,approvalPolicy:'never',sandbox:'read-only',developerInstructions:prompt,config,
@@ -97,8 +131,10 @@ export class ManagementAgent {
       // Reconcile the original submission before deciding whether a continuation is needed.
       // turn/start may have reached Codex even when its acknowledgement was not persisted.
       const turns=response.thread.turns ?? [];
+      if(recovering)this.reconcileSteers(message.id,turns);
       const recorded=[...turns].reverse().find(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))))
         ?? turns.find(turn=>turn.id===message.turn_id);
+      if(recovering&&recorded){for(const item of recorded.items??[])images.accept(item);await images.drain();}
       if(recovering&&recorded&&['completed','failed'].includes(recorded.status)) {
         for(const item of recorded.items ?? [])progress.event({method:'item/completed',params:{item}});
         progress.finish(recorded.status==='completed'?'completed':'failed');
@@ -117,7 +153,7 @@ export class ManagementAgent {
           state.finalized=true;const failed=params.turn?.status!=='completed';
           progress.finish(failed?'failed':'completed');state.text=progress.text;
           state.resolve({error:failed?{code:'CODEX_TURN_FAILED',message:publicChatText(params.turn?.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'}:null});
-        }else progress.event(event);
+        }else {progress.event(event);if(event.method==='item/completed')images.accept(params.item);}
       };
       unsubscribe=client.subscribe(event=>{
         if(state.finalized)return;
@@ -142,6 +178,12 @@ export class ManagementAgent {
       ready();
       for(const event of state.pending)consume(event);state.pending=[];
       const result=await outcome;
+      // Do not close the shared client or run the next FIFO request during a steer acknowledgement.
+      await Promise.allSettled([...state.steers]);
+      if(this.store.pendingSteers(message.id).length&&!result.interrupted&&!this.closed) {
+        try {const metadata=await client.request('thread/read',{threadId,includeTurns:true},1000);if(metadata.thread?.id===threadId)this.reconcileSteers(message.id,metadata.thread.turns??[]);}catch{}
+      }
+      await images.drain();
       if(result.interrupted||this.closed){this.store.interrupted(message.id);return 'interrupted';}
       else {
         this.store.finish(message,result.error,state.text);
@@ -155,6 +197,7 @@ export class ManagementAgent {
         }
       }
     }catch(error) {
+      await images.drain();
       progress.finish(this.closed||state.disconnected?'unknown':'failed');state.text=progress.text;
       if(this.closed||state.disconnected||['CODEX_EXIT','CODEX_TIMEOUT'].includes(error.message)) {
         this.store.interrupted(message.id);return 'interrupted';

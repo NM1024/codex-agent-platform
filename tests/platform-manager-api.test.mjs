@@ -19,6 +19,24 @@ test('resource samples distinguish host CPU, container quota and an unavailable 
   const missing=await new ResourceSampler({procRoot:join(root,'absent'),cgroupRoot:group,diskPath:root}).sample();
   assert.equal(missing.host.available,false);assert.ok(!('cpu_percent' in missing.host));
 });
+test('resource capacity distinguishes reserved disk blocks, missing fields and unlimited quotas',async t=>{
+  const {ResourceSampler}=await import('../src/observability/resources.mjs');
+  const root=await mkdtemp(join(tmpdir(),'capacity-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const proc=join(root,'proc'),group=join(root,'cgroup');await mkdir(proc);await mkdir(group);
+  await writeFile(join(proc,'meminfo'),'MemTotal: 1000 kB\nMemAvailable: 400 kB\n');
+  await writeFile(join(group,'cpu.max'),'max 100000');await writeFile(join(group,'memory.max'),'max');
+  const sample=await new ResourceSampler({procRoot:proc,cgroupRoot:group,diskPath:root,readDiskStats:async()=>({blocks:100,bfree:40,bavail:30,bsize:1024})}).sample();
+  assert.equal(sample.disk.total_bytes,100*1024);assert.equal(sample.disk.used_bytes,60*1024);
+  assert.equal(sample.disk.free_bytes,40*1024);assert.equal(sample.disk.available_bytes,30*1024);
+  assert.equal(sample.host.memory_available_bytes,400*1024);assert.ok(!('cpu_percent' in sample.host));
+  assert.equal(sample.container.memory_limit_bytes,null);assert.equal(sample.container.quota_cores,null);
+  await writeFile(join(group,'cpu.max'),'invalid 0');await writeFile(join(group,'memory.max'),'invalid');await writeFile(join(group,'memory.current'),'invalid');
+  const malformed=await new ResourceSampler({procRoot:proc,cgroupRoot:group,diskPath:root}).sample();
+  assert.ok(!('quota_cores' in malformed.container));assert.ok(!('memory_limit_bytes' in malformed.container));assert.ok(!('memory_used_bytes' in malformed.container));
+  const missing=await new ResourceSampler({procRoot:join(root,'absent'),cgroupRoot:join(root,'absent'),diskPath:join(root,'absent')}).sample();
+  assert.equal(missing.disk.available,false);assert.ok(!('used_bytes' in missing.disk));
+  assert.ok(!('memory_limit_bytes' in missing.container));assert.ok(!('memory_used_bytes' in missing.host));
+});
 test('manager HTTP serves real resources, accepts asynchronous messages and protects management operations',async t=>{
   const [{ManagerStore},{createManagerServer}]=await Promise.all([import('../src/manager/store.mjs'),import('../src/manager/server.mjs')]);
   const store=new ManagerStore(':memory:');t.after(()=>store.close());const calls=[];
@@ -43,7 +61,8 @@ test('manager HTTP serves real resources, accepts asynchronous messages and prot
   assert.equal(store.getConversation(first.id).messages.length,0);
   const investigate=()=>fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId,investigate:true})});
   const started=await investigate();assert.equal(started.status,201);
-  assert.equal((await started.json()).messages.length,1);
+  const initialInvestigation=await started.json();
+  assert.equal(initialInvestigation.messages.length,0);assert.equal(initialInvestigation.queue.length,1);
   await investigate();
   const messages=store.getConversation(first.id).messages;
   assert.equal(messages.length,1);assert.ok(messages[0].text.includes(taskId));

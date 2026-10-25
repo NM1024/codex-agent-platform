@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
-import {Alert,Button,Descriptions,Drawer,Spin,Tabs,Tooltip,Typography} from 'antd';
+import {Alert,Button,Descriptions,Drawer,Tabs,Tooltip,Typography} from 'antd';
 import {Icon} from './Icon';
+import {LoadingState} from './components';
 import {AgentMessage,CopyButton} from './ChatMessage';
 import {useConsole} from './context';
 import type {Plugin,PluginIntegration} from './types';
@@ -24,7 +25,7 @@ export default function PluginIntegrationDrawer({plugin,onClose,onConfigure}:{pl
     link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
   return <Drawer open title={t('对接文档：{name}',{name:plugin.name})} onClose={onClose} size={960} className="plugin-integration-drawer" styles={{wrapper:{maxWidth:'100vw'}}}>
-    {loading?<div className="integration-loading" role="status" aria-live="polite"><Spin/> {t('正在加载对接文档…')}</div>:error?<Alert type="error" showIcon title={t('对接文档暂时无法读取，请重试。')} action={<Button onClick={()=>setAttempt(value=>value+1)}>{t('重试')}</Button>}/>:document&&<>
+    {loading?<LoadingState className="integration-loading" label="正在加载对接文档…"/>:error?<Alert type="error" showIcon title={t('对接文档暂时无法读取，请重试。')} action={<Button onClick={()=>setAttempt(value=>value+1)}>{t('重试')}</Button>}/>:document&&<>
       <Descriptions className="integration-metadata" size="small" column={1} items={[
         {key:'plugin',label:t('业务'),children:<>{document.name} <Typography.Text code>{document.type}</Typography.Text></>},
         {key:'revision',label:t('业务定义版本'),children:document.revision??'—'},

@@ -67,6 +67,31 @@ To upgrade for these controls, rebuild the images and run `start` with the same 
 
 The entire Admin interface uses React, TypeScript and Ant Design. Docker builds its static bundle in a dedicated `admin-build` stage; no frontend development server, Node installation on the host or additional container is required. The three-service deployment and `/admin/` reverse-proxy route stay the same. After upgrading, reload the browser page to receive the new hashed assets.
 
+### Mobile console checks after an update
+
+The top bar displays the platform title. Below 992px, a menu button opens the six page links; repository, language and sign-out actions use icons with accessible names. Chat keeps model, reasoning, image upload and send on one row, with full choices in their menus. Phone-only time-zone and keyboard hints are hidden; errors and settings-save feedback remain available.
+
+After rebuilding and starting with your existing runtime directory, reload Admin and check the following on your phone:
+
+- Open and dismiss navigation, switch language, and return to a chat with an unsent draft.
+- Open and close the software keyboard, type several lines, and rotate the device. The composer should follow the visible browser area, with Send reachable and history scrolling independently. Pinch zoom remains browser-controlled.
+- Add an image, open its in-page preview, close it, and send a short test message when you intend to use the account. Automated UI checks use synthetic transport; physical iOS/Android keyboard behavior is a deployment check.
+
+### Browser and proxy caching
+
+Manager supplies the following cache policy; normal Nginx proxying can pass it through without an additional cache configuration.
+
+| Response | Cache policy |
+| --- | --- |
+| Content-hashed JS/CSS under `/admin/assets/` | `public, max-age=31536000, immutable`; new builds use new asset URLs. ETags support conditional reloads. Brotli, gzip and identity representations have distinct strong ETags and `Vary: Accept-Encoding`. |
+| `/admin/` HTML | `no-store`, with a fresh CSP nonce and current bundle references on each request. |
+| Favicon and third-party notices | `no-cache` with ETags; unchanged content can return 304. |
+| Authenticated conversation images | `private, no-cache`, content ETag and `Vary: Cookie`. The browser may store image bytes, but revalidates session and conversation ownership before reusing them. A match returns 304 without image bytes; deleted or unauthorized images do not. |
+| Admin JSON and credential responses | `no-store`; do not enable shared proxy/CDN caching. |
+| Conversation SSE | Retain `no-cache, no-transform`, unbuffered streaming and the browser's EventSource cache bypass; keep shared proxy/CDN caching disabled. |
+
+Preserve `Cache-Control`, `ETag`, `Vary`, `Content-Encoding` and cookies through your proxy. Avoid blanket `expires` or `add_header Cache-Control` rules that override or append contradictory policies for all `/admin/` responses. Do not strip image authorization or expose its private storage as a public static directory. In browser DevTools, turn off **Disable cache** while verifying normal caching: fresh hashed assets can use memory/disk cache directly; image revalidation and explicit conditional asset reloads can use 304. A browser-facing cached response may appear as 200 even when the underlying validation request received 304.
+
 Management Agent replies render Markdown, including lists, tables and fenced code. Raw HTML remains literal text; images are links rather than automatic remote loads. Both user and Agent messages show their saved timestamps in the browser's local locale and time zone. Schedule rules still use each plan's explicit time zone.
 
 Management chat also displays durable message states, queue order, elapsed time and collapsed activity. Available public reasoning summaries, assistant progress and tool lifecycle metadata are projected from the [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server); raw reasoning and tool arguments/results are not included in this activity view. Model output may omit summaries. Replies support Markdown copying and separate fenced-code copying. A message being accepted into the queue does not mean its Agent turn has completed.
@@ -123,3 +148,14 @@ Back up all runtime directories together while services are stopped, or use SQLi
 ## System prompt changes
 
 The image includes the root `prompts/` directory. Rebuild/redeploy after editing its fixed message templates. Existing Manager instructions are persisted, including their initial default; ask the management Agent to update `manager.instructions` through management MCP to apply revised editable instructions without a restart. The versioned project rules and human-only connection policy are independently appended on every management start/resume, so an image upgrade applies these rules to the next turn even with saved custom instructions. The Agent obtains live configuration and capabilities from tools rather than reading repository documents. See the [system prompt guide](../prompts/README.md). Plugin instructions continue to be managed as plugin configuration.
+
+### Operations overview after an update
+
+Rebuild and restart with the existing runtime directory using `deploy.sh build`, `deploy.sh start`, and `deploy.sh status`. No database migration or new configuration variable is required for the resource-card overview. Reload Admin and check **Overview**:
+
+- Host memory and the Manager data filesystem show used/total capacity, plus available space. The filesystem can reserve free blocks, so used + available need not equal total.
+- Host CPU needs two samples. Missing `/host/proc` or cgroup fields show unknown; an explicit cgroup `max` shows unlimited. RSS is the Manager process value, not a host or container total.
+- Filter host/Manager cards, inspect service details, and check phone/tablet layouts. The page refreshes every ten seconds without overlapping slow reads.
+- During an appropriate maintenance window, validate pause/resume and concurrency changes; lowering concurrency does not stop active tasks. Restart Runner only after reading the confirmation because it can interrupt active connections.
+
+Only the Manager data filesystem and the metrics already collected by the platform are displayed; this view does not enumerate every disk or collect network traffic/history. Warning colors do not automatically pause dispatch.

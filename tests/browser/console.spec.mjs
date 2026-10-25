@@ -1,13 +1,16 @@
 import { test, expect } from "@playwright/test";
-const navigate = (page, view) => page.locator(`[data-view="${view}"]`).click();
+import {navigate} from './navigation.mjs';
+import {chooseChatModel,chooseChatEffort} from './agent-picker.mjs';
 const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
 const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
 const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
 async function choose(page,selector,value){
+  if(selector==='#chat-model')return chooseChatModel(page,value===''?'继承全局设置':choiceLabel(value));
+  if(selector==='#chat-reasoningEffort')return chooseChatEffort(page,value);
   await page.locator(selector).click();
-  await page.locator('.ant-select-dropdown:visible').getByText(choiceLabel(value),{exact:true}).last().click();
+  await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(choiceLabel(value),{exact:true}).last().click();
 }
-async function expectChoice(page,selector,value){await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
+async function expectChoice(page,selector,value){if(selector==='#chat-model'){await expect(page.locator('#chat-model .chat-agent-trigger-name')).toHaveText(choiceLabel(value));return;}if(selector==='#chat-reasoningEffort'){await expect(page.locator('.chat-agent-picker')).toHaveAttribute('data-effort',value);return;}await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
 async function operation(page, action, args = {}) {
   const response = await page.request.post("/admin/api/operations", {
     data: { action, args },
@@ -27,6 +30,7 @@ test('header uses the project brand and icons without a refresh control',async({
   await expect(page.locator('#refresh')).toHaveCount(0);
   for(const selector of ['#repository-link','#logout'])await expect(page.locator(selector+' svg')).toBeVisible();
   await expect(page.locator('.console-header .ant-select-prefix svg')).toBeVisible();
+  for(const height of await page.locator('.console-header .ant-btn, .console-header .ant-select').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().height)))expect(height,'compact header controls must align').toBeCloseTo(32,0);
 });
 
 test('configuration labels and inputs share a row in desktop and phone layouts',async({page})=>{
@@ -232,8 +236,7 @@ test('inherited model option names the global default rather than the override',
   await operation(page,'configuration_update',{scope:'manager',patch:{model:'gpt-6.1-sol'}});
   const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic default label',execution:{model:'fixture-fast'}}})).json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
-  await page.locator('#chat-model').click();
-  await page.locator('.ant-select-dropdown:visible').getByText('默认：Fixture Default',{exact:true}).click();
+  await chooseChatModel(page,'继承全局设置');
   await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});
 });
 
@@ -491,7 +494,9 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.mobile-navigation')).toBeVisible();
+  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation')).toBeVisible();
+  await page.locator('.mobile-navigation [role=menuitem]').first().click({trial:true});
+  await expect.poll(()=>page.locator('.mobile-navigation [role=menuitem]').evaluateAll(items=>Math.min(...items.map(item=>item.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
   for (const name of [
     "overview",
     "chat",
@@ -500,7 +505,7 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
     "schedules",
     "settings",
   ]) {
-    const button = page.locator(`[data-view="${name}"]`),
+    const button = page.locator(`.mobile-navigation [data-view="${name}"]`).locator('..').locator('..'),
       box = await button.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -572,9 +577,11 @@ test("language switching preserves plugin data and settings drafts without write
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expectChoice(page,"#app-language","en");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await page.locator('.mobile-navigation [role=menuitem]').first().click({trial:true});
+  await expect.poll(()=>page.locator('.mobile-navigation [role=menuitem]').evaluateAll(items=>Math.min(...items.map(item=>item.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
   await expect(page.locator('.mobile-navigation [data-view]').first()).toBeVisible();
-  for (const button of await page.locator(".mobile-navigation [data-view]").all()) {
+  for (const button of await page.locator(".mobile-navigation [role=menuitem]").all()) {
     const box = await button.boundingBox();
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -627,7 +634,7 @@ test("management messages render safe Markdown and retain an unsent draft during
   await expect(page.locator("#messages")).toContainText("<img src=x");
   const reply=page.locator('#messages .assistant').last();
   await expect(reply.getByRole('heading',{name:'运行报告'})).toBeVisible();
-  await expect(reply.locator('strong')).toHaveText('队列');
+  await expect(reply.locator('.message-markdown strong')).toHaveText('队列');
   await expect(reply.locator('pre code')).toHaveText('const count = 3;\n');
   await expect(reply.locator('table tbody td').first()).toHaveText('3');
   await expect(reply.locator('a[href^="javascript:"]')).toHaveCount(0);
@@ -699,7 +706,7 @@ test('a pending retry cannot create multiple replacement tasks through repeated 
 test('English navigation covers each view and schedules guide users to management chat',async({page})=>{
   await choose(page,'#app-language','en');
   for(const [view,title] of Object.entries({overview:'Overview',chat:'Management chat',tasks:'Task history',plugins:'Business plugins',schedules:'Schedules',settings:'Settings'})){
-    await navigate(page,view);await expect(page.locator('#page-title')).toHaveText(title);
+    await navigate(page,view);await expect(page.locator('#page-title')).toHaveText('Codex Agent Platform');await expect(page.locator('#view-title')).toHaveText(title);
   }
   await navigate(page,'schedules');
   await expect(page.getByText('Schedule configuration',{exact:true})).toBeVisible();
@@ -798,11 +805,15 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
   test.setTimeout(90000);
   for(const language of ['zh-CN','en']){
     await choose(page,'#app-language',language);
-    for(const width of [390,768,1440,2560]){
+    for(const width of [320,390,768,1440,2560]){
       await page.setViewportSize({width,height:1000});
       for(const view of ['overview','chat','tasks','plugins','schedules','settings']){
         await navigate(page,view);await expect(page.locator(view==='chat'?'.chat-compose':'#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
         await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:language+' '+width+' '+view}).toBeLessThanOrEqual(width);
+        if(view==='overview'){
+          const metrics=await page.locator('.metric-card .ant-statistic-content-value').evaluateAll(nodes=>nodes.map(value=>{const body=value.closest('.ant-card-body'),style=getComputedStyle(body);return {text:value.textContent,width:value.getBoundingClientRect().width,available:body.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)};}));
+          for(const metric of metrics)expect(metric.width,`${language} metric ${metric.text} at ${width}px`).toBeLessThanOrEqual(metric.available+1);
+        }
         if(view==='settings'){
           await expect(page.getByRole('tabpanel',{includeHidden:false})).toHaveCount(1);
           await expect(page.locator('.settings-tabs .ant-card:visible')).toHaveCount(1);

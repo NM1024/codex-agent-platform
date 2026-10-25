@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 const number=(text,key)=>Number(text.match(new RegExp(`^${key}:?\\s+(\\d+)`,'m'))?.[1]);
 export class ResourceSampler {
-  constructor({procRoot='/host/proc',cgroupRoot='/sys/fs/cgroup',diskPath='/management'}={}){Object.assign(this,{procRoot,cgroupRoot,diskPath});}
+  constructor({procRoot='/host/proc',cgroupRoot='/sys/fs/cgroup',diskPath='/management',readDiskStats=statfs}={}){Object.assign(this,{procRoot,cgroupRoot,diskPath,readDiskStats});}
   async sample() {
     const files=[join(this.procRoot,'stat'),join(this.procRoot,'meminfo'),join(this.cgroupRoot,'cpu.max'),join(this.cgroupRoot,'cpu.stat'),join(this.cgroupRoot,'memory.current'),join(this.cgroupRoot,'memory.max')];
     const values=await Promise.allSettled(files.map(path=>readFile(path,'utf8'))),text=index=>values[index].status==='fulfilled'?values[index].value:null;
@@ -17,16 +17,21 @@ export class ResourceSampler {
     }
     if(text(1)) {
       const total=number(text(1),'MemTotal'),available=number(text(1),'MemAvailable');
-      if(Number.isFinite(total)&&Number.isFinite(available))Object.assign(host,{available:true,memory_total_bytes:total*1024,memory_used_bytes:(total-available)*1024});
+      if(Number.isFinite(total)&&total>0&&Number.isFinite(available)&&available<=total)Object.assign(host,{available:true,memory_total_bytes:total*1024,memory_used_bytes:(total-available)*1024,memory_available_bytes:available*1024});
     }
-    if(text(2)) {const [quota,period]=text(2).trim().split(/\s+/);container.quota_cores=quota==='max'?null:Number(quota)/Number(period);}
+    if(text(2)) {
+      const [quota,period]=text(2).trim().split(/\s+/),cores=Number(quota)/Number(period);
+      if(quota==='max')container.quota_cores=null;
+      else if(Number(period)>0&&Number.isFinite(cores)&&cores>0)container.quota_cores=cores;
+    }
     if(text(3)) {
       const usage=number(text(3),'usage_usec');
       if(Number.isFinite(usage)) {container.cpu_percent=this.previousContainer&&now>this.previousContainer.time?Math.round((usage-this.previousContainer.usage)/(now-this.previousContainer.time)/10):null;this.previousContainer={time:now,usage};}
     }
-    if(text(4))container.memory_used_bytes=Number(text(4).trim());
-    if(text(5))container.memory_limit_bytes=text(5).trim()==='max'?null:Number(text(5).trim());
-    let disk;try{const stats=await statfs(this.diskPath);disk={path:this.diskPath,total_bytes:stats.blocks*stats.bsize,available_bytes:stats.bavail*stats.bsize};}catch{disk={path:this.diskPath,available:false};}
+    if(text(4)&&/^\d+$/.test(text(4).trim())&&Number.isSafeInteger(Number(text(4))))container.memory_used_bytes=Number(text(4).trim());
+    if(text(5)?.trim()==='max')container.memory_limit_bytes=null;
+    else if(text(5)&&/^\d+$/.test(text(5).trim())&&Number.isSafeInteger(Number(text(5)))&&Number(text(5))>0)container.memory_limit_bytes=Number(text(5).trim());
+    let disk;try{const stats=await this.readDiskStats(this.diskPath);disk={path:this.diskPath,total_bytes:stats.blocks*stats.bsize,free_bytes:stats.bfree*stats.bsize,used_bytes:(stats.blocks-stats.bfree)*stats.bsize,available_bytes:stats.bavail*stats.bsize};}catch{disk={path:this.diskPath,available:false};}
     return {sampled_at:now,host,container,process:{pid:process.pid,memory_rss_bytes:process.memoryUsage().rss},disk};
   }
 }

@@ -1,6 +1,6 @@
 import {useRef,useState} from 'react';
 import {Alert,Button,Checkbox,Form,Input,InputNumber,Modal,Table,Typography} from 'antd';
-import {DeleteAction,Panel} from './components';
+import {DeleteAction,Panel,Status} from './components';
 import {useConsole} from './context';
 import {ApiError} from './api';
 import type {ConfigGroup,Json} from './types';
@@ -43,7 +43,7 @@ export default function HttpTargetsPanel({group,onSaved,reload}:{group:ConfigGro
       {title:t('目标名称'),dataIndex:'name',className:'table-identity-cell',render:name=><div className="table-identity"><Typography.Text code title={name}>{name}</Typography.Text></div>},
       {title:t('目标地址'),dataIndex:'url',className:'table-text-cell',render:url=><div className="table-summary" title={url}>{url}</div>},
       {title:t('超时（毫秒）'),key:'timeout',className:'table-meta-cell',render:(_,target)=>target.timeoutMs??60000},
-      {title:t('访问凭证'),key:'token',className:'table-status-cell',render:(_,target)=>t(configured(target.name)?'已配置':'未配置')},
+      {title:t('访问凭证'),key:'token',className:'table-status-cell',render:(_,target)=><Status value={configured(target.name)?'已配置':'未配置'}/>},
       {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,target)=><div className="plugin-row-actions"><Button aria-label={t('编辑 HTTP 目标：{name}',{name:target.name})} onClick={()=>open(target.name)}>{t('编辑')}</Button><DeleteAction label={t('删除 HTTP 目标：{name}',{name:target.name})} name={target.name} description={t('删除后 Agent 无法再通过该名称发起请求。已发出的请求和插件结果回调不受影响。')} onDelete={async()=>{
         const next=Object.fromEntries(Object.entries(targets).filter(([name])=>name!==target.name));
         try{onSaved(await operation<ConfigGroup>('configuration_update',{scope:'http_targets',revision:group.revision,patch:{targets:next}}));}

@@ -16,7 +16,11 @@ export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loadi
     void act(onClick).finally(()=>{locked.current=false;setBusy(false);});
   }}/>;
 }
-export function DataLoading(){const {t}=useConsole();return <div className="page-loading" role="status"><Spin/> {t('正在加载数据…')}</div>;}
+export function LoadingState({label='正在加载数据…',className='',compact=false}:{label?:string;className?:string;compact?:boolean}) {
+  const {t}=useConsole();
+  return <div className={'loading-state '+(compact?'loading-state--compact ':'')+className} role="status" aria-live="polite" aria-atomic="true"><div className="loading-state-content"><span aria-hidden="true"><Spin size={compact?'small':'default'}/></span><span className="loading-state-label">{t(label)}</span></div></div>;
+}
+export function DataLoading(){return <LoadingState className="page-loading"/>;}
 export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
   const {t}=useConsole(),locked=useRef(false);
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -35,19 +39,33 @@ export function DeleteAction({label,name,description,onDelete}:{label:string;nam
     </Modal>
   </>;
 }
-export function Status({value}:{value:string}){const {t}=useConsole();return <Tag color={['failed','unknown','未就绪'].includes(value)?'error':['completed','accepted','已就绪','已启用','程序可用'].includes(value)?'success':'default'}>{t(labels[value]??value)}</Tag>;}
+export function Status({value,id}:{value:string;id?:string}) {
+  const {t}=useConsole();
+  const tone=['failed','执行失败'].includes(value)?'error'
+    :['completed','accepted','已就绪','已启用','程序可用','接入已就绪','已配置'].includes(value)?'success'
+    :['running','dispatching','completing','executing'].includes(value)?'processing'
+    :['unknown','suspended','interrupted','未就绪','待配置接入','待领取入口密钥','未配置'].includes(value)?'warning':'neutral';
+  return <Tag id={id} className={'status-tag status-tag--'+tone}><span className="status-dot" aria-hidden="true"/><span className="status-tag-text">{t(labels[value]??value)}</span></Tag>;
+}
 export function Panel({title,children,extra}:{title:string;children:ReactNode;extra?:ReactNode}){return <Card className="console-panel" title={<Typography.Title level={2}>{title}</Typography.Title>} extra={extra}>{children}</Card>;}
+export function TableField({label,children}:{label:string;children:ReactNode}) {
+  return <div className="table-field"><span className="table-field-label">{label}</span><div className="table-field-value">{children}</div></div>;
+}
+export function TableIdentifier({value}:{value?:string}) {
+  const {t}=useConsole();
+  return value?<div className="table-identifier"><code title={value}>{value}</code><Typography.Text copyable={{text:value,tooltips:[t('复制'),t('已复制')]}}/></div>:<>—</>;
+}
 export function AgentGuidance({title,description}:{title:string;description:string}) {
   const {navigate,t}=useConsole();
   return <Alert className="agent-guidance" type="info" showIcon title={title} description={<div className="agent-guidance-content"><Typography.Paragraph>{description}</Typography.Paragraph><Button type="primary" onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button></div>}/>;
 }
 export function EnableToggle({enabled,label,onChange}:{enabled:boolean;label:string;onChange:(value:boolean)=>Promise<unknown>}) {
-  const {act,t}=useConsole(),locked=useRef(false),[loading,setLoading]=useState(false);
+  const {act}=useConsole(),locked=useRef(false),[loading,setLoading]=useState(false);
   return <div className="enable-toggle"><Switch checked={enabled} aria-label={label} loading={loading} disabled={loading} onChange={value=>{
     if(locked.current)return;
     locked.current=true;setLoading(true);
     void act(()=>onChange(value)).finally(()=>{locked.current=false;setLoading(false);});
-  }}/><Typography.Text type="secondary">{t(enabled?'已启用':'已停用')}</Typography.Text></div>;
+  }}/></div>;
 }
 export function JsonView({value}:{value:unknown}){return <pre className="json-view">{pretty(value)}</pre>;}
 export function CatalogNote(){const {catalog,t}=useConsole();return catalog.unavailable?<Alert type="warning" showIcon title={t('模型列表暂不可用，保留当前配置。请检查 Codex 登录和服务连接后刷新。')}/>:null;}
@@ -63,8 +81,8 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   const effort=Object.hasOwn(value,'reasoningEffort')?(value.reasoningEffort??''):inherit?'__inherit__':'';
   if(effort&&!effortOptions.some(item=>item.value===effort))effortOptions.push({value:effort,label:t('当前保存值：{value}',{value:effort})});
   return <div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
-    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange({...(!inherit?{model}:model?{model}:{}),...(!inherit?{reasoningEffort:null}:{})})}/></Form.Item>
-    <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=>value==='__inherit__'?t('默认：{value}',{value:inheritedEffort}):label:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
+    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} labelRender={compact?({value,label})=><><span className="picker-label-full">{label}</span><span className="picker-label-phone">{value===''?inheritedModel?.displayName??defaults.model??t('模型默认'):label}</span></>:undefined} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange({...(!inherit?{model}:model?{model}:{}),...(!inherit?{reasoningEffort:null}:{})})}/></Form.Item>
+    <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=><><span className="picker-label-full">{value==='__inherit__'?t('默认：{value}',{value:inheritedEffort}):label}</span><span className="picker-label-phone">{value==='__inherit__'?inheritedEffort:label}</span></>:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
   </div>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {

@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import {randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
@@ -12,6 +12,8 @@ import {buildPluginIntegration} from './plugin-integration.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
+const entityTag=bytes=>'"'+createHash('sha256').update(bytes).digest('base64url')+'"';
+const matchesTag=(header,etag)=>(header??'').split(',').some(value=>value.trim()==='*'||value.trim().replace(/^W\//,'')===etag);
 export function createManagerServer({store,agent,operations,auth,metrics}) {
   const streams=new Set();let eventsClosed=false;
   const server=createServer(async(req,res)=>{
@@ -28,7 +30,10 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         catch(error){if(error.code==='ENOENT')throw new HttpError(404,'NOT_FOUND','找不到接口。');throw error;}
         const type=file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':file.endsWith('.md')?'text/plain; charset=utf-8':'image/svg+xml';
         if(index)data=Buffer.from(data.toString('utf8').replace('__CSP_NONCE__',nonce));
-        res.writeHead(200,{'content-type':type,'content-length':data.length,...(hashed?{'vary':'Accept-Encoding'}:{}),...(encoding!=='identity'?{'content-encoding':encoding}:{}),'cache-control':index?'no-store':hashed?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'});return res.end(req.method==='HEAD'?undefined:data);
+        const etag=index?null:entityTag(data);
+        const headers={'content-type':type,...(etag?{'etag':etag}:{}),...(hashed?{'vary':'Accept-Encoding'}:{}),...(encoding!=='identity'?{'content-encoding':encoding}:{}),'cache-control':index?'no-store':hashed?'public, max-age=31536000, immutable':'no-cache','x-content-type-options':'nosniff','content-security-policy':`default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,'referrer-policy':'no-referrer'};
+        if(etag&&matchesTag(req.headers['if-none-match'],etag)){res.writeHead(304,headers);return res.end();}
+        res.writeHead(200,{...headers,'content-length':data.length});return res.end(req.method==='HEAD'?undefined:data);
       }
       if(!path.startsWith('/admin/api/'))throw new HttpError(404,'NOT_FOUND','找不到接口。');
       if(['POST','DELETE'].includes(req.method)&&req.headers.origin) {
@@ -45,13 +50,27 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}
       const questionAnswer=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/questions\/([a-f0-9-]{36})\/answer$/);
       if(req.method==='POST'&&questionAnswer){const body=await readJson(req);return json(res,200,agent.answerQuestion(questionAnswer[1],questionAnswer[2],body.answers));}
+      const queuedMessage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/messages\/([a-f0-9-]{36})(?:\/(withdraw|requeue|steer))?$/);
+      if(queuedMessage) {
+        const [,conversationId,messageId,action]=queuedMessage;
+        if(req.method==='DELETE'&&!action)return json(res,200,store.removeQueued(conversationId,messageId));
+        if(req.method==='POST'&&action==='withdraw')return json(res,200,store.withdrawQueued(conversationId,messageId));
+        if(req.method==='POST'&&action==='requeue'){const body=await readJson(req);return json(res,200,agent.requeue(conversationId,messageId,body.text));}
+        if(req.method==='POST'&&action==='steer')return json(res,200,await agent.steerQueued(conversationId,messageId));
+      }
       const events=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/events$/);
       if(req.method==='GET'&&events){if(eventsClosed)throw new HttpError(503,'SERVER_SHUTTING_DOWN','服务正在重启，请稍后重连。');const close=streamConversation({req,res,store,auth,id:events[1],onClose:closed=>streams.delete(closed)});if(!res.writableEnded)streams.add(close);return;}
       const chatImage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/images\/([a-f0-9-]{36})$/);
-      if(req.method==='GET'&&chatImage) {
+      if(['GET','HEAD'].includes(req.method)&&chatImage) {
         const image=store.getImage(chatImage[1],chatImage[2]);
-        res.writeHead(200,{'content-type':image.mime,'content-length':image.size,'cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",'referrer-policy':'no-referrer'});
-        return res.end(Buffer.from(image.bytes));
+        const etag=entityTag(image.bytes);
+        const headers={'content-type':image.mime,'cache-control':'private, no-cache','etag':etag,'vary':'Cookie','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'",'referrer-policy':'no-referrer'};
+        // Revalidate only after authentication and ownership/deletion checks.
+        if(matchesTag(req.headers['if-none-match'],etag)){
+          res.writeHead(304,headers);return res.end();
+        }
+        res.writeHead(200,{...headers,'content-length':image.size});
+        return res.end(req.method==='HEAD'?undefined:Buffer.from(image.bytes));
       }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);
@@ -71,22 +90,23 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         return json(res,200,{sampled_at:Date.now(),manager:{alive:true},platform,resources:platform.resources ?? await metrics.sample(),investigations:store.investigations()});
       }
       if(path==='/admin/api/conversations') {
-        if(req.method==='GET')return json(res,200,store.list());
+        if(req.method==='GET')return json(res,200,store.listPage({...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST') {
           const body=await readJson(req);
           store.validateExecution(body.execution ?? {});
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
           const conversation=store.createConversation(body.title,body.task_id?'task:'+body.task_id:null);
           if(body.execution)store.setConversationExecution(conversation.id,body.execution);
-          if(body.investigate===true&&body.task_id&&!conversation.messages.length)
+          if(body.investigate===true&&body.task_id&&!conversation.messages.length&&!conversation.queue?.length)
             agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
-          return json(res,201,store.getConversation(conversation.id));
+          return json(res,201,store.getConversationPage(conversation.id));
         }
       }
       const conversation=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})(\/messages)?$/);
       if(conversation) {
+        if(req.method==='GET'&&conversation[2])return json(res,200,store.messageGroups(conversation[1],(url.searchParams.get('ids')??'').split(',')));
         if(req.method==='DELETE'&&!conversation[2])return json(res,200,await agent.deleteConversation(conversation[1]));
-        if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversation(conversation[1]));
+        if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversationPage(conversation[1],{...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
         if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images));}
       }

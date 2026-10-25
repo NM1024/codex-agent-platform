@@ -83,7 +83,7 @@ test('manager image HTTP routes validate admission and require authentication an
   assert.equal((await fetch(base+image.url)).status,401);
   assert.equal((await fetch(`${base}/admin/api/conversations/${other.id}/images/${image.id}`,{headers})).status,404);
   const preview=await fetch(base+image.url,{headers});assert.equal(preview.status,200);assert.equal(preview.headers.get('content-type'),'image/webp');
-  assert.equal(preview.headers.get('cache-control'),'no-store');assert.deepEqual(Buffer.from(await preview.arrayBuffer()),bytes);
+  assert.equal(preview.headers.get('cache-control'),'private, no-cache');assert.deepEqual(Buffer.from(await preview.arrayBuffer()),bytes);
   const rejected=await fetch(`${base}/admin/api/conversations/${conversation.id}/messages`,{method:'POST',headers,body:JSON.stringify({text:'hello',attachments:[{name:'fake.png',dataUrl:'data:image/png;base64,AA=='}]})});
   assert.equal(rejected.status,400);assert.equal(store.getConversation(conversation.id).messages.length,1);
 });
@@ -188,19 +188,19 @@ test('per-message activity, action ownership and recovery states survive restart
     store.progress(first.id,{id:'a',kind:'reasoning_summary',label:'Reasoning summary',text:'Checking records',status:'running'});
     store.progress(first.id,{id:'b',kind:'tool',label:'tasks',text:'',status:'running'});
     for(let n=0;n<150;n++)store.progress(first.id,{id:'entry-'+n,kind:'assistant_message',label:'Assistant',text:'x'.repeat(20000),status:'running'});
-    const active=store.getConversation(conversation.id).messages[0];
+    const active=store.getConversation(conversation.id).messages.find(message=>message.id===first.id);
     assert.ok(active.started_at);assert.ok(active.updated_at>=active.started_at);
     assert.ok(active.activity.length<=100);assert.ok(active.activity.reduce((sum,row)=>sum+row.text.length,0)<=65536);
     assert.equal(store.actions(conversation.id)[0].message_id,first.id);
     assert.equal(store.list()[0].queued_count,1);assert.equal(store.list()[0].running_count,1);
     store.recover();
-    assert.equal(store.getConversation(conversation.id).messages[0].status,'interrupted');
+    assert.equal(store.getConversation(conversation.id).messages.find(message=>message.id===first.id).status,'interrupted');
     assert.equal(store.actions(conversation.id)[0].status,'unknown');
-    assert.ok(store.getConversation(conversation.id).messages[0].activity.every(row=>row.status!=='running'));
+    assert.ok(store.getConversation(conversation.id).messages.find(message=>message.id===first.id).activity.every(row=>row.status!=='running'));
     assert.equal(store.next(conversation.id).id,first.id);
     store.markRunning(first.id);store.finish(first,null,'Done');store.finish(first,null,'Late duplicate');
     const saved=store.getConversation(conversation.id),reply=saved.messages.find(row=>row.role==='assistant');
-    assert.equal(reply.reply_to,first.id);assert.ok(saved.messages[0].completed_at);assert.equal(reply.text,'Done');
+    assert.equal(reply.reply_to,first.id);assert.ok(saved.messages.find(message=>message.id===first.id).completed_at);assert.equal(reply.text,'Done');
     assert.equal(saved.messages.filter(row=>row.role==='assistant').length,1);assert.equal(store.next(conversation.id).id,second.id);
     assert.equal(store.actions(conversation.id).find(row=>row.id===action).message_id,first.id);
   }finally{store.close();}

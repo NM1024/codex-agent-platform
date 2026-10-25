@@ -1,0 +1,9 @@
+# Chat running status
+
+The user chose A: a persistent status strip directly above the composer plus a matching dynamic indicator beside the Agent reply. User message headers show only their local date/time. Supply actual production UI screenshots after implementation.
+
+Use existing message/activity/question state and transport health, without backend or protocol changes. A clear spinner and bold phase distinguish running from stopped; expose image generation, web search, generic tool execution and streamed reply only when supported by real events. Show elapsed duration and age of last recorded task progress independently of polling/connection heartbeats. No guessed percentages, automatic timeouts or claims that an animation proves new progress. Pending questions and interrupted tasks use a static warning, completion uses a static check, failure uses a static error. Reconnection or failed background reads explicitly qualify stale state and stop the running spinner until state is readable. Keep the latest outcome visible until the next request or conversation switch, without mixing active and queued requests or resurfacing older history as current work.
+
+Retain private synthetic fixtures, existing queue controls, local drafts, history scrollback, slider behavior and responsive keyboard-height layout. Use fixed-size indicators, tabular timers, bounded one-line phase text and reduced-motion handling so updates do not jump. Follow existing React/Ant Design green styling; localize Chinese/English. Inspect desktop, 390/320px phone and short landscape views, including long labels and terminal/transport transitions.
+
+Approaches: A keeps the current state visible while reading history and is selected; B only enlarges the reply footer and can scroll out of view. No extra controls, stop capability, dependencies or account actions.

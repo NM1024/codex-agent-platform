@@ -1,3 +1,4 @@
+import {navigate} from './navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 const stamp=Date.now()-5000;
@@ -22,7 +23,7 @@ async function setup(page,items=[first,second]) {
   await page.route('**/admin/api/conversations',route=>route.fulfill({json:items}));
   for(const item of items)await page.route(`**/admin/api/conversations/${item.id}`,route=>route.fulfill({json:item}));
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');
-  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await expect(page.locator('.chat-header')).toContainText(items[0].title);
 }
 const emit=(page,type,data,index=0)=>page.evaluate(({index,type,data})=>window.emitChat(index,type,data),{index,type,data});
@@ -40,7 +41,7 @@ test('stream patches render one live assistant bubble and finalize it without lo
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'.tmp/chat-streaming/chat-live-mobile.png',animations:'disabled'});
   await page.setViewportSize({width:1440,height:1000});
-  await emit(page,'patch',{conversation:{id:first.id},messages:[{...turn,status:'completed',completed_at:Date.now(),partial_text:null},{id:'final',role:'assistant',text:'Public answer arriving now',status:'completed',created_at:Date.now(),reply_to:turn.id}],actions:[]});
+  await emit(page,'patch',{conversation:{id:first.id,queued_count:0,running_count:0},messages:[{...turn,status:'completed',completed_at:Date.now(),partial_text:null},{id:'final',role:'assistant',text:'Public answer arriving now',status:'completed',created_at:Date.now(),reply_to:turn.id}],actions:[]});
   await expect(page.locator('.assistant')).toHaveCount(1);await expect(page.locator('.message-partial')).toHaveCount(0);
   await expect(page.locator('.user')).toContainText('Synthetic request');
   await expect(page.getByRole('button',{name:'删除对话：Streaming title',exact:true})).toBeEnabled();
@@ -58,7 +59,7 @@ test('reconnect snapshots replace old text and navigation closes stale event sou
   await expect.poll(()=>page.evaluate(()=>window.chatStreams[0].readyState)).toBe(2);
   await emit(page,'conversation',{...first,title:'Stale title',messages:[{...turn,partial_text:'Stale response'}]});
   await expect(page.locator('#messages')).not.toContainText('Stale response');await expect(page.locator('.chat-header')).toContainText(second.title);
-  await page.locator('[data-view="overview"]').click();
+  await navigate(page,'overview');
   await expect.poll(()=>page.evaluate(()=>window.chatStreams.every(source=>source.readyState===2))).toBe(true);
 });
 
@@ -131,7 +132,7 @@ test('mobile history deletion clears the selected chat and closes the drawer',as
 
 test('native SSE displays incremental synthetic replies then deletes durable history',async({page})=>{
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');
-  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await page.getByRole('button',{name:'＋ 新对话',exact:true}).click();
   await page.locator('#message-input').fill('Browser streaming fixture');
   await page.locator('.composer-send').click();

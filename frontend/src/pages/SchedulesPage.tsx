@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Table,Typography} from 'antd';
-import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,Status,useLoad} from '../components';
+import {AgentGuidance,DataLoading,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {Schedule} from '../types';
 
@@ -9,23 +9,27 @@ function nextRun(plan:Schedule) {
   return new Intl.DateTimeFormat(undefined,{timeZone:plan.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(plan.next_run_at));
 }
 export default function SchedulesPage() {
-  const {api,operation,t}=useConsole();
+  const {api,operation,t,locale}=useConsole();
   const [selectedId,setSelectedId]=useState<string>();
-  const {data:plans=[],setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
+  const {data:loadedPlans,setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
+  const plans=loadedPlans??[];
   const selected=plans.find(plan=>plan.id===selectedId);
+  if(loading&&loadedPlans===undefined)return <DataLoading/>;
   return <>
     <AgentGuidance title={t('定时计划配置')} description={t('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。')}/>
     <Panel title={t('定时计划')}>
       <Typography.Paragraph type="secondary">{t('时间按每个计划设置的时区显示；新增或编辑请在管理对话中说明。')}</Typography.Paragraph>
-      <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} className="responsive-table" tableLayout="auto" locale={{emptyText:t('暂无记录')}} columns={[
-        {title:t('计划'),key:'plan',className:'table-identity-cell',render:(_,plan)=><>{plan.name}<br/><Typography.Text type="secondary">{plan.kind==='inspection'?t('管理巡检'):plan.type}</Typography.Text></>},
-        {title:t('规则'),key:'rule',className:'table-meta-cell',responsive:['md'],render:(_,plan)=><><Typography.Text code>{plan.cron}</Typography.Text><br/><Typography.Text type="secondary">{plan.timezone}</Typography.Text></>},
-        {title:t('下次触发'),key:'next',className:'table-meta-cell',responsive:['lg'],render:(_,plan)=>nextRun(plan)},
-        {title:t('状态'),key:'status',className:'table-status-cell',render:(_,plan)=><><EnableToggle enabled={plan.enabled} label={t('启停定时计划：{name}',{name:plan.name})} onChange={async enabled=>{
+      <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" locale={{emptyText:t('暂无记录')}} columns={[
+        {title:t('计划名称'),key:'plan',className:'table-name-cell',render:(_,plan)=><TableField label={t('计划名称')}><span className="table-summary" title={plan.name}>{plan.name}</span></TableField>},
+        {title:t('触发对象'),key:'target',width:'15%',className:'table-target-cell',render:(_,plan)=><TableField label={t('触发对象')}><span className="table-summary" title={plan.type}>{plan.kind==='inspection'?t('管理巡检'):plan.type}</span></TableField>},
+        {title:t('Cron 规则'),key:'rule',width:'14%',className:'table-rule-cell',render:(_,plan)=><TableField label={t('Cron 规则')}><Typography.Text code>{plan.cron}</Typography.Text></TableField>},
+        {title:t('时区'),key:'zone',width:'16%',className:'table-zone-cell',render:(_,plan)=><TableField label={t('时区')}>{plan.timezone}</TableField>},
+        {title:t('下次触发'),key:'next',width:'18%',className:'table-meta-cell',render:(_,plan)=><TableField label={t('下次触发')}>{nextRun(plan)}</TableField>},
+        {title:t('状态'),key:'status',width:100,className:'table-status-cell',render:(_,plan)=><TableField label={t('状态')}><EnableToggle enabled={plan.enabled} label={t('启停定时计划：{name}',{name:plan.name})} onChange={async enabled=>{
           const updated=await operation<Schedule>('schedule_enable',{id:plan.id,enabled});
           setPlans(current=>current?.map(item=>item.id===updated.id?updated:item));
-        }}/>{plan.blocked_reason&&<div><Typography.Text type="danger">{t('触发受阻')}</Typography.Text></div>}</>},
-        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plan)=><div className="plugin-row-actions"><Button onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button><DeleteAction label={t('删除定时计划：{name}',{name:plan.name})} name={plan.name} description={t('删除后从列表隐藏、停止后续触发，并取消尚未交给管理 Agent 的巡检。已接单任务和对话继续执行，历史记录保留。')} onDelete={async()=>{
+        }}/>{plan.blocked_reason&&<div><Typography.Text type="danger">{t('触发受阻')}</Typography.Text></div>}</TableField>},
+        {title:t('操作'),key:'actions',width:locale==='en'?208:168,className:'table-actions-cell',render:(_,plan)=><div className="plugin-row-actions"><Button type="text" onClick={()=>setSelectedId(plan.id)}>{t('查看详情')}</Button><DeleteAction label={t('删除定时计划：{name}',{name:plan.name})} name={plan.name} description={t('删除后从列表隐藏、停止后续触发，并取消尚未交给管理 Agent 的巡检。已接单任务和对话继续执行，历史记录保留。')} onDelete={async()=>{
           await operation('schedule_delete',{id:plan.id});
           setPlans(current=>current?.filter(item=>item.id!==plan.id));
           if(selectedId===plan.id)setSelectedId(undefined);

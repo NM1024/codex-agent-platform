@@ -104,6 +104,6 @@ test('expired session discards pending claim and a new session starts without th
 });
 
 test('claim action and one-time guidance follow the selected English locale',async({page})=>{
-  await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();await open(page);
+  await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();await open(page);
   await expect(claim(page)).toHaveText('Claim entry key');await modal(page).locator('.connection-help summary').first().click();await expect(modal(page)).toContainText('only an administrator can claim it once');
 });

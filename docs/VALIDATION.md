@@ -241,3 +241,32 @@ Verified on 2026-10-24 with Node.js 24 and synthetic data:
 - All 281 isolated Linux project tests and both host Compose checks passed (283 total). Strict TypeScript/Vite and release validation passed (84 JavaScript modules, 3 JSON resources). Four Docker packaging targets passed; the non-root, read-only, network-disabled packaged test image passed 276 checks. Packaging retains the previously documented reused dependency/system CA accommodations; a fresh standard apt/npm image build is not claimed.
 - All 118 browser cases have passing results: the complete run passed 117 and sampled the old width immediately after switching to a phone viewport in one new check. Waiting for settled responsive layout resolved that check; a targeted three-case run and an additional phone-modal visibility/geometry check passed. Coverage includes create/edit/delete, masked/retained/cleared tokens, reload, stale Agent/page conflicts, local validation, duplicate-submit locks, retained failure drafts and English phone layouts. Synthetic desktop and phone screenshots were inspected with secret fields empty.
 - Host Windows configuration reopening and Runner execution-snapshot checks hit existing SQLite cleanup/fsync restrictions; Linux equivalents passed. The validation-image npm test wrapper still exits before running tests, so its equivalent package Node command was run directly, with Compose checks separate. No actual websites, account/model tasks, login credentials or platform services were used. Logs, staged sources and screenshots remain ignored under .tmp/.
+
+
+## Compact mobile console
+
+Verified on 2026-10-25 with Node.js 24 and synthetic local fixtures:
+
+- The top bar uses the platform title. Below 992px, navigation opens downward from a menu button and repository, language and sign-out controls use icons with accessible names. Menu choices settle at a 44px touch height. Desktop sidebar navigation remains available.
+- Model, reasoning, image upload and send share one phone toolbar row. Phone-only hints are hidden; character-limit errors and model-save feedback remain accessible. Drafts, full picker options, image controls and sign-out behavior are covered.
+- VisualViewport resize/scroll events adjust the normal-scale mobile shell and preserve browser pinch zoom. Checks include offset, keyboard-height reduction down to 240px, restoration and draft retention. The compact transcript minimum scales down only in short visible areas. Physical iOS/Android keyboard behavior was not exercised.
+- Mobile menus load on demand; the existing cold-login compressed-script budget remains unchanged and passes. Stable history-action labels exclude exiting loading-spinner text; the delayed-page regression passed 10 isolated repetitions.
+- Final application suite: 293 passed. Final Chromium suite: 148 passed, including locales, phone/desktop geometry, loading/modal alignment and existing media/cache/race behavior. TypeScript/production build and release validation passed (88 modules, 3 JSON resources). Independent review and `git diff --check` found no remaining issues.
+
+No production credentials, real-account model tasks or production deployment were used. Build outputs, screenshots, probe scripts and logs remain under ignored directories.
+
+## Operations overview cards
+
+The approved operations overview is implemented in the actual Admin frontend, using synthetic local API fixtures for visual acceptance. The six resource cards distinguish host metrics, Manager cgroup metrics, process RSS and the Manager data filesystem. Tests cover reserved disk blocks (`bfree` versus `bavail`), malformed/missing cgroup fields, explicit unlimited quotas, partial host samples and CPU warm-up.
+
+Browser checks cover resource filters, correct capacity ratios, readiness/paused/unknown states, preserved concurrency drafts during polling, integer validation, a running count above a lowered limit, restart confirmation, refresh failure/recovery, slow reads, editor write locks and stale response ordering. Responsive geometry covers Chinese and English at 320, 390, 768, 1440 and 1920 pixels; the existing broader Admin regressions also exercise the page.
+
+Actual Chromium screenshots were opened and reviewed, including normal, high usage, unlimited, missing, paused and blocked states. Desktop resource cards measured 196px high and phone cards 184px high; service and task cards were consistent within their groups. Scheduling buttons measured 36px and compact service actions 32px. No card overflow was observed in the sampled desktop/phone layouts. The phone empty-table placeholder was corrected to remain centered, and the mobile restart confirmation was visually checked after its opening animation.
+
+Captures and inspection logs remain under ignored `.tmp/overview-implementation/`. The visual checks use synthetic values, not a production server. No real Runner restart or account-backed task was executed, and this follow-up does not add network traffic, history charts or all-disk enumeration. Existing deployment volume mounts must expose the relevant host/cgroup metrics; unavailable sources remain explicitly unknown.
+
+Final verification for this follow-up: `npm test` passed 294 tests; `npm run test:browser` passed 157 tests (6.8 minutes); TypeScript/Admin production build passed; `npm run check:release` passed with 88 modules and 3 JSON resources; `git diff --check` passed. Independent review findings were resolved and covered by the final suite. No Docker image rebuild or production deployment was performed in this follow-up.
+
+### Overview viewport CI timing
+
+The `227cc78` push workflow failed one overview geometry assertion while the same commit's PR workflow passed. Frame-level diagnostics reproduced the cause: resizing to 320px immediately after choosing a locale left the closing desktop language popup at its old coordinates, briefly making document width 1333px (1793px from the wider desktop case). The test now waits for the popup to become hidden and polls document width after resizing before measuring cards. Existing width limits, card-height checks and empty-state centering remain unchanged; production code is unchanged. Local verification passed 294 application tests, release validation and ten consecutive executions of the affected bilingual, five-viewport browser test.

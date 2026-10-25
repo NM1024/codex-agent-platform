@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 const definition={type:'delete.browser',name:'待删除测试业务',instructions:'Return the supplied object.',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'}};
-const navigate=(page,view)=>page.locator(`[data-view="${view}"]`).click();
+import {navigate} from './navigation.mjs';
 async function operation(page,action,args={}) {
   const response=await page.request.post('/admin/api/operations',{data:{action,args}});
   expect(response.ok()).toBeTruthy();return response.json();

@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 
-const navigate=(page,view)=>page.locator(`[data-view="${view}"]`).click();
+import {navigate} from './navigation.mjs';
 const stamp=Date.now()-10000;
 const user=(id,status,text)=>({id,role:'user',status,text,created_at:stamp,started_at:status==='queued'?null:stamp+1000,updated_at:stamp+5000});
 async function raster(page,width=32,height=16) {
@@ -19,7 +19,7 @@ test.beforeEach(async({page})=>{
 test('composer keeps one continuous focus frame while typing or choosing a model',async({page})=>{
   await navigate(page,'chat');await page.locator('#message-input').fill('Synthetic focus check');
   const frame=page.locator('.composer-input-shell');await expect(frame).toBeVisible();
-  for(const target of ['#message-input','#chat-model','#chat-reasoningEffort','.chat-image-picker','.composer-send']){
+  for(const target of ['#message-input','#chat-model','.chat-image-picker','.composer-send']){
     await page.locator(target).focus();
     const borders=await frame.evaluate(element=>{const style=getComputedStyle(element);return ['Top','Right','Bottom','Left'].map(edge=>({width:style['border'+edge+'Width'],color:style['border'+edge+'Color']}));});
     expect(new Set(borders.map(border=>border.color)).size).toBe(1);expect(borders.every(border=>border.width==='1px')).toBe(true);
@@ -34,7 +34,7 @@ test('running turns show partial replies, collapsed activity and FIFO pending me
     {...user('first','running','First request'),activity:[{id:'summary',kind:'reasoning_summary',label:'Progress summary',text:'Inspecting synthetic queue',status:'running',created_at:stamp,updated_at:stamp+5000},{id:'partial',kind:'assistant_message',label:'Assistant',text:'Partial answer while working',status:'running',created_at:stamp,updated_at:stamp+5000}]},
     user('second','queued','Second request'),user('third','queued','Third request')],actions:[{id:'tool-action',message_id:'first',name:'configuration_get',status:'completed'}]};
   await synthetic(page,conversation);
-  await expect(page.locator('.chat-pending')).toContainText('2');
+  await expect(page.locator('.chat-run-status')).toContainText('排队 2 条');
   await expect(page.locator('.message-progress').first()).toContainText('运行中');
   await expect(page.locator('.message-partial')).toContainText('Partial answer while working');
   await expect(page.getByText('Inspecting synthetic queue',{exact:true})).not.toBeVisible();
@@ -74,11 +74,11 @@ test.use({locale:'zh-CN'});
 test('short live replies keep author time and reply status on one line without overflowing',async({page})=>{
   await synthetic(page,{id:'short-header',title:'Short live reply',execution:{},messages:[{...user('request','running','Short reply please'),partial_text:'好'}],actions:[]});
   for(const language of ['zh-CN','en']){
-  if(language==='en'){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();}
+  if(language==='en'){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();}
   for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:568}]){
     await page.setViewportSize(viewport);
     const header=page.locator('.assistant .message-label');
-    await expect(header.locator('.partial-label')).toHaveText(language==='en'?'Replying':'回复中');
+    await expect(header.locator('.partial-label')).toHaveText(language==='en'?'Status unconfirmed':'状态待确认');
     const boxes=await header.locator(':scope > *').evaluateAll(items=>items.map(item=>item.getBoundingClientRect().toJSON()));
     const centers=boxes.map(box=>box.y+box.height/2);
     expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
@@ -107,6 +107,11 @@ test('image drafts and a pending queue leave readable transcript space on short 
     const rows=await page.locator('.chat-image-drafts figure').evaluateAll(items=>items.map(item=>Math.round(item.getBoundingClientRect().top)));
     return new Set(rows).size;
   }).toBe(1);
+  await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
+  await page.locator('#app-language').click();await page.getByText('English',{exact:true}).last().click();
+  await page.setViewportSize({width:320,height:844});
+  const drafts=await page.locator('.chat-image-drafts figure').evaluateAll(items=>items.map(item=>{const style=getComputedStyle(item);return {available:item.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),button:item.querySelector('button').getBoundingClientRect().width};}));
+  for(const draft of drafts)expect(draft.button,'English remove control must fit its thumbnail').toBeLessThanOrEqual(draft.available+1);
   await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
 });
 
@@ -144,7 +149,8 @@ test('accepted sends clear their draft even when the following read fails',async
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(conversation.title);
   await page.locator('#message-input').fill('Only enqueue once');await page.getByRole('button',{name:'发送',exact:true}).click();
   await expect(page.locator('#message-input')).toHaveValue('');
-  await expect(page.locator('#messages')).toContainText('Only enqueue once');
+  await expect(page.locator('.chat-queue')).toContainText('Only enqueue once');
+  await expect(page.locator('#messages')).not.toContainText('Only enqueue once');
   expect(calls).toBe(1);
 });
 
@@ -160,7 +166,8 @@ test('an accepted message releases the send button before its background read fi
   try {
     await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(conversation.title);
     await page.locator('#message-input').fill('Accepted before read');await page.getByRole('button',{name:'发送',exact:true}).click();
-    await expect(page.locator('#messages')).toContainText('Accepted before read');
+    await expect(page.locator('.chat-queue')).toContainText('Accepted before read');
+    await expect(page.locator('#messages')).not.toContainText('Accepted before read');
     await page.locator('#message-input').fill('Ready for another queued message');
     await expect(page.locator('.composer-send')).not.toHaveClass(/ant-btn-loading/);
   } finally {release();}
@@ -212,7 +219,7 @@ test('switching conversations shows an independent loader and ignores a late pre
   await page.locator('.conversation-list').getByRole('button',{name:'Fast second',exact:true}).click();
   await expect(page.locator('#messages')).toContainText('New conversation content');release();
   await page.waitForTimeout(250);await expect(page.locator('#messages')).not.toContainText('Old conversation content');
-  await expect(page.locator('.user .message-label')).toContainText('执行失败');
+  await expect(page.locator('.chat-run-status')).toContainText('执行失败');
 });
 
 test('leaving chat during compression cannot repopulate the image draft after logout',async({page})=>{

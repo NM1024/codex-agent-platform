@@ -59,6 +59,13 @@ test('management conversation executes real MCP writes and continues the same th
   assert.equal(business.plugins.get(plugin.type).name,plugin.name);
   assert.equal(store.actions(conversation.id).filter(row=>row.status==='completed').length,2);
   const start=calls.find(call=>call.method==='thread/start');assert.equal(start.params.config['features.shell_tool'],false);
+  for(const {params} of calls.filter(call=>['thread/start','thread/resume'].includes(call.method))) {
+    assert.equal(params.config.web_search,'live','Manager must offer native live search on both new and resumed threads');
+    assert.equal(params.config['features.image_generation'],true);
+    assert.equal(params.sandbox,'read-only');
+    assert.equal(params.approvalPolicy,'never');
+    for(const feature of ['shell_tool','apply_patch_freeform','js_repl','browser_use'])assert.equal(params.config['features.'+feature],false);
+  }
   assert.ok(!JSON.stringify(start.params).includes('unused-auth'));
 });
 

@@ -15,6 +15,7 @@ interface ConsoleContext {
   questionDrafts:Record<string,QuestionDraft>;
   updateQuestionDraft:(id:string,change:(current:QuestionDraft)=>QuestionDraft)=>void;
   beginQuestionAnswer:(id:string)=>{accepted:()=>void;failed:(message:string,expired?:boolean)=>void;release:()=>void}|null;
+  queueDrafts:Record<string,string>;setQueueDraft:(id:string,text:string|undefined)=>void;
 }
 const Context=createContext<ConsoleContext|null>(null);
 export const useConsole=()=>{const value=useContext(Context);if(!value)throw new Error('Console context missing');return value;};
@@ -25,6 +26,8 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   const [chatImages,setChatImages]=useState<ChatImage[]>([]);
   const [chatSendBusy,setChatSendBusy]=useState(false);
   const [questionDrafts,setQuestionDrafts]=useState<Record<string,QuestionDraft>>({});
+  const [queueDrafts,setQueueDrafts]=useState<Record<string,string>>({});
+  const setQueueDraft=useCallback((id:string,text:string|undefined)=>setQueueDrafts(current=>{const next={...current};if(text===undefined)delete next[id];else next[id]=text;return next;}),[]);
   const questionLocks=useRef(new Set<string>());
   const conversationWrites=useRef(new Map<string,Promise<void>>()),sessionGeneration=useRef(0);
   const draftVersion=useRef(0),chatSendLock=useRef<symbol|null>(null);
@@ -53,7 +56,7 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
       release:()=>{if(chatSendLock.current===lease){chatSendLock.current=null;setChatSendBusy(false);}},
     };
   },[]);
-  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatId(null);notify('');setCatalog({models:[]});}},[]);
+  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});setQueueDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatId(null);notify('');setCatalog({models:[]});}},[]);
   // Writes must remain ordered even when ChatPage unmounts during navigation.
   const serializeConversation=useCallback(<T,>(id:string,work:()=>Promise<T>):Promise<T>=>{
     const generation=sessionGeneration.current;
@@ -82,5 +85,5 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   useEffect(()=>{document.documentElement.lang=locale;document.title='Codex Agent Platform';},[locale]);
   const changeLocale=(value:string)=>{setLocale(value);updateLocale(getLocale());};
   const navigate=(next:View)=>{notify('');setView(next);};
-  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer}}>{children}</Context.Provider>;
+  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
 }
