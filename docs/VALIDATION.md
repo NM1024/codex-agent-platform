@@ -241,3 +241,16 @@ Verified on 2026-10-24 with Node.js 24 and synthetic data:
 - All 281 isolated Linux project tests and both host Compose checks passed (283 total). Strict TypeScript/Vite and release validation passed (84 JavaScript modules, 3 JSON resources). Four Docker packaging targets passed; the non-root, read-only, network-disabled packaged test image passed 276 checks. Packaging retains the previously documented reused dependency/system CA accommodations; a fresh standard apt/npm image build is not claimed.
 - All 118 browser cases have passing results: the complete run passed 117 and sampled the old width immediately after switching to a phone viewport in one new check. Waiting for settled responsive layout resolved that check; a targeted three-case run and an additional phone-modal visibility/geometry check passed. Coverage includes create/edit/delete, masked/retained/cleared tokens, reload, stale Agent/page conflicts, local validation, duplicate-submit locks, retained failure drafts and English phone layouts. Synthetic desktop and phone screenshots were inspected with secret fields empty.
 - Host Windows configuration reopening and Runner execution-snapshot checks hit existing SQLite cleanup/fsync restrictions; Linux equivalents passed. The validation-image npm test wrapper still exits before running tests, so its equivalent package Node command was run directly, with Compose checks separate. No actual websites, account/model tasks, login credentials or platform services were used. Logs, staged sources and screenshots remain ignored under .tmp/.
+
+
+## Compact mobile console
+
+Verified on 2026-10-25 with Node.js 24 and synthetic local fixtures:
+
+- The top bar uses the platform title. Below 992px, navigation opens downward from a menu button and repository, language and sign-out controls use icons with accessible names. Menu choices settle at a 44px touch height. Desktop sidebar navigation remains available.
+- Model, reasoning, image upload and send share one phone toolbar row. Phone-only hints are hidden; character-limit errors and model-save feedback remain accessible. Drafts, full picker options, image controls and sign-out behavior are covered.
+- VisualViewport resize/scroll events adjust the normal-scale mobile shell and preserve browser pinch zoom. Checks include offset, keyboard-height reduction down to 240px, restoration and draft retention. The compact transcript minimum scales down only in short visible areas. Physical iOS/Android keyboard behavior was not exercised.
+- Mobile menus load on demand; the existing cold-login compressed-script budget remains unchanged and passes. Stable history-action labels exclude exiting loading-spinner text; the delayed-page regression passed 10 isolated repetitions.
+- Final application suite: 293 passed. Final Chromium suite: 148 passed, including locales, phone/desktop geometry, loading/modal alignment and existing media/cache/race behavior. TypeScript/production build and release validation passed (88 modules, 3 JSON resources). Independent review and `git diff --check` found no remaining issues.
+
+No production credentials, real-account model tasks or production deployment were used. Build outputs, screenshots, probe scripts and logs remain under ignored directories.

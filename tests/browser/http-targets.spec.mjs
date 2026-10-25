@@ -54,7 +54,7 @@ test('HTTP target saves validate locally, lock duplicate requests, retain failed
   await expect(save).toHaveClass(/ant-btn-loading/);await expect(modal.getByRole('button',{name:'取消',exact:true})).toBeDisabled();expect(count).toBe(1);
   release();await expect(modal.getByRole('alert')).toContainText('Synthetic HTTP save failure');await expect(modal.getByLabel('访问凭证',{exact:true})).toHaveValue('synthetic-failed-draft');
   await save.click();await expect(modal).toHaveCount(0);expect(count).toBe(2);
-  await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();
+  await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();
   const row=page.getByRole('row').filter({hasText:'browser_busy'});await expect(row).toContainText('Configured');
   await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await row.getByRole('button',{name:'Edit HTTP target: browser_busy'}).click();await expect(modal.getByLabel('Access credential',{exact:true})).toHaveValue('');

@@ -1,11 +1,11 @@
 import { test, expect } from "@playwright/test";
-const navigate = (page, view) => page.locator(`[data-view="${view}"]`).click();
+import {navigate} from './navigation.mjs';
 const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
 const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
 const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
 async function choose(page,selector,value){
   await page.locator(selector).click();
-  await page.locator('.ant-select-dropdown:visible').getByText(choiceLabel(value),{exact:true}).last().click();
+  await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(choiceLabel(value),{exact:true}).last().click();
 }
 async function expectChoice(page,selector,value){await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
 async function operation(page, action, args = {}) {
@@ -234,7 +234,7 @@ test('inherited model option names the global default rather than the override',
   const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic default label',execution:{model:'fixture-fast'}}})).json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
   await page.locator('#chat-model').click();
-  await page.locator('.ant-select-dropdown:visible').getByText('默认：Fixture Default',{exact:true}).click();
+  await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('默认：Fixture Default',{exact:true}).click();
   await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});
 });
 
@@ -492,7 +492,9 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.mobile-navigation')).toBeVisible();
+  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation')).toBeVisible();
+  await page.locator('.mobile-navigation [role=menuitem]').first().click({trial:true});
+  await expect.poll(()=>page.locator('.mobile-navigation [role=menuitem]').evaluateAll(items=>Math.min(...items.map(item=>item.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
   for (const name of [
     "overview",
     "chat",
@@ -501,7 +503,7 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
     "schedules",
     "settings",
   ]) {
-    const button = page.locator(`[data-view="${name}"]`),
+    const button = page.locator(`.mobile-navigation [data-view="${name}"]`).locator('..').locator('..'),
       box = await button.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
@@ -573,9 +575,11 @@ test("language switching preserves plugin data and settings drafts without write
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expectChoice(page,"#app-language","en");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await page.locator('.mobile-navigation [role=menuitem]').first().click({trial:true});
+  await expect.poll(()=>page.locator('.mobile-navigation [role=menuitem]').evaluateAll(items=>Math.min(...items.map(item=>item.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
   await expect(page.locator('.mobile-navigation [data-view]').first()).toBeVisible();
-  for (const button of await page.locator(".mobile-navigation [data-view]").all()) {
+  for (const button of await page.locator(".mobile-navigation [role=menuitem]").all()) {
     const box = await button.boundingBox();
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -700,7 +704,7 @@ test('a pending retry cannot create multiple replacement tasks through repeated 
 test('English navigation covers each view and schedules guide users to management chat',async({page})=>{
   await choose(page,'#app-language','en');
   for(const [view,title] of Object.entries({overview:'Overview',chat:'Management chat',tasks:'Task history',plugins:'Business plugins',schedules:'Schedules',settings:'Settings'})){
-    await navigate(page,view);await expect(page.locator('#page-title')).toHaveText(title);
+    await navigate(page,view);await expect(page.locator('#page-title')).toHaveText('Codex Agent Platform');await expect(page.locator('#view-title')).toHaveText(title);
   }
   await navigate(page,'schedules');
   await expect(page.getByText('Schedule configuration',{exact:true})).toBeVisible();

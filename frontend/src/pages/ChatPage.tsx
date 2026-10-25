@@ -415,7 +415,7 @@ export default function ChatPage() {
     <Drawer title={t('会话列表')} open={drawerOpen} onClose={() => setDrawerOpen(false)} placement="left" size={300} className="conversation-drawer">{conversationNavigation}</Drawer>
     <section className="chat-main" aria-label={t('管理对话')}>
       <header className="chat-header">
-        <Button className="conversation-toggle" onClick={() => setDrawerOpen(true)} aria-label={t('会话列表')}>{t('会话列表')}</Button>
+        <Button className="conversation-toggle" icon={<Icon name="conversations"/>} title={t('会话列表')} onClick={() => setDrawerOpen(true)} aria-label={t('会话列表')}/>
         <div><Typography.Title level={2}>{visibleConversation?.title ?? selected?.title ?? t('新对话')}</Typography.Title>
           <Typography.Text type="secondary" className="chat-time-note">{t('消息时间按此浏览器的本地时区显示。')}</Typography.Text>
           {chatId&&<span className={'chat-stream-status '+streamStatus} role="status">{t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}</span>}</div>
@@ -424,7 +424,7 @@ export default function ChatPage() {
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
         {!visibleConversation&&((!!loadingId&&loadingId===chatId)||(listLoading&&!chatId))&&<LoadingState className="chat-loading" label="正在加载对话…"/>}
         {loadError && !visibleConversation && <Alert className="chat-load-error" type="error" title={t(loadError)} action={<Button size="small" onClick={()=>setLoadRetry(value=>value+1)}>{t('重试')}</Button>}/>}
-        {visibleConversation?.history?.has_more&&<div className="history-more"><Button loading={historyLoading} onClick={()=>void loadEarlierMessages()}>{t('加载更早消息')}</Button></div>}
+        {visibleConversation?.history?.has_more&&<div className="history-more"><Button aria-label={t('加载更早消息')} aria-busy={historyLoading} loading={historyLoading} onClick={()=>void loadEarlierMessages()}>{t('加载更早消息')}</Button></div>}
         {historyError&&<Alert type="error" title={t(historyError)}/>}
         {transcript.map(({message,key,live,tail}) => {
           const source=message.role==='assistant'?messages.find(item=>item.role==='user'&&item.id===message.reply_to):undefined;

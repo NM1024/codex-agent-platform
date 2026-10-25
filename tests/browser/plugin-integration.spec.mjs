@@ -10,7 +10,7 @@ function document(type,locale='zh-CN'){
 const row=(page,type)=>page.getByRole('row').filter({hasText:type});
 const drawer=page=>page.getByRole('dialog');
 async function open(page,type){await row(page,type).getByRole('button',{name:/^(对接文档|Integration docs)$/}).click();}
-async function chooseEnglish(page){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();await expect(page.locator('#page-title')).toHaveText('Business plugins');}
+async function chooseEnglish(page){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();await expect(page.locator('#view-title')).toHaveText('Business plugins');}
 test.beforeEach(async({page})=>{
   await page.route('**/admin/api/plugins',route=>route.fulfill({json:{configured:plugins}}));
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();

@@ -67,6 +67,16 @@ To upgrade for these controls, rebuild the images and run `start` with the same 
 
 The entire Admin interface uses React, TypeScript and Ant Design. Docker builds its static bundle in a dedicated `admin-build` stage; no frontend development server, Node installation on the host or additional container is required. The three-service deployment and `/admin/` reverse-proxy route stay the same. After upgrading, reload the browser page to receive the new hashed assets.
 
+### Mobile console checks after an update
+
+The top bar displays the platform title. Below 992px, a menu button opens the six page links; repository, language and sign-out actions use icons with accessible names. Chat keeps model, reasoning, image upload and send on one row, with full choices in their menus. Phone-only time-zone and keyboard hints are hidden; errors and settings-save feedback remain available.
+
+After rebuilding and starting with your existing runtime directory, reload Admin and check the following on your phone:
+
+- Open and dismiss navigation, switch language, and return to a chat with an unsent draft.
+- Open and close the software keyboard, type several lines, and rotate the device. The composer should follow the visible browser area, with Send reachable and history scrolling independently. Pinch zoom remains browser-controlled.
+- Add an image, open its in-page preview, close it, and send a short test message when you intend to use the account. Automated UI checks use synthetic transport; physical iOS/Android keyboard behavior is a deployment check.
+
 ### Browser and proxy caching
 
 Manager supplies the following cache policy; normal Nginx proxying can pass it through without an additional cache configuration.

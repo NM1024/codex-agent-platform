@@ -35,7 +35,11 @@ button, input, textarea { font: inherit; }
 .console-sidebar nav .ant-btn-primary { color: #284f3d; background: #e8f1ec; border-color: #dbe9e0; box-shadow: none; font-weight: 600; }
 .console-sidebar nav .ant-btn-primary:not(:disabled):hover { color: #224833; background: #deece3; border-color: #cbded2; }
 .console-layout .console-header { flex-shrink: 0; height: 68px; padding: 12px 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border-bottom: 1px solid #e7ebe8; line-height: normal; }
-.console-header h1.ant-typography { margin: 0; font-size: 20px; line-height: 1.4; }
+.console-title { display: flex; align-items: center; min-width: 0; gap: 14px; }
+.console-header h1.ant-typography { margin: 0; font-size: 18px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console-header h2.ant-typography { margin: 0; padding-left: 14px; border-left: 1px solid var(--ui-border); color: var(--ui-muted); font-size: 14px; white-space: nowrap; }
+.console-header-actions { flex-shrink: 0; }
+.picker-label-phone { display: none; }
 .console-header .ant-btn, .console-header .ant-select { font-size: 12px; }
 .console-header .ant-select { height: var(--ui-control-compact); }
 .console-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 24px 28px; overflow: auto; scrollbar-gutter: stable; }
@@ -107,7 +111,11 @@ button, input, textarea { font: inherit; }
 .login-card h1.ant-typography { font-size: 30px; }
 .brand-row { display: flex; justify-content: space-between; margin-bottom: 36px; }
 .login-card .ant-alert { margin-top: 16px; }
-.mobile-navigation { display: none; }
+.mobile-navigation { width: min(360px, calc(100vw - 24px)); }
+.mobile-navigation .ant-dropdown-menu { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; padding: 8px; border: 1px solid var(--ui-border-soft); border-radius: var(--ui-radius-panel); box-shadow: 0 8px 28px rgb(28 48 38 / 14%); }
+.mobile-navigation .ant-dropdown-menu .ant-dropdown-menu-item { min-height: 44px; gap: 10px; padding: 10px 12px; border-radius: 7px; font-size: 13px; }
+.mobile-navigation .ant-dropdown-menu .ant-dropdown-menu-item-selected { color: var(--ui-primary); background: var(--ui-primary-soft); font-weight: 600; }
+.mobile-navigation [data-view] { display: flex; align-items: center; min-height: 24px; }
 .task-filters { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: 12px; }
 .task-filters .ant-select { width: 100%; }
 .task-identity { min-width: 0; }
@@ -183,7 +191,7 @@ button, input, textarea { font: inherit; }
 .message-label time { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chat-empty { display: grid; min-height: 100%; place-items: center; padding: 20px; }
 .chat-empty .ant-empty { max-width: 400px; }
-.chat-compose { flex: 0 1 auto; min-width: 0; min-height: 0; width: 100%; max-width: 1120px; max-height: 54vh; max-height: 54dvh; overflow-y: auto; align-self: center; padding: 12px 32px 14px; background: #fff; }
+.chat-compose { flex: 0 1 auto; min-width: 0; min-height: 0; width: 100%; max-width: 1120px; max-height: 54vh; max-height: calc(var(--console-viewport-height, 100dvh) * .54); overflow-y: auto; align-self: center; padding: 12px 32px 14px; background: #fff; }
 .composer-input-shell { min-width: 0; border: 1px solid #dce4de; border-radius: 14px; background: #fff; }
 .composer-input-shell:focus-within { border-color: #345e4f; box-shadow: 0 0 0 2px rgb(52 94 79 / 10%); }
 .chat-compose #message-input { border: 0; outline: none; border-radius: 14px 14px 0 0; padding: 14px 16px 4px; box-shadow: none; background: transparent; }
@@ -284,10 +292,14 @@ button, input, textarea { font: inherit; }
 }
 @media (max-width: 991px) {
   .console-layout .console-sidebar { display: none; }
-  .console-layout .console-header { padding: 12px 20px; }
+  .console-layout, .login-shell { position: fixed; inset-inline: 0; top: var(--console-viewport-top, 0px); height: 100vh; height: var(--console-viewport-height, 100dvh); }
+  .console-layout .console-header { height: 56px; padding: 8px 12px; gap: 8px; }
+  .console-title { flex: 1; gap: 6px; }
+  .console-header h1.ant-typography { font-size: 16px; }
+  .console-header h2.ant-typography { display: none; }
+  .console-header #navigation-toggle { flex-shrink: 0; width: 32px; height: 32px; padding: 0; }
   .console-content { padding: 20px; }
-  .mobile-navigation { flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #e7ebe8; }
-  .mobile-navigation .ant-btn { min-width: 0; min-height: 44px; padding: 6px; font-size: 12px; gap: 6px; }
+
   .chat-layout { grid-template-columns: minmax(0, 1fr); }
   .conversation-sidebar { display: none; }
   .chat-header .conversation-toggle { display: inline-flex; flex-shrink: 0; }
@@ -296,13 +308,10 @@ button, input, textarea { font: inherit; }
   .settings-tabs > .ant-tabs-nav { margin-bottom: 16px; }
 }
 @media (max-width: 600px) {
-  .console-layout .console-header { min-height: 102px; height: auto; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px; }
-  .console-header h1.ant-typography { font-size: 18px; }
-  .console-header .ant-space { width: 100%; justify-content: space-between; }
+  .console-layout .console-header { padding-inline: 8px; }
+  .console-header h1.ant-typography { font-size: 14px; }
   .console-content { padding: 16px 12px; }
   #view { gap: 16px; }
-  .mobile-navigation { padding: 6px 10px; }
-  .mobile-navigation .ant-btn-icon { display: none; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .console-panel .ant-card-body, .settings-tabs .ant-card-body { padding: 16px; }
   .console-panel .ant-card-head { padding: 0 16px; }
@@ -315,7 +324,10 @@ button, input, textarea { font: inherit; }
   .agent-guidance-content { flex-direction: column; align-items: stretch; }
   .json-view { padding: 12px; }
   .settings-tabs .ant-tabs-tab { padding: 12px 0; font-size: 13px; }
-  .chat-header { padding: 10px 12px; gap: 10px; }
+  .chat-header { padding: 8px 12px; gap: 8px; }
+  .chat-header .conversation-toggle { width: 32px; height: 32px; padding: 0; }
+  .chat-header h2.ant-typography { margin-bottom: 0; font-size: 14px; }
+  .chat-stream-status { margin-left: 0; }
   .chat-time-note { display: none; }
   .messages { padding: 18px 12px 8px; }
   .message { gap: 7px; margin-bottom: 20px; }
@@ -324,34 +336,39 @@ button, input, textarea { font: inherit; }
   .message.user .message-content { max-width: 84%; }
   .message-bubble { padding: 10px 12px; }
   .message-label { gap: 3px 6px; }
-  .chat-compose { padding: 8px 12px 10px; }
-  .composer-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px; }
-  .composer-toolbar .agent-picker-compact { flex-basis: 100%; }
-  .chat-image-picker { margin-right: auto; }
+  .chat-compose { padding: 6px 8px max(8px, env(safe-area-inset-bottom)); }
+  .chat-compose #message-input { padding: 10px 12px 4px; font-size: 16px; }
+  .composer-toolbar { flex-wrap: nowrap; gap: 5px; padding: 6px; }
+  .composer-toolbar .agent-picker-compact { flex-basis: auto; }
+  .composer-toolbar .ant-btn, .agent-picker-compact .ant-select { height: 32px; }
+  .composer-toolbar .ant-btn { width: 32px; min-width: 32px; padding: 0; }
+  .agent-picker-compact .ant-select { padding-inline: 7px; font-size: 12px; }
+  .agent-picker-compact .picker-label, .picker-label-full { display: none; }
+  .picker-label-phone { display: inline; }
+  .composer-hint { display: none; }
+  .composer-footer:not(:has(.danger-text, [role="status"], button)) { display: none; }
   .chat-pending { flex-wrap: wrap; gap: 3px; }
   .chat-image-drafts figure { width: calc(25% - 6px); min-width: 0; }
   .chat-image-drafts img { width: 100%; height: 48px; }
-  .agent-picker-compact { flex-wrap: wrap; gap: 4px; }
-  .agent-picker-compact .ant-form-item { flex-basis: calc(50% - 4px); }
-  .agent-picker-compact .ant-form-item:last-child { max-width: none; }
+  .agent-picker-compact { flex-wrap: nowrap; gap: 4px; }
+  .agent-picker-compact .ant-form-item { flex: 1.3; max-width: none; }
+  .agent-picker-compact .ant-form-item:last-child { flex: 1; min-width: 76px; max-width: none; }
   .composer-hint { font-size: 10px; }
 }
 @media (max-height: 600px) {
-  .messages { min-height: 96px; padding-block: 8px; }
+  .messages { min-height: 96px; min-height: clamp(32px, 25dvh, 96px); padding-block: 8px; }
   .chat-compose #message-input { max-height: 84px !important; overflow-y: auto !important; }
   .chat-header { padding-block: 6px; }
-  .chat-time-note, .composer-footer { display: none; }
+  .chat-time-note, .composer-hint { display: none; }
+  .composer-footer:not(:has(.danger-text, [role="status"], button)) { display: none; }
   .chat-compose { padding-block: 6px; }
   .actions .ant-collapse-body { max-height: 64px; }
 }
-@media (max-height: 600px) and (min-width: 601px) and (max-width: 991px) {
-  .console-layout .console-header { min-height: 48px; height: 48px; flex-direction: row; align-items: center; padding: 6px 12px; }
-  .console-header h1.ant-typography { font-size: 16px; white-space: nowrap; }
-  .console-header .ant-space { width: auto; }
-  .mobile-navigation { grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 3px 8px; }
-  .mobile-navigation .ant-btn-icon { display: none; }
-  .mobile-navigation .ant-btn { font-size: 11px; }
-}
+:root[data-compact-viewport] .messages { min-height: clamp(32px, calc(var(--console-viewport-height, 100dvh) * .25), 96px); padding-block: 8px; }
+:root[data-compact-viewport] .chat-compose #message-input { max-height: 84px !important; overflow-y: auto !important; }
+:root[data-compact-viewport] .chat-header { padding-block: 6px; }
+:root[data-compact-viewport] .chat-time-note, :root[data-compact-viewport] .composer-hint { display: none; }
+:root[data-compact-viewport] .chat-compose { padding-block: 6px; }
 
 /* Human-managed plugin connections. Modal content is independent of chat state. */
 .plugin-row-actions { display: flex; align-items: center; gap: 8px; }

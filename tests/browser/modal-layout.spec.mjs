@@ -35,7 +35,7 @@ for(const kind of kinds)test(`${kind} modal stays centered with reachable action
   for(const locale of ['zh-CN','en']){
     await page.setViewportSize(viewports[0]);
     await page.locator('#app-language').click();
-    await page.locator('.ant-select-dropdown:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
+    await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
     const en=locale==='en',view=kind.startsWith('http')?'settings':kind==='chat-delete'?'chat':kind==='schedule-delete'?'schedules':'plugins';
     await page.locator(`[data-view="${view}"]`).click();
     if(view==='settings')await page.locator('[data-settings-tab="http_targets"]').click();

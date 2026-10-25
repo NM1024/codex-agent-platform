@@ -141,7 +141,7 @@ test('a delayed older page cannot hide a new middle gap created by reconnecting'
   release();await expect(page.locator('#messages')).toContainText('Earliest delayed request');
   await page.route(`**/admin/api/conversations/${id}?before=${newest}`,route=>route.fulfill({json:{...latest,messages:[{...request,id:middle,text:'Middle request preserved after delayed page',created_at:stamp+500,status:'completed'},{...request,status:'completed'}],history:{has_more:true,before:request.id}}}));
   const earlier=page.getByRole('button',{name:'加载更早消息',exact:true});
-  await expect(earlier).toBeVisible();await expect(earlier).toBeEnabled();await earlier.click();
+  await expect(earlier).toBeVisible();await expect(earlier).toHaveAttribute('aria-busy','false');await expect(earlier).toBeEnabled();await earlier.click();
   await expect(page.locator('#messages')).toContainText('Middle request preserved after delayed page');
   await expect(page.locator('#messages')).toContainText('Earliest delayed request');
   if(await earlier.count())await earlier.click();

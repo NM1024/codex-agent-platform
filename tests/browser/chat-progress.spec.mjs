@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 
-const navigate=(page,view)=>page.locator(`[data-view="${view}"]`).click();
+import {navigate} from './navigation.mjs';
 const stamp=Date.now()-10000;
 const user=(id,status,text)=>({id,role:'user',status,text,created_at:stamp,started_at:status==='queued'?null:stamp+1000,updated_at:stamp+5000});
 async function raster(page,width=32,height=16) {
@@ -74,7 +74,7 @@ test.use({locale:'zh-CN'});
 test('short live replies keep author time and reply status on one line without overflowing',async({page})=>{
   await synthetic(page,{id:'short-header',title:'Short live reply',execution:{},messages:[{...user('request','running','Short reply please'),partial_text:'好'}],actions:[]});
   for(const language of ['zh-CN','en']){
-  if(language==='en'){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText('English',{exact:true}).click();}
+  if(language==='en'){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();}
   for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:568}]){
     await page.setViewportSize(viewport);
     const header=page.locator('.assistant .message-label');

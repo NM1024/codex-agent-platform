@@ -1,3 +1,4 @@
+import {navigate} from './navigation.mjs';
 import {test,expect} from '@playwright/test';
 const stamp=Date.now(),id='33333333-3333-4333-8333-333333333333';
 const question={id:'44444444-4444-4444-8444-444444444444',status:'pending',created_at:stamp,questions:[{id:'format',header:'Format',question:'请选择输出格式',isOther:true,options:[{label:'JSON',description:'结构化结果'},{label:'Text',description:'普通文本'}]}]};
@@ -7,7 +8,7 @@ async function setup(page,current=conversation){
   await page.addInitScript(()=>{window.chatSources=[];window.EventSource=class extends EventTarget {constructor(){super();window.chatSources.push(this);}close(){}};window.updateChat=data=>window.chatSources.at(-1).dispatchEvent(new MessageEvent('conversation',{data:JSON.stringify(data)}));});
   await page.route('**/admin/api/conversations',route=>route.fulfill({json:[current]}));
   await page.route('**/admin/api/conversations/'+id,route=>route.fulfill({json:current}));
-  await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await expect(page.locator('.chat-header')).toContainText(conversation.title);
 }
 
@@ -21,7 +22,7 @@ test('distinct public assistant messages persist across finalization without dup
 test('active question drafts survive navigation away and back',async({page})=>{
   await setup(page);const card=page.locator('.question-card');
   await card.getByRole('radio',{name:'其他',exact:true}).check();await card.getByLabel('补充回答').fill('Keep this draft');
-  await page.locator('[data-view="plugins"]').click();await page.locator('[data-view="chat"]').click();
+  await navigate(page,'plugins');await navigate(page,'chat');
   await expect(card.getByLabel('补充回答')).toHaveValue('Keep this draft');
   await page.evaluate(data=>window.updateChat(data),{...conversation,messages:[{...user,replies:[...user.replies,{id:'additional',text:'Additional public progress',status:'completed',created_at:stamp+2}]}]});
   await expect(card.getByLabel('补充回答')).toHaveValue('Keep this draft');
@@ -46,7 +47,7 @@ test('question card requires an explicit answer, submits once to its original tu
   let count=0,release;const gate=new Promise(r=>release=r);
   await page.route('**/questions/*/answer',async route=>{count++;expect(route.request().postDataJSON()).toEqual({answers:{format:{answers:['CSV please']}}});await gate;await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_FAILURE'}}});});
   await submit.click();await expect(submit).toHaveClass(/ant-btn-loading/);await submit.dispatchEvent('click');expect(count).toBe(1);
-  await page.locator('[data-view="plugins"]').click();await page.locator('[data-view="chat"]').click();
+  await navigate(page,'plugins');await navigate(page,'chat');
   await expect(submit).toHaveClass(/ant-btn-loading/);await submit.dispatchEvent('click');expect(count).toBe(1);release();
   await expect(card.getByRole('alert')).toBeVisible();await expect(card.getByLabel('补充回答')).toHaveValue('CSV please');
   await page.unroute('**/questions/*/answer');await page.route('**/questions/*/answer',route=>route.fulfill({json:{id:question.id,status:'answered'}}));

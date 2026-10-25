@@ -1,10 +1,11 @@
+import {navigate} from './navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 test.beforeEach(async({page})=>{
   await page.goto('/admin/');
   await page.locator('#password').fill('local-browser-password');
   await page.getByRole('button',{name:'登录工作台',exact:true}).click();
-  await page.locator('[data-view="plugins"]').click();
+  await navigate(page,'plugins');
 });
 
 test('connection tabs retain drafts, show one claimed secret and fit a normal desktop height',async({page})=>{
@@ -34,12 +35,12 @@ test('all list tables contain long content and usable actions on phone and deskt
     await route.fulfill({json:data});
   });
   for(const locale of ['en','zh-CN']){
-    await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
-    await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
+    await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
+    await expect(page.locator('.ant-select-dropdown:visible, .language-menu:visible')).toHaveCount(0);
     for(const width of [2267,1440,1382,1024,768,390]){
       await page.setViewportSize({width,height:900});
       for(const view of ['plugins','schedules','tasks','overview']){
-        await page.locator(`[data-view="${view}"]`).click();
+        await navigate(page,view);
         const table=page.locator('#view .ant-table-content').first();await expect(table).toBeVisible();
         await expect(page.locator('#view .ant-spin-spinning')).toHaveCount(0);
         if(width>=1382){

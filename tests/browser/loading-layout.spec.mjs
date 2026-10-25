@@ -3,7 +3,7 @@ import {test,expect} from '@playwright/test';
 const sizes=[{width:1440,height:1000},{width:390,height:844},{width:844,height:390}];
 const deferred=()=>{let release;const promise=new Promise(resolve=>{release=resolve;});return {promise,release};};
 async function login(page){await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await expect(page.locator('#workspace')).toBeVisible();}
-async function language(page,en){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible').getByText(en?'English':'简体中文',{exact:true}).click();}
+async function language(page,en){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(en?'English':'简体中文',{exact:true}).click();}
 async function centered(loader,region,label){
   await expect(loader).toBeVisible();
   await expect.poll(async()=>{
@@ -16,7 +16,7 @@ async function centered(loader,region,label){
     });return Math.max(Math.abs(point.x-target.x),Math.abs(point.y-target.y));
   },{message:label+' should center its visible indicator and label'}).toBeLessThanOrEqual(3);
 }
-async function matrix(page,check){for(const en of [false,true]){await page.setViewportSize(sizes[0]);await expect(page.locator('.mobile-navigation')).toHaveCount(0);await language(page,en);for(const size of sizes){await page.setViewportSize(size);await expect(page.locator('.mobile-navigation')).toHaveCount(size.width<992?1:0);await check(`${en?'en':'zh'} ${size.width}x${size.height}`);}}}
+async function matrix(page,check){for(const en of [false,true]){await page.setViewportSize(sizes[0]);await expect(page.locator('#navigation-toggle')).toHaveCount(0);await language(page,en);for(const size of sizes){await page.setViewportSize(size);await expect(page.locator('#navigation-toggle')).toHaveCount(size.width<992?1:0);await check(`${en?'en':'zh'} ${size.width}x${size.height}`);}}}
 
 for(const view of ['overview','plugins','schedules','tasks','settings'])test(`${view} initial data loading is centered in the page content`,async({page})=>{
   await login(page);await page.locator('[data-view="chat"]').click();await expect(page.locator('.chat-main')).toBeVisible();
@@ -70,7 +70,7 @@ for(const kind of ['connection','integration'])test(`${kind} loading stays cente
       await page.setViewportSize(sizes[0]);await language(page,en);
       await page.getByRole('row').filter({hasText:'content.review'}).getByRole('button',{name:kind==='connection'?(en?'Configure connection':'配置接入'):(en?'Integration docs':'对接文档'),exact:true}).click();
       const region=page.locator(kind==='connection'?'.plugin-connection-modal .ant-modal-body':'.plugin-integration-drawer .ant-drawer-body');
-      for(const size of sizes){await page.setViewportSize(size);await expect(page.locator('.mobile-navigation')).toHaveCount(size.width<992?1:0);await centered(region.locator('.integration-loading'),region,`${kind} ${en?'en':'zh'} ${size.width}x${size.height}`);}
+      for(const size of sizes){await page.setViewportSize(size);await expect(page.locator('#navigation-toggle')).toHaveCount(size.width<992?1:0);await centered(region.locator('.integration-loading'),region,`${kind} ${en?'en':'zh'} ${size.width}x${size.height}`);}
       await page.getByRole('dialog').getByRole('button',{name:kind==='connection'?(en?'Cancel':'取消'):/^(关闭|Close)$/,exact:kind==='connection'}).click();
     }
   }finally{gate.release();}

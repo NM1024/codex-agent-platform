@@ -1,3 +1,4 @@
+import {navigate} from './navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 const stamp=Date.now()-5000;
@@ -22,7 +23,7 @@ async function setup(page,items=[first,second]) {
   await page.route('**/admin/api/conversations',route=>route.fulfill({json:items}));
   for(const item of items)await page.route(`**/admin/api/conversations/${item.id}`,route=>route.fulfill({json:item}));
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');
-  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await expect(page.locator('.chat-header')).toContainText(items[0].title);
 }
 const emit=(page,type,data,index=0)=>page.evaluate(({index,type,data})=>window.emitChat(index,type,data),{index,type,data});
@@ -58,7 +59,7 @@ test('reconnect snapshots replace old text and navigation closes stale event sou
   await expect.poll(()=>page.evaluate(()=>window.chatStreams[0].readyState)).toBe(2);
   await emit(page,'conversation',{...first,title:'Stale title',messages:[{...turn,partial_text:'Stale response'}]});
   await expect(page.locator('#messages')).not.toContainText('Stale response');await expect(page.locator('.chat-header')).toContainText(second.title);
-  await page.locator('[data-view="overview"]').click();
+  await navigate(page,'overview');
   await expect.poll(()=>page.evaluate(()=>window.chatStreams.every(source=>source.readyState===2))).toBe(true);
 });
 
@@ -131,7 +132,7 @@ test('mobile history deletion clears the selected chat and closes the drawer',as
 
 test('native SSE displays incremental synthetic replies then deletes durable history',async({page})=>{
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');
-  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await page.getByRole('button',{name:'＋ 新对话',exact:true}).click();
   await page.locator('#message-input').fill('Browser streaming fixture');
   await page.locator('.composer-send').click();
