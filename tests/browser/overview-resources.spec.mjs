@@ -1,6 +1,13 @@
 import {test,expect} from '@playwright/test';
 import {overviewFixture,loginOverview} from './overview-fixture.mjs';
-async function chooseLanguage(page,locale){await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible,.language-menu:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();}
+async function chooseLanguage(page,locale){
+  await page.locator('#app-language').click();
+  const popup=page.locator('.ant-select-dropdown:visible,.language-menu:visible');
+  await popup.getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
+  // The closing portal still has desktop coordinates until its exit completes.
+  // Finish the locale interaction before shrinking the viewport underneath it.
+  await expect(popup).toBeHidden();
+}
 const card=(page,id)=>page.locator(`[data-resource="${id}"]`);
 
 test('overview shows six independently sourced cards and accurate capacity ratios',async({page})=>{
@@ -32,10 +39,10 @@ test('resource cards align and remain readable across phone tablet and desktop i
     await chooseLanguage(page,locale);
     for(const width of [320,390,768,1440,1920]){
       await page.setViewportSize({width,height:1000});
+      await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:`${locale} overview must fit the ${width}px viewport after responsive layout settles`}).toBeLessThanOrEqual(width);
       const boxes=await page.locator('[data-resource]').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height,overflow:node.scrollWidth>node.clientWidth};}));
       expect(boxes).toHaveLength(6);expect(Math.max(...boxes.map(b=>b.height))-Math.min(...boxes.map(b=>b.height))).toBeLessThan(2);
       for(const box of boxes){expect(box.overflow).toBe(false);expect(box.x+box.width).toBeLessThanOrEqual(width);}
-      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       const empty=page.locator('.ops-overview .ant-empty');await empty.scrollIntoViewIfNeeded();
       const emptyBox=await empty.boundingBox(),panelBox=await page.locator('.ops-overview .console-panel').boundingBox();expect(Math.abs(emptyBox.x+emptyBox.width/2-panelBox.x-panelBox.width/2)).toBeLessThan(2);
       await page.locator('.console-content').evaluate(el=>el.scrollTop=0);
