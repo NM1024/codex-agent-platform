@@ -94,7 +94,6 @@ button, input, textarea { font: inherit; }
 .agent-guidance-content .ant-typography { margin: 0; }
 .agent-guidance-content .ant-btn { flex-shrink: 0; }
 .enable-toggle { display: grid; justify-items: start; gap: 4px; }
-.enable-toggle .ant-typography { font-size: 12px; white-space: nowrap; }
 .login-shell { display: grid; height: 100vh; height: 100dvh; overflow: auto; place-items: center; padding: 24px; background: radial-gradient(ellipse at top, #e3eee6, #f5f7f5 65%); }
 .login-card { width: 100%; max-width: 460px; }
 .login-card h1.ant-typography { font-size: 30px; }

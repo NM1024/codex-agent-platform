@@ -18,6 +18,8 @@ Primary buttons identify the page's main action. Ordinary actions use bordered b
 
 Use the shared `Status` component for execution/readiness tags. Success is green, active work blue, attention/unknown amber, failure red, and inactive states neutral. Keep the status text: color and dots supplement it. Do not invent page-specific tag colors or sizes.
 
+Enable/disable switches communicate their checked state directly; omit adjacent repeated enabled/disabled text. Retain accessible labels and checked states, along with separate connection readiness or blocked-trigger explanations.
+
 The global theme owns control sizing, borders, focus rings, disabled colors, dropdowns and modal surfaces. Local CSS may handle layout, not redefine component density. Scope compact toolbar styling explicitly; do not shrink table controls or tags merely because the viewport is narrow. Multiline textareas and long labels may grow as needed.
 
 Maintain visible keyboard focus, readable text contrast, and reduced-motion support. Preserve responsive list fields, usable dialog/composer scrolling, and actions in Chinese and English at desktop, tablet and phone widths.

@@ -56,12 +56,12 @@ export function AgentGuidance({title,description}:{title:string;description:stri
   return <Alert className="agent-guidance" type="info" showIcon title={title} description={<div className="agent-guidance-content"><Typography.Paragraph>{description}</Typography.Paragraph><Button type="primary" onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button></div>}/>;
 }
 export function EnableToggle({enabled,label,onChange}:{enabled:boolean;label:string;onChange:(value:boolean)=>Promise<unknown>}) {
-  const {act,t}=useConsole(),locked=useRef(false),[loading,setLoading]=useState(false);
+  const {act}=useConsole(),locked=useRef(false),[loading,setLoading]=useState(false);
   return <div className="enable-toggle"><Switch checked={enabled} aria-label={label} loading={loading} disabled={loading} onChange={value=>{
     if(locked.current)return;
     locked.current=true;setLoading(true);
     void act(()=>onChange(value)).finally(()=>{locked.current=false;setLoading(false);});
-  }}/><Typography.Text type="secondary">{t(enabled?'已启用':'已停用')}</Typography.Text></div>;
+  }}/></div>;
 }
 export function JsonView({value}:{value:unknown}){return <pre className="json-view">{pretty(value)}</pre>;}
 export function CatalogNote(){const {catalog,t}=useConsole();return catalog.unavailable?<Alert type="warning" showIcon title={t('模型列表暂不可用，保留当前配置。请检查 Codex 登录和服务连接后刷新。')}/>:null;}
