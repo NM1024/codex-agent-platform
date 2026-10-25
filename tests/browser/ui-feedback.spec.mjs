@@ -21,6 +21,7 @@ test('fenced code copies literal text with its trailing newline and local feedba
 });
 
 test('runtime actions prevent duplicate requests while another action can finish',async({page})=>{
+  await page.getByRole('button',{name:'调整并发',exact:true}).click();
   await expect(page.locator('#concurrency')).toBeVisible();
   let release;const gate=new Promise(resolve=>{release=resolve;});let pauses=0;
   await page.route('**/admin/api/operations',async route=>{
@@ -59,6 +60,7 @@ test('initial overview error stops loading and navigation can recover',async({pa
   await page.unroute('**/admin/api/overview');
   await page.locator('[data-view="plugins"]').click();
   await page.locator('[data-view="overview"]').click();
+  await page.getByRole('button',{name:'调整并发',exact:true}).click();
   await expect(page.locator('#concurrency')).toBeVisible();
 });
 
@@ -81,6 +83,7 @@ test('task row details are independent and a late earlier selection cannot repla
 });
 
 test('logout is independent of a blocked page load and prevents duplicate submissions',async({page})=>{
+  await page.getByRole('button',{name:'调整并发',exact:true}).click();
   await expect(page.locator('#concurrency')).toBeVisible();
   let releaseRefresh,releaseLogout;const refreshGate=new Promise(resolve=>{releaseRefresh=resolve;}),logoutGate=new Promise(resolve=>{releaseLogout=resolve;});let logouts=0;
   await page.route('**/admin/api/overview',async route=>{await refreshGate;await route.continue();});

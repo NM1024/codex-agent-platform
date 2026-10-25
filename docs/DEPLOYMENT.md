@@ -148,3 +148,14 @@ Back up all runtime directories together while services are stopped, or use SQLi
 ## System prompt changes
 
 The image includes the root `prompts/` directory. Rebuild/redeploy after editing its fixed message templates. Existing Manager instructions are persisted, including their initial default; ask the management Agent to update `manager.instructions` through management MCP to apply revised editable instructions without a restart. The versioned project rules and human-only connection policy are independently appended on every management start/resume, so an image upgrade applies these rules to the next turn even with saved custom instructions. The Agent obtains live configuration and capabilities from tools rather than reading repository documents. See the [system prompt guide](../prompts/README.md). Plugin instructions continue to be managed as plugin configuration.
+
+### Operations overview after an update
+
+Rebuild and restart with the existing runtime directory using `deploy.sh build`, `deploy.sh start`, and `deploy.sh status`. No database migration or new configuration variable is required for the resource-card overview. Reload Admin and check **Overview**:
+
+- Host memory and the Manager data filesystem show used/total capacity, plus available space. The filesystem can reserve free blocks, so used + available need not equal total.
+- Host CPU needs two samples. Missing `/host/proc` or cgroup fields show unknown; an explicit cgroup `max` shows unlimited. RSS is the Manager process value, not a host or container total.
+- Filter host/Manager cards, inspect service details, and check phone/tablet layouts. The page refreshes every ten seconds without overlapping slow reads.
+- During an appropriate maintenance window, validate pause/resume and concurrency changes; lowering concurrency does not stop active tasks. Restart Runner only after reading the confirmation because it can interrupt active connections.
+
+Only the Manager data filesystem and the metrics already collected by the platform are displayed; this view does not enumerate every disk or collect network traffic/history. Warning colors do not automatically pause dispatch.

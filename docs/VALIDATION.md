@@ -254,3 +254,15 @@ Verified on 2026-10-25 with Node.js 24 and synthetic local fixtures:
 - Final application suite: 293 passed. Final Chromium suite: 148 passed, including locales, phone/desktop geometry, loading/modal alignment and existing media/cache/race behavior. TypeScript/production build and release validation passed (88 modules, 3 JSON resources). Independent review and `git diff --check` found no remaining issues.
 
 No production credentials, real-account model tasks or production deployment were used. Build outputs, screenshots, probe scripts and logs remain under ignored directories.
+
+## Operations overview cards
+
+The approved operations overview is implemented in the actual Admin frontend, using synthetic local API fixtures for visual acceptance. The six resource cards distinguish host metrics, Manager cgroup metrics, process RSS and the Manager data filesystem. Tests cover reserved disk blocks (`bfree` versus `bavail`), malformed/missing cgroup fields, explicit unlimited quotas, partial host samples and CPU warm-up.
+
+Browser checks cover resource filters, correct capacity ratios, readiness/paused/unknown states, preserved concurrency drafts during polling, integer validation, a running count above a lowered limit, restart confirmation, refresh failure/recovery, slow reads, editor write locks and stale response ordering. Responsive geometry covers Chinese and English at 320, 390, 768, 1440 and 1920 pixels; the existing broader Admin regressions also exercise the page.
+
+Actual Chromium screenshots were opened and reviewed, including normal, high usage, unlimited, missing, paused and blocked states. Desktop resource cards measured 196px high and phone cards 184px high; service and task cards were consistent within their groups. Scheduling buttons measured 36px and compact service actions 32px. No card overflow was observed in the sampled desktop/phone layouts. The phone empty-table placeholder was corrected to remain centered, and the mobile restart confirmation was visually checked after its opening animation.
+
+Captures and inspection logs remain under ignored `.tmp/overview-implementation/`. The visual checks use synthetic values, not a production server. No real Runner restart or account-backed task was executed, and this follow-up does not add network traffic, history charts or all-disk enumeration. Existing deployment volume mounts must expose the relevant host/cgroup metrics; unavailable sources remain explicitly unknown.
+
+Final verification for this follow-up: `npm test` passed 294 tests; `npm run test:browser` passed 157 tests (6.8 minutes); TypeScript/Admin production build passed; `npm run check:release` passed with 88 modules and 3 JSON resources; `git diff --check` passed. Independent review findings were resolved and covered by the final suite. No Docker image rebuild or production deployment was performed in this follow-up.

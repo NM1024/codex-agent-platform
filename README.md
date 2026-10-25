@@ -228,6 +228,8 @@ Ask the management Agent to generate an image directly in chat. This uses native
 
 The management Agent also has Codex native live web search and public-page reading. Ask it to research a topic or read a public URL; it chooses when to use the tools and links its sources. Web access uses Codex's hosted tools, without a platform crawler, extra search API key, or broader command/network permissions. Actual availability depends on your account/model and the target website; this does not provide authenticated browsing or access to your private network. Web content cannot authorize management operations.
 
+The operations overview uses separate cards for host CPU/memory, the data filesystem, Manager container CPU/memory and process RSS. Capacity cards show used/total and availability; task collection, concurrency and service readiness have distinct states. The page refreshes automatically while preserving an open concurrency draft.
+
 On phones, the top bar keeps the platform title and icon actions for the repository, language and sign-out. Open the menu button for all six sections. Chat keeps the model, reasoning, image and send controls on one row; keyboard resizing preserves space for the composer.
 
 Management chat shows each message's queued, running, recovering and terminal state. Messages in one conversation execute in order; additional messages can queue while a turn is active. Collapsed activity records show available public reasoning summaries, Agent progress and tool lifecycle status. Missing upstream summaries are not replaced with invented reasoning. Replies can be copied as Markdown, and fenced code has its own copy control.
