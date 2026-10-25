@@ -88,3 +88,50 @@ test('reconnect revalidates an older active request omitted from the new window 
   await expect(page.locator('.conversation-sidebar .conversation-pending')).toHaveText('待处理 35');
   await expect(page.locator('.user').filter({hasText:'Synthetic request'})).toContainText('执行完成');
 });
+
+test('a delayed older page cannot hide a new middle gap created by reconnecting',async({page})=>{
+  await setup(page);await emit(page,'conversation',latest);
+  const earliest='dddddddd-dddd-4ddd-8ddd-dddddddddddd',newest='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',middle='ffffffff-ffff-4fff-8fff-ffffffffffff';
+  let release;
+  const held=new Promise(resolve=>{release=resolve;});
+  let requested=false;
+  await page.route(`**/admin/api/conversations/${id}?before=${request.id}`,async route=>{
+    requested=true;await held;
+    await route.fulfill({json:{...latest,messages:[{...request,id:earliest,text:'Earliest delayed request',created_at:stamp-1000,status:'completed'}],history:{has_more:false,before:earliest}}});
+  });
+  await page.getByRole('button',{name:'加载更早消息',exact:true}).click();
+  await expect.poll(()=>requested).toBe(true);
+  await emit(page,'conversation',{...latest,messages:[{...request,id:newest,text:'Newest reconnect window',created_at:stamp+1000,status:'completed'}],history:{has_more:true,before:newest}});
+  await expect(page.locator('#messages')).toContainText('Newest reconnect window');
+  release();await expect(page.locator('#messages')).toContainText('Earliest delayed request');
+  await page.route(`**/admin/api/conversations/${id}?before=${newest}`,route=>route.fulfill({json:{...latest,messages:[{...request,id:middle,text:'Middle request preserved after delayed page',created_at:stamp+500,status:'completed'},{...request,status:'completed'}],history:{has_more:true,before:request.id}}}));
+  const earlier=page.getByRole('button',{name:'加载更早消息',exact:true});
+  await expect(earlier).toBeVisible();await expect(earlier).toBeEnabled();await earlier.click();
+  await expect(page.locator('#messages')).toContainText('Middle request preserved after delayed page');
+  await expect(page.locator('#messages')).toContainText('Earliest delayed request');
+  if(await earlier.count())await earlier.click();
+  await expect(earlier).toHaveCount(0);
+  await expect(page.locator('.user').filter({hasText:'Earliest delayed request'})).toHaveCount(1);
+});
+
+test('late omitted-history reconciliation cannot revert a newer action status',async({page})=>{
+  await setup(page);
+  const other={...request,id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',text:'Another older active request'};
+  await emit(page,'conversation',{...latest,messages:[request,other]});
+  const action={id:'synthetic-action',message_id:request.id,name:'runtime_update',status:'executing'};
+  let release,requested=false;
+  const held=new Promise(resolve=>{release=resolve;});
+  await page.route(`**/admin/api/conversations/${id}/messages?ids=*`,async route=>{
+    requested=true;await held;
+    await route.fulfill({json:{messages:[request,{...other,text:'Reconciliation response applied'}],actions:[action]}});
+  });
+  await emit(page,'conversation',{...latest,messages:[{...request,id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',text:'New active request'}],actions:[]});
+  await expect.poll(()=>requested).toBe(true);
+  await emit(page,'patch',{conversation:{id},messages:[],actions:[{...action,status:'completed'}]});
+  const activity=page.locator('.message-activity').filter({hasText:'runtime_update'});
+  await activity.locator('summary').click();await expect(activity).toContainText('runtime_update · 执行完成');
+  const response=page.waitForResponse(url=>url.url().includes('/messages?ids='));
+  release();await response;
+  await expect(page.locator('#messages')).toContainText('Reconciliation response applied');
+  await expect(activity).toContainText('runtime_update · 执行完成');
+});

@@ -108,6 +108,11 @@ test('image drafts and a pending queue leave readable transcript space on short 
     return new Set(rows).size;
   }).toBe(1);
   await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
+  await page.locator('#app-language').click();await page.getByText('English',{exact:true}).last().click();
+  await page.setViewportSize({width:320,height:844});
+  const drafts=await page.locator('.chat-image-drafts figure').evaluateAll(items=>items.map(item=>{const style=getComputedStyle(item);return {available:item.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),button:item.querySelector('button').getBoundingClientRect().width};}));
+  for(const draft of drafts)expect(draft.button,'English remove control must fit its thumbnail').toBeLessThanOrEqual(draft.available+1);
+  await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
 });
 
 test('initial chat errors are local and retry while background errors preserve the transcript',async({page})=>{

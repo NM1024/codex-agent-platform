@@ -152,12 +152,15 @@ export default function ChatPage() {
       if(cached?.id!==chatId)return;
       const omitted=(cached.messages??[]).filter(message=>message.role==='user'&&isPending(message.status)&&!item.messages?.some(row=>row.id===message.id)).map(message=>message.id);
       for(let start=0;start<omitted.length;start+=100){
-        const ids=omitted.slice(start,start+100),versions=Object.fromEntries(ids.map(id=>[id,messageVersions.current[id]??0]));
+        const ids=omitted.slice(start,start+100),versions=Object.fromEntries(ids.map(id=>[id,messageVersions.current[id]??0])),actionVersion=streamVersions.current[chatId]??0;
         try {
           const groups=await api<{messages:Message[];actions:ChatAction[]}>('/conversations/'+chatId+'/messages?ids='+encodeURIComponent(ids.join(',')));
           if(!isCurrent())return;
           const valid=ids.filter(id=>(messageVersions.current[id]??0)===versions[id]);
-          setConversation(current=>current?.id!==chatId?current:{...current,messages:mergeRows(current.messages,groups.messages.filter(message=>valid.includes(message.reply_to??message.id))).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,groups.actions)});
+          // Actions can change without a message patch. Keep newer stream state;
+          // unscoped actions already belong to the snapshot being reconciled.
+          const actions=(streamVersions.current[chatId]??0)===actionVersion?groups.actions.filter(action=>action.message_id&&valid.includes(action.message_id)):[];
+          setConversation(current=>current?.id!==chatId?current:{...current,messages:mergeRows(current.messages,groups.messages.filter(message=>valid.includes(message.reply_to??message.id))).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,actions)});
         }catch{/* A later snapshot/fallback read retries reconciliation without resubmitting work. */}
       }
     };
@@ -269,8 +272,12 @@ export default function ChatPage() {
       setConversation(current=>{
         if(current?.id!==id)return current;
         if(messagesRef.current){const box=messagesRef.current.getBoundingClientRect(),first=Array.from(messagesRef.current.querySelectorAll<HTMLElement>('[data-message-id]')).find(element=>element.getBoundingClientRect().bottom>box.top);prependAnchor.current={height:messagesRef.current.scrollHeight,top:messagesRef.current.scrollTop,messageId:first?.dataset.messageId,offset:first?.getBoundingClientRect().top};}
+        const merged={...current,messages:mergeRows(page.messages,current.messages).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(page.actions,current.actions),olderLoaded:true};
+        // Reconnecting can introduce a newer gap while this older read is pending.
+        // Keep its rows, but only advance the cursor this request actually loaded.
+        if(current.history?.before!==cursor)return merged;
         const backlog=current.historyBacklog??[],bridge=backlog[0]&&rootIds(page).some(id=>backlog[0].boundary.includes(id));
-        return {...current,messages:mergeRows(page.messages,current.messages).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(page.actions,current.actions),history:bridge?backlog[0].resume:page.history,historyBacklog:bridge?backlog.slice(1):page.history?.has_more?backlog:[],olderLoaded:true};
+        return {...merged,history:bridge?backlog[0].resume:page.history,historyBacklog:bridge?backlog.slice(1):page.history?.has_more?backlog:[]};
       });
     }catch(error){if(mounted.current&&currentId.current===id&&navigation.current===generation)setHistoryError(error instanceof Error?error.message:String(error));}
     finally{historyLock.current=null;if(mounted.current)setHistoryLoading(false);}
@@ -382,7 +389,7 @@ export default function ChatPage() {
 
   const conversationNavigation = <>
     <div className="conversation-heading"><Typography.Title level={2}>{t('最近对话')}</Typography.Title>
-      <Button onClick={() => selectConversation(null)}>{t('＋ 新对话')}</Button>
+      <Button type="primary" onClick={() => selectConversation(null)}>{t('＋ 新对话')}</Button>
     </div>
     <nav className="conversation-list" aria-label={t('会话列表')}>
       {listLoading&&<div className="conversation-list-loading" role="status"><Spin size="small"/> {t('正在加载对话…')}</div>}

@@ -66,8 +66,8 @@ test('task row details are independent and a late earlier selection cannot repla
   await page.locator('[data-view="tasks"]').click();
   const rows=page.locator('.ant-table-tbody tr.ant-table-row');
   await expect(rows.nth(1)).toBeVisible();
-  const firstId=await rows.nth(0).locator('.task-identity code').textContent();
-  const secondId=await rows.nth(1).locator('.task-identity code').textContent();
+  const firstId=await rows.nth(0).locator('.table-identifier-cell code').first().textContent();
+  const secondId=await rows.nth(1).locator('.table-identifier-cell code').first().textContent();
   let release;const gate=new Promise(resolve=>{release=resolve;});let requests=0;
   await page.route('**/admin/api/tasks/'+firstId,async route=>{requests++;await gate;await route.continue();});
   const first=rows.nth(0).getByRole('button',{name:/详情/});

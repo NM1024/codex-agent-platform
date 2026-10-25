@@ -1,10 +1,10 @@
 import {useEffect,useRef,useState} from 'react';
 import {Col,Grid,InputNumber,Row,Space,Statistic,Table,Typography} from 'antd';
 import {useConsole} from '../context';
-import {AsyncButton,DataLoading,bytes,Panel,Status,time,useLoad} from '../components';
+import {AsyncButton,DataLoading,bytes,Panel,Status,TableField,TableIdentifier,time,useLoad} from '../components';
 import type {Conversation,Overview,Task} from '../types';
 export default function OverviewPage(){
-  const {api,operation,t,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(5),alive=useRef(true);
+  const {api,operation,t,locale,notify,navigate,setChatId}=useConsole(),[tick,setTick]=useState(0),[concurrency,setConcurrency]=useState(5),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const screens=Grid.useBreakpoint();
   const {data,loading}=useLoad(()=>api<Overview>('/overview'),[api,tick]);
@@ -17,21 +17,22 @@ export default function OverviewPage(){
     <Typography.Paragraph type="secondary">{t('状态来自实时采集与执行记录。点击异常，即可让管理 Agent 带着上下文调查。')}</Typography.Paragraph>
     <Typography.Text id="updated" type="secondary">{t('采样于 {time}',{time:time(data.resources.sampled_at??data.sampled_at)})}</Typography.Text>
     <Row gutter={[16,16]}>{[
-      [t('宿主 CPU'),host.available?(host.cpu_percent==null?t('采样中'):host.cpu_percent+'%'):t('不可用')],
-      [t('宿主内存'),host.memory_used_bytes===undefined?t('不可用'):bytes(host.memory_used_bytes)],
-      [t('正在执行'),(counts.running??0)+(counts.dispatching??0)+(counts.completing??0)],
-      [t('累计执行失败'),counts.failed??0],
-    ].map(([title,value])=><Col xs={12} xl={6} key={title}><Panel title={String(title)}><Statistic value={value}/></Panel></Col>)}</Row>
+      [t('宿主 CPU'),host.available?(host.cpu_percent==null?t('采样中'):host.cpu_percent+'%'):t('不可用'),'primary'],
+      [t('宿主内存'),host.memory_used_bytes===undefined?t('不可用'):bytes(host.memory_used_bytes),'info'],
+      [t('正在执行'),(counts.running??0)+(counts.dispatching??0)+(counts.completing??0),'success'],
+      [t('累计执行失败'),counts.failed??0,'error'],
+    ].map(([title,value,tone])=><Col xs={12} xl={6} key={title}><div className={'metric-card metric-card--'+tone}><Panel title={String(title)}><Statistic className={typeof value==='string'&&!/^[\d.-]/.test(value)?'metric-text':undefined} value={value}/></Panel></div></Col>)}</Row>
     <Panel title={t('服务状态')}><Space wrap><Typography.Text>Manager</Typography.Text><Status value="程序可用"/><Typography.Text>Gateway</Typography.Text><Status value={platform.unavailable?'failed':'程序可用'}/><Typography.Text>Codex Runner</Typography.Text><Status value={platform.runner?.ready?'已就绪':'未就绪'}/></Space>
       <Typography.Paragraph type="secondary">{platform.runner?.reason??platform.error?.message}</Typography.Paragraph>
       <Typography.Text>{t('Manager 容器内存 ')+bytes(data.resources.container?.memory_used_bytes)+t(' · 数据磁盘可用 ')+bytes(data.resources.disk?.available_bytes)}</Typography.Text>
       <Typography.Paragraph>{t('排队 ')+(counts.queued??0)+t(' · 等待恢复 ')+(counts.suspended??0)+t('执行完成 ')+(counts.completed??0)}</Typography.Paragraph>
     </Panel>
-    <Panel title={t('最近执行异常')}><Table<Task> loading={loading} rowKey="task_id" dataSource={platform.recent_errors??[]} pagination={false} className="responsive-table" tableLayout="auto" columns={[
-      {title:t('业务 / 任务'),className:'table-identity-cell',render:(_,row)=><div className="task-identity">{row.type}<br/><Typography.Text code title={row.task_id}>{row.task_id}</Typography.Text>{!screens.md&&<div className="task-error" title={row.error?.message??row.error?.code}>{row.error?.message??row.error?.code??t('历史记录未保存详情')}</div>}</div>},
-      {title:t('原因'),className:'table-text-cell',responsive:['md'],render:(_,row)=>row.error?.message??row.error?.code??t('历史记录未保存详情')},
-      {title:t('时间（北京时间）'),className:'table-meta-cell',responsive:['lg'],render:(_,row)=>time(row.updated_at)},
-      {title:t('操作'),className:'table-actions-cell',render:(_,row)=><AsyncButton title={t('让 Agent 调查')} onClick={()=>investigate(row.task_id)}>{t(!screens.md?'调查':(data.investigations??[]).some(item=>item.task_id===row.task_id)?'查看调查':'让 Agent 调查')}</AsyncButton>},
+    <Panel title={t('最近执行异常')}><Table<Task> loading={loading} rowKey="task_id" dataSource={platform.recent_errors??[]} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
+      {title:t('业务类型'),key:'type',width:'15%',className:'table-name-cell',render:(_,row)=><TableField label={t('业务类型')}><span className="table-summary" title={row.type}>{row.type}</span></TableField>},
+      {title:t('任务编号'),key:'task',width:'28%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('任务编号')}><TableIdentifier value={row.task_id}/></TableField>},
+      {title:t('原因'),key:'reason',className:'table-text-cell',render:(_,row)=><TableField label={t('原因')}><span className="table-summary" title={row.error?.message??row.error?.code}>{row.error?.message??row.error?.code??t('历史记录未保存详情')}</span></TableField>},
+      {title:t('时间（北京时间）'),key:'updated',width:160,className:'table-meta-cell',render:(_,row)=><TableField label={t('时间（北京时间）')}>{time(row.updated_at)}</TableField>},
+      {title:t('操作'),key:'actions',width:locale==='en'?240:160,className:'table-actions-cell',render:(_,row)=><AsyncButton title={t('让 Agent 调查')} onClick={()=>investigate(row.task_id)}>{t(!screens.md?'调查':(data.investigations??[]).some(item=>item.task_id===row.task_id)?'查看调查':'让 Agent 调查')}</AsyncButton>},
     ]}/></Panel>
     <Panel title={t('调度设置')}><Space wrap>
       <AsyncButton onClick={async()=>{await operation('runtime_update',{paused:!runtime?.paused});setTick(value=>value+1);}}>{t(runtime?.paused?'恢复领取':'暂停领取')}</AsyncButton>

@@ -27,6 +27,7 @@ test('header uses the project brand and icons without a refresh control',async({
   await expect(page.locator('#refresh')).toHaveCount(0);
   for(const selector of ['#repository-link','#logout'])await expect(page.locator(selector+' svg')).toBeVisible();
   await expect(page.locator('.console-header .ant-select-prefix svg')).toBeVisible();
+  for(const height of await page.locator('.console-header .ant-btn, .console-header .ant-select').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().height)))expect(height,'compact header controls must align').toBeCloseTo(32,0);
 });
 
 test('configuration labels and inputs share a row in desktop and phone layouts',async({page})=>{
@@ -798,11 +799,15 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
   test.setTimeout(90000);
   for(const language of ['zh-CN','en']){
     await choose(page,'#app-language',language);
-    for(const width of [390,768,1440,2560]){
+    for(const width of [320,390,768,1440,2560]){
       await page.setViewportSize({width,height:1000});
       for(const view of ['overview','chat','tasks','plugins','schedules','settings']){
         await navigate(page,view);await expect(page.locator(view==='chat'?'.chat-compose':'#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
         await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:language+' '+width+' '+view}).toBeLessThanOrEqual(width);
+        if(view==='overview'){
+          const metrics=await page.locator('.metric-card .ant-statistic-content-value').evaluateAll(nodes=>nodes.map(value=>{const body=value.closest('.ant-card-body'),style=getComputedStyle(body);return {text:value.textContent,width:value.getBoundingClientRect().width,available:body.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)};}));
+          for(const metric of metrics)expect(metric.width,`${language} metric ${metric.text} at ${width}px`).toBeLessThanOrEqual(metric.available+1);
+        }
         if(view==='settings'){
           await expect(page.getByRole('tabpanel',{includeHidden:false})).toHaveCount(1);
           await expect(page.locator('.settings-tabs .ant-card:visible')).toHaveCount(1);

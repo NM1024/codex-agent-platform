@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Button,Descriptions,Switch,Table,Typography} from 'antd';
-import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,useLoad} from '../components';
+import {AgentGuidance,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,TableIdentifier,useLoad} from '../components';
 import {useConsole} from '../context';
 import PluginConnectionModal from '../PluginConnectionModal';
 import PluginIntegrationDrawer from '../PluginIntegrationDrawer';
@@ -17,14 +17,16 @@ export default function PluginsPage() {
   return <>
     <AgentGuidance title={t('业务插件配置')} description={t('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。Agent 可初始化缺失的入口密钥；请点击「配置接入」由管理员领取一次、修改凭证或设置回调，勿将凭证发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。')}/>
     <Panel title={t('已注册业务')}>
-      <Table<Plugin> className="responsive-table" rowKey="type" dataSource={data?.configured??[]} loading={loading} pagination={false} tableLayout="auto" locale={{emptyText:t('暂无记录')}} columns={[
-        {title:t('业务'),key:'business',className:'table-identity-cell',render:(_,plugin)=><div className="table-identity"><div className="table-summary" title={plugin.name}>{plugin.name}</div><Typography.Text code title={plugin.type}>{plugin.type}</Typography.Text></div>},
-        {title:t('状态'),key:'status',className:'table-status-cell',render:(_,plugin)=><div className="plugin-connection-status">{!plugin.connection?.ready&&plugin.enabled!==true?<div className="enable-toggle"><Switch checked={false} disabled aria-label={t('启停业务插件：{name}',{name:plugin.name})} aria-describedby={'plugin-connection-status-'+plugin.type}/></div>:<EnableToggle enabled={plugin.enabled??false} label={t('启停业务插件：{name}',{name:plugin.name})} onChange={async enabled=>{
+      <Table<Plugin> className="responsive-table expanded-table" rowKey="type" dataSource={data?.configured??[]} loading={loading} pagination={false} tableLayout="fixed" locale={{emptyText:t('暂无记录')}} columns={[
+        {title:t('业务名称'),key:'business',width:'14%',className:'table-name-cell',render:(_,plugin)=><TableField label={t('业务名称')}><div className="table-summary" title={plugin.name}>{plugin.name}</div></TableField>},
+        {title:t('业务标识'),key:'type',width:'18%',className:'table-identifier-cell',render:(_,plugin)=><TableField label={t('业务标识')}><TableIdentifier value={plugin.type}/></TableField>},
+        {title:t('启用状态'),key:'status',width:100,className:'table-status-cell',render:(_,plugin)=><TableField label={t('启用状态')}>{!plugin.connection?.ready&&plugin.enabled!==true?<div className="enable-toggle"><Switch checked={false} disabled aria-label={t('启停业务插件：{name}',{name:plugin.name})} aria-describedby={'plugin-connection-status-'+plugin.type}/><Typography.Text type="secondary">{t('已停用')}</Typography.Text></div>:<EnableToggle enabled={plugin.enabled??false} label={t('启停业务插件：{name}',{name:plugin.name})} onChange={async enabled=>{
           const updated=await operation<Plugin>('plugin_enable',{type:plugin.type,enabled});
           setData(current=>current?{...current,configured:current.configured.map(item=>item.type===updated.type?updated:item)}:current);
-        }}/>}<Typography.Text id={'plugin-connection-status-'+plugin.type} type={plugin.connection?.ready?'secondary':'warning'}>{t(plugin.connection?.ready?'接入已就绪':plugin.connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></div>},
-        {title:t('说明'),dataIndex:'description',className:'table-text-cell',responsive:['md'],render:value=><div className="table-summary" title={value}>{value}</div>},
-        {title:t('操作'),key:'actions',className:'table-actions-cell',render:(_,plugin)=><div className="plugin-row-actions"><Button onClick={()=>setConnectionPlugin(plugin)}>{t('配置接入')}</Button><Button onClick={()=>setIntegrationPlugin(plugin)}>{t('对接文档')}</Button><Button onClick={()=>setSelectedType(plugin.type)}>{t('查看详情')}</Button><DeleteAction label={t('删除业务插件：{name}',{name:plugin.name})} name={plugin.name} description={t('删除后从列表隐藏、停止接收新任务，并停用关联的定时计划。已接单任务继续执行，历史任务和结果保留。')} onDelete={async()=>{
+        }}/>}</TableField>},
+        {title:t('接入状态'),key:'connection',width:150,className:'table-connection-cell',render:(_,plugin)=><TableField label={t('接入状态')}><Status id={'plugin-connection-status-'+plugin.type} value={plugin.connection?.ready?'接入已就绪':plugin.connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入'}/></TableField>},
+        {title:t('说明'),dataIndex:'description',className:'table-text-cell',render:value=><TableField label={t('说明')}><div className="table-summary" title={value}>{value||'—'}</div></TableField>},
+        {title:t('操作'),key:'actions',width:360,className:'table-actions-cell',render:(_,plugin)=><div className="plugin-row-actions"><Button onClick={()=>setConnectionPlugin(plugin)}>{t('配置接入')}</Button><Button type="text" onClick={()=>setIntegrationPlugin(plugin)}>{t('对接文档')}</Button><Button type="text" onClick={()=>setSelectedType(plugin.type)}>{t('查看详情')}</Button><DeleteAction label={t('删除业务插件：{name}',{name:plugin.name})} name={plugin.name} description={t('删除后从列表隐藏、停止接收新任务，并停用关联的定时计划。已接单任务继续执行，历史任务和结果保留。')} onDelete={async()=>{
           await operation('plugin_delete',{type:plugin.type});
           setData(current=>current?{...current,configured:current.configured.filter(item=>item.type!==plugin.type)}:current);
           if(connectionPlugin?.type===plugin.type)setConnectionPlugin(undefined);

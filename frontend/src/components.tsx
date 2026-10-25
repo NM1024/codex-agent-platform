@@ -35,8 +35,22 @@ export function DeleteAction({label,name,description,onDelete}:{label:string;nam
     </Modal>
   </>;
 }
-export function Status({value}:{value:string}){const {t}=useConsole();return <Tag color={['failed','unknown','未就绪'].includes(value)?'error':['completed','accepted','已就绪','已启用','程序可用'].includes(value)?'success':'default'}>{t(labels[value]??value)}</Tag>;}
+export function Status({value,id}:{value:string;id?:string}) {
+  const {t}=useConsole();
+  const tone=['failed','执行失败'].includes(value)?'error'
+    :['completed','accepted','已就绪','已启用','程序可用','接入已就绪','已配置'].includes(value)?'success'
+    :['running','dispatching','completing','executing'].includes(value)?'processing'
+    :['unknown','suspended','interrupted','未就绪','待配置接入','待领取入口密钥','未配置'].includes(value)?'warning':'neutral';
+  return <Tag id={id} className={'status-tag status-tag--'+tone}><span className="status-dot" aria-hidden="true"/><span className="status-tag-text">{t(labels[value]??value)}</span></Tag>;
+}
 export function Panel({title,children,extra}:{title:string;children:ReactNode;extra?:ReactNode}){return <Card className="console-panel" title={<Typography.Title level={2}>{title}</Typography.Title>} extra={extra}>{children}</Card>;}
+export function TableField({label,children}:{label:string;children:ReactNode}) {
+  return <div className="table-field"><span className="table-field-label">{label}</span><div className="table-field-value">{children}</div></div>;
+}
+export function TableIdentifier({value}:{value?:string}) {
+  const {t}=useConsole();
+  return value?<div className="table-identifier"><code title={value}>{value}</code><Typography.Text copyable={{text:value,tooltips:[t('复制'),t('已复制')]}}/></div>:<>—</>;
+}
 export function AgentGuidance({title,description}:{title:string;description:string}) {
   const {navigate,t}=useConsole();
   return <Alert className="agent-guidance" type="info" showIcon title={title} description={<div className="agent-guidance-content"><Typography.Paragraph>{description}</Typography.Paragraph><Button type="primary" onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button></div>}/>;

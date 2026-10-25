@@ -1,6 +1,13 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '业务名称':'Business name',
+  '业务标识':'Business ID',
+  '任务编号':'Task ID',
+  '请求编号':'Request ID',
+  '启用状态':'Enabled',
+  '接入状态':'Connection',
+  'Cron 规则':'Cron rule',
   '加载更多对话':'Load more conversations',
   '加载更早消息':'Load earlier messages',
   '下载图片':'Download image',
@@ -329,11 +336,11 @@ const english: Record<string, string> = {
   "兼容模块：": "Compatibility modules: ",
   管理巡检: "Management inspection",
   业务任务: "Business task",
-  业务类型: "Task type",
+  业务类型: "Business type",
   "业务输入 JSON": "Task input JSON",
   巡检要求: "Inspection instructions",
   计划名称: "Schedule name",
-  触发对象: "Trigger type",
+  触发对象: "Trigger target",
   时区: "Time zone",
   "停机期间错过的计划在恢复后执行一次，再进入下个正常时刻。每次触发都是独立任务，执行受统一并发设置控制。":
     "A schedule missed during downtime runs once on recovery, then returns to its normal timetable. Each trigger is an independent task subject to the shared concurrency setting.",
