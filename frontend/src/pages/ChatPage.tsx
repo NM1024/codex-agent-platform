@@ -1,7 +1,8 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
-import {AgentPicker, CatalogNote, LoadingState, Status} from '../components';
+import {CatalogNote, LoadingState, Status} from '../components';
+import {ChatAgentPicker} from '../ChatAgentPicker';
 import {useConsole} from '../context';
 import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress, messageStatuses} from '../ChatActivity';
@@ -9,6 +10,7 @@ import {DraftImages, MessageImages} from '../ImageAttachments';
 import {compressChatImage} from '../chatImages';
 import {Icon} from '../Icon';
 import {QuestionCard} from '../QuestionCard';
+import {ChatQueue,type QueueAction} from '../ChatQueue';
 import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
@@ -18,6 +20,7 @@ interface ChatAction extends Omit<Action, 'error'> {
 type History=NonNullable<Conversation['history']>;
 interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: ChatAction[];olderLoaded?:boolean;historyBacklog?:{resume?:History;boundary:string[]}[]}
 interface ConversationPage {items:Conversation[];next_cursor:string|null}
+interface TranscriptPart {message:Message;key:string;live:boolean;tail?:boolean}
 const mergeRows=<T extends {id:string}>(older:T[]=[],newer:T[]=[])=>Array.from(new Map([...older,...newer].map(row=>[row.id,row])).values());
 const rootIds=(item:ChatConversation)=>item.messages?.filter(message=>message.role==='user'||!message.reply_to).map(message=>message.id)??[];
 const mergeConversation=(current:ChatConversation|undefined,item:ChatConversation):ChatConversation=>{
@@ -85,21 +88,29 @@ export default function ChatPage() {
   const messages=visibleConversation?.messages??[];
   const pending=messages.filter(message=>message.role==='user'&&isPending(message.status));
   const queued=pending.filter(message=>message.status==='queued');
+  const queue=visibleConversation?.queue??messages.filter(message=>['queued','draft','steering','steer_unknown'].includes(message.status));
   const totals=visibleConversation?conversationCounts(visibleConversation):{queued_count:0,running_count:0};
   const pendingTotal=(totals.queued_count??0)+(totals.running_count??0);
   const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
   // Associate the public reply with its request so completion retains the live bubble's identity.
-  const transcript=messages.flatMap<{message:Message;key:string;live:boolean;tail?:boolean}>(message=>{
+  const transcript=[...messages].sort((a,b)=>(a.started_at??a.created_at)-(b.started_at??b.created_at)).flatMap<TranscriptPart>(message=>{
+    if(message.role==='user'&&['queued','draft','removed','steering','steer_unknown'].includes(message.status))return [];
     if(message.role!=='user')return message.reply_to&&messages.some(user=>user.id===message.reply_to)?[]:[{message,key:message.id,live:false}];
+    if(message.steer_parent_id&&messages.some(parent=>parent.id===message.steer_parent_id))return [];
+    const withGuidance=(parts:TranscriptPart[]):TranscriptPart[]=>{
+      const guidance=messages.filter(item=>item.status==='steered'&&item.steer_parent_id===message.id).map(item=>({message:item,key:item.id,live:false}));
+      const time=(part:TranscriptPart)=>part.message.role==='user'?part.message.started_at??part.message.created_at:part.message.updated_at??part.message.created_at;
+      return [{message,key:message.id,live:false},...[...parts,...guidance].sort((a,b)=>time(a)-time(b))];
+    };
     const reply=messages.find(item=>item.role==='assistant'&&item.reply_to===message.id);
     if(message.replies?.length) {
       const parts:{message:Message;key:string;live:boolean;tail:boolean}[]=message.replies.map(item=>({message:{...item,id:'reply:'+message.id+':'+item.id,reply_to:message.id,role:'assistant'},key:'reply:'+message.id+':'+item.id,live:item.status==='running'&&isPending(message.status),tail:false}));
       if(reply&&parts.at(-1)?.message.text!==reply.text)parts.push({message:reply,key:'reply:'+message.id,live:false,tail:false});
       parts[parts.length-1].tail=true;
-      return [{message,key:message.id,live:false},...parts];
+      return withGuidance(parts);
     }
     const partial=message.partial_text??message.activity?.filter(item=>item.kind==='assistant_message').map(item=>item.text).filter(Boolean).join('\n\n')??'';
-    return [{message,key:message.id,live:false},...(reply?[{message:reply,key:'reply:'+message.id,live:false,tail:true}]:['running','interrupted','recovering'].includes(message.status)||message.generated_images?.length?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at},key:'reply:'+message.id,live:isPending(message.status),tail:true}]:[])];
+    return withGuidance(reply?[{message:reply,key:'reply:'+message.id,live:false,tail:true}]:['running','interrupted','recovering'].includes(message.status)||message.generated_images?.length?[{message:{id:'reply:'+message.id,reply_to:message.id,role:'assistant',status:message.status,text:partial,created_at:message.started_at??message.created_at,updated_at:message.updated_at},key:'reply:'+message.id,live:isPending(message.status),tail:true}]:[]);
   });
 
   const forgetConversation=(id:string)=>{
@@ -160,7 +171,7 @@ export default function ChatPage() {
           // Actions can change without a message patch. Keep newer stream state;
           // unscoped actions already belong to the snapshot being reconciled.
           const actions=(streamVersions.current[chatId]??0)===actionVersion?groups.actions.filter(action=>action.message_id&&valid.includes(action.message_id)):[];
-          setConversation(current=>current?.id!==chatId?current:{...current,messages:mergeRows(current.messages,groups.messages.filter(message=>valid.includes(message.reply_to??message.id))).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,actions)});
+          setConversation(current=>current?.id!==chatId?current:{...current,messages:mergeRows(current.messages,groups.messages.filter(message=>valid.includes(message.reply_to??message.steer_parent_id??message.id))).sort((a,b)=>a.created_at-b.created_at),actions:mergeRows(current.actions,actions)});
         }catch{/* A later snapshot/fallback read retries reconciliation without resubmitting work. */}
       }
     };
@@ -355,7 +366,7 @@ export default function ChatPage() {
       }
       if(stillSelected() && currentId.current===sentId && !deletedIds.current.has(sentId)){
         const optimistic:Message={id:accepted.id??crypto.randomUUID(),role:'user',text,status:'queued',created_at:Date.now(),...accepted};
-        setConversation(current=>current?.messages?.some(message=>message.id===optimistic.id)?current:({...(current?.id===sentId?current:{id:sentId,title:text.slice(0,30)||t('图片消息'),execution}),messages:[...(current?.id===sentId?current.messages??[]:[]),optimistic]}));
+        setConversation(current=>current?.messages?.some(message=>message.id===optimistic.id)?current:({...(current?.id===sentId?current:{id:sentId,title:text.slice(0,30)||t('图片消息'),execution}),messages:[...(current?.id===sentId?current.messages??[]:[]),optimistic],queue:[...(current?.id===sentId?current.queue??[]:[]),...(optimistic.status==='queued'?[optimistic]:[])]}));
       }
       if(mounted.current)setConversations(current=>current.map(row=>row.id===sentId?{...row,queued_count:(row.queued_count??0)+1}:row));
       releaseSend();
@@ -385,6 +396,29 @@ export default function ChatPage() {
       if(result.cleanup_pending)notify(t('对话记录已删除，但工作目录未能完全清理。'));
     }catch(error){if(mounted.current)setDeleteError(error instanceof Error?error.message:String(error));}
     finally{deleteLock.current=null;if(mounted.current)setDeleting(null);}
+  };
+
+  const queueAction=async(message:Message,action:QueueAction,text?:string)=>{
+    const id=chatId,generation=navigation.current,version=messageVersions.current[message.id]??0;
+    if(!id)return;
+    const path='/conversations/'+id+'/messages/'+message.id;
+    const result=await api<Message|{id:string;deleted:boolean}>(path+(action==='delete'?'':'/'+action),action==='delete'?undefined:action==='requeue'?{text}:{},action==='delete'?'DELETE':undefined);
+    if(!mounted.current||currentId.current!==id||navigation.current!==generation)return;
+    if((messageVersions.current[message.id]??0)===version) {
+      const updated:Message='deleted' in result?{...message,text:'',status:'removed',attachments:[]}:result;
+      setConversation(current=>{
+        if(current?.id!==id)return current;
+        const currentQueue=current.queue??(current.messages??[]).filter(item=>['queued','draft','steering','steer_unknown'].includes(item.status));
+        const nextQueue=currentQueue.filter(item=>item.id!==updated.id);
+        if(['queued','draft','steering','steer_unknown'].includes(updated.status))nextQueue.push(updated);
+        return {...current,queue:nextQueue,queued_count:Math.max(0,(current.queued_count??queued.length)+(updated.status==='queued'?1:0)-(message.status==='queued'?1:0)),messages:mergeRows(current.messages,[updated])};
+      });
+    }
+    const streamVersion=streamVersions.current[id]??0;
+    try {
+      const snapshot=await api<ChatConversation>('/conversations/'+id);
+      if(mounted.current&&currentId.current===id&&navigation.current===generation&&(streamVersions.current[id]??0)===streamVersion)setConversation(current=>mergeConversation(current,snapshot));
+    }catch{/* The durable mutation succeeded; SSE or the next read reconciles it. */}
   };
 
   const conversationNavigation = <>
@@ -446,7 +480,8 @@ export default function ChatPage() {
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
         onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
-        {pendingTotal>0 && <div className="chat-pending" role="status"><span>{t('待处理')} {pendingTotal} · {t('排队中')} {totals.queued_count??queued.length}</span><ol>{pending.map(message=><li key={message.id}>{message.text||t('图片消息')} · {t(messageStatuses[message.status]??message.status)}</li>)}</ol></div>}
+        {pendingTotal>0 && <div className="chat-pending" role="status"><span>{t('待处理')} {pendingTotal} · {t('排队中')} {totals.queued_count??queued.length}</span></div>}
+        <ChatQueue key={chatId??'new'} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}
@@ -464,7 +499,7 @@ export default function ChatPage() {
             if (!event.shiftKey || event.ctrlKey || event.metaKey) {event.preventDefault(); void send();}
           }}/>
         <div className="composer-toolbar">
-          <AgentPicker id="chat" value={selection} defaults={defaults} inherit compact disabled={busy} onChange={changeSelection}/>
+          <ChatAgentPicker key={selectedKey} value={selection} defaults={defaults} disabled={busy} onChange={changeSelection} saving={!!chatId&&saving[chatId]} saveError={chatId?saveErrors[chatId]:undefined} onRetry={()=>{if(chatId)persistSelection(chatId,{...selection});}}/>
           <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
           <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
           <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}/>

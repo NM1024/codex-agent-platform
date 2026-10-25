@@ -66,8 +66,7 @@ test('latest history keeps an older active clarification visible when many later
     for(let n=0;n<35;n++)store.enqueue(c.id,'Queued '+n);
     const latest=store.getConversationPage(c.id);
     assert.ok(latest.messages.some(message=>message.id===active.id&&message.questions[0].status==='pending'));
-    assert.equal(latest.history.has_more,true);assert.notEqual(latest.history.before,active.id);
-    const older=store.getConversationPage(c.id,{before:latest.history.before});
-    assert.ok(older.messages.some(message=>message.id===active.id));assert.equal(older.history.has_more,false);
+    assert.equal(latest.history.has_more,false);assert.equal(latest.history.before,active.id);
+    assert.equal(latest.messages.length,1);assert.equal(latest.queue.length,35);
   }finally{store.close();}
 });

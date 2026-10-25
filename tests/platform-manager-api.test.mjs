@@ -61,7 +61,8 @@ test('manager HTTP serves real resources, accepts asynchronous messages and prot
   assert.equal(store.getConversation(first.id).messages.length,0);
   const investigate=()=>fetch(base+'/admin/api/conversations',{method:'POST',headers,body:JSON.stringify({title:'调查',task_id:taskId,investigate:true})});
   const started=await investigate();assert.equal(started.status,201);
-  assert.equal((await started.json()).messages.length,1);
+  const initialInvestigation=await started.json();
+  assert.equal(initialInvestigation.messages.length,0);assert.equal(initialInvestigation.queue.length,1);
   await investigate();
   const messages=store.getConversation(first.id).messages;
   assert.equal(messages.length,1);assert.ok(messages[0].text.includes(taskId));

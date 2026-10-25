@@ -19,9 +19,9 @@ export interface ReplyItem {id:string;text:string;status:string;created_at:numbe
 export interface AgentQuestion {id:string;header:string;question:string;isOther:boolean;options:{label:string;description:string}[]}
 export interface QuestionRequest {id:string;status:'pending'|'answered'|'expired';questions:AgentQuestion[];answers?:Record<string,{answers:string[]}>|null;created_at:number;updated_at?:number}
 export interface QuestionDraft {choices:Record<string,string>;texts:Record<string,string>;pending?:boolean;answered?:boolean;expired?:boolean;error?:string}
-export interface Message {id:string;role:string;text:string;status:string;created_at:number;updated_at?:number|null;started_at?:number|null;completed_at?:number|null;reply_to?:string|null;partial_text?:string|null;replies?:ReplyItem[];questions?:QuestionRequest[];attachments?:MessageImage[];generated_images?:MessageImage[];activity?:MessageActivity[];error?:{code:string};execution?:AgentSettings}
+export interface Message {id:string;role:string;text:string;status:string;created_at:number;updated_at?:number|null;started_at?:number|null;completed_at?:number|null;reply_to?:string|null;steer_parent_id?:string|null;partial_text?:string|null;replies?:ReplyItem[];questions?:QuestionRequest[];attachments?:MessageImage[];generated_images?:MessageImage[];activity?:MessageActivity[];error?:{code:string};execution?:AgentSettings}
 export interface Action {id:string;name:string;status:string;target?:string;message_id?:string|null;error?:{code:string}}
-export interface Conversation {id:string;title:string;execution:AgentSettings;messages?:Message[];actions?:Action[];queued_count?:number;running_count?:number;history?:{has_more:boolean;before:string|null}}
+export interface Conversation {id:string;title:string;execution:AgentSettings;messages?:Message[];queue?:Message[];actions?:Action[];queued_count?:number;running_count?:number;history?:{has_more:boolean;before:string|null}}
 export interface Schedule {id?:string;name:string;kind:'task'|'inspection';cron:string;timezone:string;enabled:boolean;type?:string;input?:Json;message?:string;next_run_at?:number;blocked_reason?:string}
 export interface Resources {
   sampled_at?:number;

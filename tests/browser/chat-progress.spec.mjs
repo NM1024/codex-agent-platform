@@ -19,7 +19,7 @@ test.beforeEach(async({page})=>{
 test('composer keeps one continuous focus frame while typing or choosing a model',async({page})=>{
   await navigate(page,'chat');await page.locator('#message-input').fill('Synthetic focus check');
   const frame=page.locator('.composer-input-shell');await expect(frame).toBeVisible();
-  for(const target of ['#message-input','#chat-model','#chat-reasoningEffort','.chat-image-picker','.composer-send']){
+  for(const target of ['#message-input','#chat-model','.chat-image-picker','.composer-send']){
     await page.locator(target).focus();
     const borders=await frame.evaluate(element=>{const style=getComputedStyle(element);return ['Top','Right','Bottom','Left'].map(edge=>({width:style['border'+edge+'Width'],color:style['border'+edge+'Color']}));});
     expect(new Set(borders.map(border=>border.color)).size).toBe(1);expect(borders.every(border=>border.width==='1px')).toBe(true);
@@ -149,7 +149,8 @@ test('accepted sends clear their draft even when the following read fails',async
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(conversation.title);
   await page.locator('#message-input').fill('Only enqueue once');await page.getByRole('button',{name:'发送',exact:true}).click();
   await expect(page.locator('#message-input')).toHaveValue('');
-  await expect(page.locator('#messages')).toContainText('Only enqueue once');
+  await expect(page.locator('.chat-queue')).toContainText('Only enqueue once');
+  await expect(page.locator('#messages')).not.toContainText('Only enqueue once');
   expect(calls).toBe(1);
 });
 
@@ -165,7 +166,8 @@ test('an accepted message releases the send button before its background read fi
   try {
     await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(conversation.title);
     await page.locator('#message-input').fill('Accepted before read');await page.getByRole('button',{name:'发送',exact:true}).click();
-    await expect(page.locator('#messages')).toContainText('Accepted before read');
+    await expect(page.locator('.chat-queue')).toContainText('Accepted before read');
+    await expect(page.locator('#messages')).not.toContainText('Accepted before read');
     await page.locator('#message-input').fill('Ready for another queued message');
     await expect(page.locator('.composer-send')).not.toHaveClass(/ant-btn-loading/);
   } finally {release();}

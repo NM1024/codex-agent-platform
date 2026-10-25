@@ -45,6 +45,38 @@ export class ManagementAgent {
     return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
   }
   enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  async steerQueued(conversationId,messageId) {
+    const message=this.store.queuedMessage(conversationId,messageId,['queued','steered']);
+    if(message.status==='steered')return message;
+    const active=[...this.active.entries()].find(([id,state])=>!state.finalized&&state.turnId&&this.store.message(id)?.conversation_id===conversationId);
+    if(this.closed||!active)throw new HttpError(409,'NO_ACTIVE_TURN','当前没有可引导的任务，请等待排队消息开始执行。');
+    const [parentId,state]=active,turnId=state.turnId;
+    this.store.reserveSteer(conversationId,messageId,parentId,turnId);
+    const sending=(async()=>{
+      try {
+        const result=await state.client.request('turn/steer',{threadId:state.threadId,expectedTurnId:turnId,clientUserMessageId:messageId,input:[{type:'text',text:`[management_message_id:${messageId}]\n${message.text}`},...this.store.imageInputs(messageId)]});
+        if(result.turnId!==turnId)throw new Error('STEER_TURN_MISMATCH');
+        return this.store.settleSteer(messageId,'steered');
+      }catch(error) {
+        if(error.message==='CODEX_RPC_ERROR'){
+          this.store.settleSteer(messageId,'queued');
+          throw new HttpError(409,'STEER_REJECTED','当前任务未接受引导，消息仍在队列中。');
+        }
+        this.store.settleSteer(messageId,'steer_unknown');
+        throw new HttpError(409,'STEER_UNCONFIRMED','引导发送状态尚未确认，系统不会自动重发。');
+      }
+    })();
+    state.steers.add(sending);
+    try{return await sending;}finally{state.steers.delete(sending);}
+  }
+  reconcileSteers(parentId,turns) {
+    for(const message of this.store.pendingSteers(parentId)) {
+      const marker=`[management_message_id:${message.id}]`;
+      const found=turns.some(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))));
+      this.store.settleSteer(message.id,found?'steered':'steer_unknown');
+    }
+  }
   kick(id) {
     if(this.closed||this.running.has(id))return;
     const pending=this.loop(id).finally(()=>{this.running.delete(id);if(!this.closed&&!this.waiting.has(id)&&this.store.next(id))this.kick(id);});
@@ -69,7 +101,7 @@ export class ManagementAgent {
     this.store.markRunning(message.id);
     const token=randomBytes(32).toString('base64url');this.tokens.set(hash(token),conversation.id);
     const home=join(this.root,'codex',conversation.id),workDir=join(this.root,'work',conversation.id);
-    let client,unsubscribe,timer,unhandle;const state={text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set()};this.active.set(message.id,state);
+    let client,unsubscribe,timer,unhandle;const state={text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set(),steers:new Set()};this.active.set(message.id,state);
     let ready;const startedReady=new Promise(resolve=>{ready=resolve;});
     const progress=new ChatProgress({store:this.store,messageId:message.id,secrets:[token]});
     const images=new GeneratedChatImages({store:this.store,messageId:message.id,workDir,home});
@@ -99,6 +131,7 @@ export class ManagementAgent {
       // Reconcile the original submission before deciding whether a continuation is needed.
       // turn/start may have reached Codex even when its acknowledgement was not persisted.
       const turns=response.thread.turns ?? [];
+      if(recovering)this.reconcileSteers(message.id,turns);
       const recorded=[...turns].reverse().find(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))))
         ?? turns.find(turn=>turn.id===message.turn_id);
       if(recovering&&recorded){for(const item of recorded.items??[])images.accept(item);await images.drain();}
@@ -145,6 +178,11 @@ export class ManagementAgent {
       ready();
       for(const event of state.pending)consume(event);state.pending=[];
       const result=await outcome;
+      // Do not close the shared client or run the next FIFO request during a steer acknowledgement.
+      await Promise.allSettled([...state.steers]);
+      if(this.store.pendingSteers(message.id).length&&!result.interrupted&&!this.closed) {
+        try {const metadata=await client.request('thread/read',{threadId,includeTurns:true},1000);if(metadata.thread?.id===threadId)this.reconcileSteers(message.id,metadata.thread.turns??[]);}catch{}
+      }
       await images.drain();
       if(result.interrupted||this.closed){this.store.interrupted(message.id);return 'interrupted';}
       else {

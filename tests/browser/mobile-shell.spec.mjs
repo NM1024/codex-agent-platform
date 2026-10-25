@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {chooseChatModel,openChatPicker,chatPicker} from './agent-picker.mjs';
 
 async function login(page){await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await expect(page.locator('#workspace')).toBeVisible();}
 async function openChat(page){await page.locator('#navigation-toggle').click();await page.locator('.mobile-navigation [data-view="chat"]').click();await expect(page.locator('#message-input')).toBeVisible();}
@@ -23,16 +24,15 @@ test('phone top bar keeps platform title and icon controls on one row with dismi
   }
 });
 
-test('phone composer fits model reasoning upload and send on one line and retains full options',async({page})=>{
+test('phone composer fits the unified model entry upload and send on one line and retains full options',async({page})=>{
   await page.setViewportSize({width:390,height:844});await login(page);await openChat(page);
   for(const width of [390,320,768]){
     await page.setViewportSize({width,height:844});
-    const centers=await page.locator('.composer-toolbar .ant-select,.chat-image-picker,.composer-send').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return b.y+b.height/2;}));
-    expect(centers).toHaveLength(4);expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
+    const centers=await page.locator('#chat-model,.chat-image-picker,.composer-send').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return b.y+b.height/2;}));
+    expect(centers).toHaveLength(3);expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
     await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
   }
-  await page.locator('#chat-model').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('Fixture Fast',{exact:true}).click();
-  await page.locator('#chat-reasoningEffort').click();await expect(page.locator('.ant-select-dropdown:visible, .language-menu:visible').last()).toContainText('low');await page.keyboard.press('Escape');
+  await chooseChatModel(page,'Fixture Fast');await openChatPicker(page);await expect(chatPicker(page).locator('.chat-effort-labels')).toContainText('低');await page.keyboard.press('Escape');
 });
 
 test('chat follows keyboard visual viewport resize and offset then restores without losing draft',async({page})=>{

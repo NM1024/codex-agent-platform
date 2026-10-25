@@ -50,6 +50,14 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}
       const questionAnswer=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/questions\/([a-f0-9-]{36})\/answer$/);
       if(req.method==='POST'&&questionAnswer){const body=await readJson(req);return json(res,200,agent.answerQuestion(questionAnswer[1],questionAnswer[2],body.answers));}
+      const queuedMessage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/messages\/([a-f0-9-]{36})(?:\/(withdraw|requeue|steer))?$/);
+      if(queuedMessage) {
+        const [,conversationId,messageId,action]=queuedMessage;
+        if(req.method==='DELETE'&&!action)return json(res,200,store.removeQueued(conversationId,messageId));
+        if(req.method==='POST'&&action==='withdraw')return json(res,200,store.withdrawQueued(conversationId,messageId));
+        if(req.method==='POST'&&action==='requeue'){const body=await readJson(req);return json(res,200,agent.requeue(conversationId,messageId,body.text));}
+        if(req.method==='POST'&&action==='steer')return json(res,200,await agent.steerQueued(conversationId,messageId));
+      }
       const events=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/events$/);
       if(req.method==='GET'&&events){if(eventsClosed)throw new HttpError(503,'SERVER_SHUTTING_DOWN','服务正在重启，请稍后重连。');const close=streamConversation({req,res,store,auth,id:events[1],onClose:closed=>streams.delete(closed)});if(!res.writableEnded)streams.add(close);return;}
       const chatImage=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/images\/([a-f0-9-]{36})$/);
@@ -89,7 +97,7 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
           const conversation=store.createConversation(body.title,body.task_id?'task:'+body.task_id:null);
           if(body.execution)store.setConversationExecution(conversation.id,body.execution);
-          if(body.investigate===true&&body.task_id&&!conversation.messages.length)
+          if(body.investigate===true&&body.task_id&&!conversation.messages.length&&!conversation.queue?.length)
             agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
           return json(res,201,store.getConversationPage(conversation.id));
         }

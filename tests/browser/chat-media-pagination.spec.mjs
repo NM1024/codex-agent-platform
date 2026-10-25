@@ -100,6 +100,69 @@ test('reduced motion presents streamed text without an animation queue',async({p
   await expect(page.locator('.assistant .message-markdown')).toHaveAttribute('data-typing','false');
 });
 
+test('code copy stays inside the upper right corner without covering code or following horizontal scroll',async({page})=>{
+  await page.emulateMedia({reducedMotion:'reduce'});await setup(page);
+  const code='const example = "'+'long code content '.repeat(30)+'";\nconsole.log(example);';
+  await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:'```js\n'+code+'\n```'}],actions:[]});
+  const block=page.locator('.assistant .code-block'),pre=block.locator('pre'),copy=block.getByRole('button',{name:'复制代码',exact:true});
+  for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
+    await page.setViewportSize(viewport);
+    await expect(pre).toBeVisible();await expect(copy).toBeVisible();
+    // Measure one committed frame; responsive relayout can replace nodes between protocol reads.
+    const {codeBox,buttonBox,firstLine}=await block.evaluate(element=>{
+      const pre=element.querySelector('pre'),button=element.querySelector('button'),code=pre.querySelector('code'),range=document.createRange();
+      range.setStart(code.firstChild,0);range.setEnd(code.firstChild,1);
+      return {codeBox:pre.getBoundingClientRect().toJSON(),buttonBox:button.getBoundingClientRect().toJSON(),firstLine:range.getBoundingClientRect().toJSON()};
+    });
+    expect(codeBox.height).toBeGreaterThan(0);expect(buttonBox.height).toBeGreaterThan(0);
+    expect(buttonBox.y).toBeGreaterThanOrEqual(codeBox.y);
+    expect(buttonBox.y+buttonBox.height).toBeLessThanOrEqual(codeBox.y+codeBox.height);
+    expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeLessThanOrEqual(12);
+    expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeGreaterThanOrEqual(0);
+    expect(firstLine.y).toBeGreaterThanOrEqual(buttonBox.y+buttonBox.height);
+    await pre.evaluate(element=>{element.scrollLeft=element.scrollWidth;});
+    const scrolled=await copy.evaluate(element=>element.getBoundingClientRect().toJSON());expect(scrolled.x).toBeCloseTo(buttonBox.x,1);
+  }
+});
+
+for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
+  for(const [format,text] of [
+    ['paragraph','业务插件可以处理重复工作。'],
+    ['list','每个插件还可以约定：\n\n- **收什么：** 输入资料'],
+    ['table','| 业务方向 | 处理内容 |\n| --- | --- |\n| 内容整理 | 生成摘要 |'],
+    ['code','```js\nconst example = 1;\n```'],
+  ]) {
+    test(`reply caret never changes ${format} bubble height at ${viewport.width}px`,async({page})=>{
+      await page.setViewportSize(viewport);await setup(page);
+      const markdown=page.locator('.assistant .message-markdown'),bubble=page.locator('.assistant .message-bubble');
+      await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:text}],actions:[]});
+      await expect(markdown).toHaveAttribute('data-typing','false');
+      const before=await bubble.boundingBox();
+      // Trailing blank lines keep Markdown content identical while a new batch reveals.
+      await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:text+'\n'.repeat(500)}],actions:[]});
+      await expect(markdown).toHaveAttribute('data-typing','true');
+      const during=await bubble.boundingBox();
+      expect(during.height-before.height,'caret must not add a line to the bubble').toBeCloseTo(0,1);
+      // Check both blink phases without changing text or relying on timer timing.
+      const phases=await markdown.evaluate(element=>{
+        const animation=element.getAnimations({subtree:true}).find(item=>item.animationName==='reply-caret');
+        return [0,500].map(time=>{
+          animation.pause();animation.currentTime=time;
+          return {opacity:getComputedStyle(element,'::after').opacity,height:element.closest('.message-bubble').getBoundingClientRect().height};
+        });
+      });
+      expect(phases.map(phase=>phase.opacity)).toEqual(['1','0']);
+      for(const phase of phases)expect(phase.height).toBeCloseTo(before.height,1);
+      if(format==='list') {
+        await markdown.evaluate(element=>{element.getAnimations({subtree:true}).find(item=>item.animationName==='reply-caret').currentTime=0;});
+        await page.screenshot({path:`.tmp/reply-caret/list-${viewport.width}.png`});
+      }
+      await expect(markdown).toHaveAttribute('data-typing','false');
+      expect((await bubble.boundingBox()).height).toBeCloseTo(before.height,1);
+    });
+  }
+}
+
 test('a reconnect more than one page ahead can load the middle gap before continuing older history',async({page})=>{
   await setup(page);await emit(page,'conversation',latest);
   const oldRoot='77777777-7777-4777-8777-777777777777';

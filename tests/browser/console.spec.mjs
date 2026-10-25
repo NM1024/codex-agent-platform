@@ -1,13 +1,16 @@
 import { test, expect } from "@playwright/test";
 import {navigate} from './navigation.mjs';
+import {chooseChatModel,chooseChatEffort} from './agent-picker.mjs';
 const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
 const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
 const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
 async function choose(page,selector,value){
+  if(selector==='#chat-model')return chooseChatModel(page,value===''?'继承全局设置':choiceLabel(value));
+  if(selector==='#chat-reasoningEffort')return chooseChatEffort(page,value);
   await page.locator(selector).click();
   await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(choiceLabel(value),{exact:true}).last().click();
 }
-async function expectChoice(page,selector,value){await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
+async function expectChoice(page,selector,value){if(selector==='#chat-model'){await expect(page.locator('#chat-model')).toHaveText(choiceLabel(value));return;}if(selector==='#chat-reasoningEffort'){await expect(page.locator('.chat-agent-picker')).toHaveAttribute('data-effort',value);return;}await expect(selectRoot(page,selector)).toContainText(choiceLabel(value));}
 async function operation(page, action, args = {}) {
   const response = await page.request.post("/admin/api/operations", {
     data: { action, args },
@@ -233,8 +236,7 @@ test('inherited model option names the global default rather than the override',
   await operation(page,'configuration_update',{scope:'manager',patch:{model:'gpt-6.1-sol'}});
   const created=await (await page.request.post('/admin/api/conversations',{data:{title:'Synthetic default label',execution:{model:'fixture-fast'}}})).json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
-  await page.locator('#chat-model').click();
-  await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('默认：Fixture Default',{exact:true}).click();
+  await chooseChatModel(page,'继承全局设置');
   await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});
 });
 
