@@ -34,7 +34,7 @@ test('running turns show partial replies, collapsed activity and FIFO pending me
     {...user('first','running','First request'),activity:[{id:'summary',kind:'reasoning_summary',label:'Progress summary',text:'Inspecting synthetic queue',status:'running',created_at:stamp,updated_at:stamp+5000},{id:'partial',kind:'assistant_message',label:'Assistant',text:'Partial answer while working',status:'running',created_at:stamp,updated_at:stamp+5000}]},
     user('second','queued','Second request'),user('third','queued','Third request')],actions:[{id:'tool-action',message_id:'first',name:'configuration_get',status:'completed'}]};
   await synthetic(page,conversation);
-  await expect(page.locator('.chat-pending')).toContainText('2');
+  await expect(page.locator('.chat-run-status')).toContainText('排队 2 条');
   await expect(page.locator('.message-progress').first()).toContainText('运行中');
   await expect(page.locator('.message-partial')).toContainText('Partial answer while working');
   await expect(page.getByText('Inspecting synthetic queue',{exact:true})).not.toBeVisible();
@@ -78,7 +78,7 @@ test('short live replies keep author time and reply status on one line without o
   for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:568}]){
     await page.setViewportSize(viewport);
     const header=page.locator('.assistant .message-label');
-    await expect(header.locator('.partial-label')).toHaveText(language==='en'?'Replying':'回复中');
+    await expect(header.locator('.partial-label')).toHaveText(language==='en'?'Status unconfirmed':'状态待确认');
     const boxes=await header.locator(':scope > *').evaluateAll(items=>items.map(item=>item.getBoundingClientRect().toJSON()));
     const centers=boxes.map(box=>box.y+box.height/2);
     expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
@@ -219,7 +219,7 @@ test('switching conversations shows an independent loader and ignores a late pre
   await page.locator('.conversation-list').getByRole('button',{name:'Fast second',exact:true}).click();
   await expect(page.locator('#messages')).toContainText('New conversation content');release();
   await page.waitForTimeout(250);await expect(page.locator('#messages')).not.toContainText('Old conversation content');
-  await expect(page.locator('.user .message-label')).toContainText('执行失败');
+  await expect(page.locator('.chat-run-status')).toContainText('执行失败');
 });
 
 test('leaving chat during compression cannot repopulate the image draft after logout',async({page})=>{

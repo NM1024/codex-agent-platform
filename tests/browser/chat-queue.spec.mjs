@@ -53,7 +53,8 @@ test('delete removes a queue entry and immediate guidance displays it as sent on
   await page.route(`**/messages/${queued.id}/steer`,async route=>{expect(route.request().method()).toBe('POST');calls++;queued.status='steered';queued.steer_parent_id=conversation.messages[0].id;conversation.queue=[];conversation.queued_count=0;await route.fulfill({json:queued});});
   await row.getByRole('button',{name:'立即引导',exact:true}).click();
   await expect(row).toHaveCount(0);await expect(page.locator('#messages .user')).toHaveCount(2);expect(calls).toBe(1);
-  await expect(page.locator('#messages')).toContainText('已引导');
+  await expect(page.locator('#messages .user').filter({hasText:queued.text})).toHaveCount(1);
+  await expect(page.locator('#messages .user').filter({hasText:queued.text}).locator('.message-label time')).toHaveCount(1);
   const next=message('33333333-3333-4333-8333-333333333333','queued','Delete this request');
   conversation.queue=[next];conversation.messages.push(next);
   await page.evaluate(({id,next})=>window.emit('patch',{conversation:{id,queue:[next],queued_count:1},messages:[next],actions:[]}),{id,next});

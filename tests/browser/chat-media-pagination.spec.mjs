@@ -120,8 +120,12 @@ test('code copy stays inside the upper right corner without covering code or fol
     expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeLessThanOrEqual(12);
     expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeGreaterThanOrEqual(0);
     expect(firstLine.y).toBeGreaterThanOrEqual(buttonBox.y+buttonBox.height);
-    await pre.evaluate(element=>{element.scrollLeft=element.scrollWidth;});
-    const scrolled=await copy.evaluate(element=>element.getBoundingClientRect().toJSON());expect(scrolled.x).toBeCloseTo(buttonBox.x,1);
+    const scrollPosition=await block.evaluate(element=>{
+      const pre=element.querySelector('pre'),button=element.querySelector('button'),before=button.getBoundingClientRect().x;
+      pre.scrollLeft=pre.scrollWidth;
+      return {before,after:button.getBoundingClientRect().x};
+    });
+    expect(scrollPosition.after).toBeCloseTo(scrollPosition.before,1);
   }
 });
 
@@ -185,7 +189,7 @@ test('reconnect revalidates an older active request omitted from the new window 
   await emit(page,'conversation',{...latest,messages:[{...request,id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',text:'New active request'}],queued_count:34,running_count:1});
   await expect(page.locator('#messages')).toContainText('Finished while offline');
   await expect(page.locator('.conversation-sidebar .conversation-pending')).toHaveText('待处理 35');
-  await expect(page.locator('.user').filter({hasText:'Synthetic request'})).toContainText('执行完成');
+  await expect(page.locator('.assistant').filter({hasText:'Finished while offline'}).locator('.message-progress')).toContainText('执行完成');
 });
 
 test('a delayed older page cannot hide a new middle gap created by reconnecting',async({page})=>{

@@ -325,3 +325,5 @@ The Admin frontend uses React, TypeScript and Ant Design, with one production bu
 | [Security](SECURITY.md) | Safe reporting and deployment considerations. |
 
 Licensed under [MIT](LICENSE). Dependencies retain their [own licenses](THIRD_PARTY_NOTICES.md); access to OpenAI services is subject to their applicable terms. Open-source software licensing does not grant model access or unlimited usage.
+
+Management chat keeps the current task phase, elapsed time and age of recorded progress above the composer, with a matching reply indicator. Tool/reply events, pending input, interruption and terminal outcomes drive the display; connection/read failures qualify stale state, and unreconciled old requests cannot override the newest outcome. User headers show only browser-local date/time. Fixed-size animation respects reduced-motion preferences.

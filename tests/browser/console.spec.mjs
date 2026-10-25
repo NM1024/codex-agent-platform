@@ -634,7 +634,7 @@ test("management messages render safe Markdown and retain an unsent draft during
   await expect(page.locator("#messages")).toContainText("<img src=x");
   const reply=page.locator('#messages .assistant').last();
   await expect(reply.getByRole('heading',{name:'运行报告'})).toBeVisible();
-  await expect(reply.locator('strong')).toHaveText('队列');
+  await expect(reply.locator('.message-markdown strong')).toHaveText('队列');
   await expect(reply.locator('pre code')).toHaveText('const count = 3;\n');
   await expect(reply.locator('table tbody td').first()).toHaveText('3');
   await expect(reply.locator('a[href^="javascript:"]')).toHaveCount(0);
