@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
 import sharp from 'sharp';
+import {navigate} from './navigation.mjs';
 
 const id='55555555-5555-4555-8555-555555555555',stamp=Date.now()-10000;
 const request={id:'66666666-6666-4666-8666-666666666666',role:'user',text:'Synthetic request',status:'running',created_at:stamp,partial_text:''};
@@ -11,7 +12,7 @@ async function setup(page) {
   });
   await page.route('**/admin/api/conversations',route=>route.fulfill({json:{items:[latest],next_cursor:'synthetic-cursor'}}));
   await page.route(`**/admin/api/conversations/${id}`,route=>route.fulfill({json:latest}));
-  await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await page.locator('[data-view="chat"]').click();
+  await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await expect(page.locator('.chat-header')).toContainText(latest.title);await expect.poll(()=>page.evaluate(()=>window.sources.length)).toBe(1);
 }
 const emit=(page,type,data)=>page.evaluate(({type,data})=>window.emit(type,data),{type,data});
@@ -170,3 +171,49 @@ test('late omitted-history reconciliation cannot revert a newer action status',a
   await expect(page.locator('#messages')).toContainText('Reconciliation response applied');
   await expect(activity).toContainText('runtime_update · 执行完成');
 });
+
+
+for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:844,height:390},{width:390,height:300}]) {
+  test(`streamed Markdown follows committed layout without moving the composer at ${viewport.width}x${viewport.height}`,async({page})=>{
+    await page.setViewportSize(viewport);await setup(page);await emit(page,'conversation',latest);
+    const input=page.locator('#message-input'),bubble=page.locator('.assistant .message-markdown');
+    await input.fill('Unsent draft');
+    const text=Array.from({length:12},(_,index)=>[
+      `## Section ${index}`, '', '| Name | Value |', '| --- | --- |', '| Memory | 1234 |', '',
+      '```js', `const example = "${'long content '.repeat(15)}";`, 'console.log(example);', '```', '',
+      '- First item', '- Second item', '',
+    ].join('\n')).join('\n');
+    await page.evaluate(()=>{
+      window.streamSamples=[];window.sampleStream=true;
+      const sample=()=>{
+        const composer=document.querySelector('.chat-compose').getBoundingClientRect(),input=document.querySelector('#message-input').getBoundingClientRect(),messages=document.querySelector('#messages');
+        window.streamSamples.push({composerY:composer.y,inputY:input.y,inputHeight:input.height,gap:messages.scrollHeight-messages.scrollTop-messages.clientHeight});
+        if(window.sampleStream)requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    // Split through table delimiters and fences, exercising Markdown block reflow.
+    for(let end=180;end<text.length+180;end+=180){
+      await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:text.slice(0,end)}],actions:[]});
+      await page.waitForTimeout(40);
+    }
+    await expect(bubble).toHaveAttribute('data-typing','false');
+    const samples=await page.evaluate(()=>{window.sampleStream=false;return window.streamSamples;});
+    expect(samples.length).toBeGreaterThan(20);
+    expect(Math.max(...samples.map(sample=>sample.gap))).toBeLessThanOrEqual(2);
+    for(const key of ['composerY','inputY','inputHeight']){
+      const values=samples.map(sample=>sample[key]);expect(Math.max(...values)-Math.min(...values),key).toBeLessThanOrEqual(1);
+    }
+    await expect(input).toHaveValue('Unsent draft');await expect(input).toBeFocused();
+    await expect(bubble.locator('table')).toHaveCount(12);await expect(bubble.locator('pre')).toHaveCount(12);
+    await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
+    await page.screenshot({path:`.tmp/typewriter/after-${viewport.width}x${viewport.height}.png`});
+    // Reading older text must opt out of following, even while more text arrives.
+    const messages=page.locator('#messages');await messages.evaluate(element=>{element.scrollTop=0;});
+    await expect.poll(()=>messages.evaluate(element=>element.scrollTop)).toBe(0);
+    await page.waitForTimeout(50);
+    await emit(page,'patch',{conversation:{id},messages:[{...request,partial_text:text+'\n\n## Another section\n\nMore streamed text.'}],actions:[]});
+    await expect(bubble).toContainText('More streamed text.');await expect(bubble).toHaveAttribute('data-typing','false');
+    expect(await messages.evaluate(element=>element.scrollTop)).toBeLessThanOrEqual(2);
+  });
+}
