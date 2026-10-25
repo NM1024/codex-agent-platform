@@ -93,3 +93,33 @@ test('a 240px keyboard viewport keeps both the running strip and send control re
   const input=await page.locator('#message-input').boundingBox(),toolbar=await page.locator('.composer-toolbar').boundingBox();expect(input.y+input.height).toBeLessThanOrEqual(toolbar.y+1);
   await expect(page.locator('#message-input')).toHaveValue('键盘展开时保留草稿');await page.screenshot({path:'.tmp/chat-status/keyboard-240.png'});
 });
+
+test('repeated conversation switches replace the status strip without accumulating old DOM',async({page})=>{
+  const first={...snapshot(),messages:[{...request,status:'completed',completed_at:request.started_at+44000}],running_count:0};
+  const second={...snapshot(),id:'other-status-chat',title:'另一条对话',messages:[{...request,id:'other-request',status:'completed',completed_at:request.started_at+15000}],running_count:0};
+  const keyWarnings=[];page.on('console',message=>{if(/same key|Encountered two children/.test(message.text()))keyWarnings.push(message.text());});
+  await setup(page,first);
+  await page.route('**/admin/api/conversations',route=>route.fulfill({json:{items:[first,second],next_cursor:null}}));
+  await page.route('**/admin/api/conversations/'+second.id,route=>route.fulfill({json:second}));
+  // Reload to consume both conversations, then use the same sidebar/drawer flow as the user.
+  await page.reload();await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(first.title);
+  await page.locator('#message-input').fill('切换对话时保留草稿');
+  for(const width of [1440,390]){
+    await page.setViewportSize({width,height:844});
+    for(const current of [second,first,second,first]){
+      if(width<992)await page.getByRole('button',{name:'会话列表',exact:true}).click();
+      await page.locator(width<992?'.conversation-drawer:visible':'.conversation-sidebar').getByRole('button',{name:current.title,exact:true}).click();
+      await expect(page.locator('.chat-header')).toContainText(current.title);
+      await expect(bar(page)).toHaveCount(1);
+      await expect(bar(page)).toContainText(current.id===first.id?'已用 44 秒':'已用 15 秒');
+      await expect(page.locator('.composer-input-shell')).toHaveCount(1);
+      await expect(page.locator('#message-input')).toHaveValue('切换对话时保留草稿');
+    }
+    await page.screenshot({path:`.tmp/chat-status/conversation-switch-${width}.png`,animations:'disabled'});
+  }
+  expect(keyWarnings).toEqual([]);
+  await page.getByRole('button',{name:'会话列表',exact:true}).click();
+  await page.locator('.conversation-drawer:visible').getByRole('button',{name:'＋ 新对话',exact:true}).click();
+  await expect(bar(page)).toHaveCount(0);
+  await expect(page.locator('#message-input')).toHaveValue('切换对话时保留草稿');
+});

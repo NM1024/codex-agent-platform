@@ -491,8 +491,8 @@ export default function ChatPage() {
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
         onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
-        <ChatRunStatus key={selectedKey} messages={messages} queuedCount={totals.queued_count??queued.length} runningCount={totals.running_count??0} connection={runConnection} unconfirmedIds={unconfirmedIds}/>
-        <ChatQueue key={chatId??'new'} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
+        <ChatRunStatus key={'status:'+selectedKey} messages={messages} queuedCount={totals.queued_count??queued.length} runningCount={totals.running_count??0} connection={runConnection} unconfirmedIds={unconfirmedIds}/>
+        <ChatQueue key={'queue:'+selectedKey} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}
