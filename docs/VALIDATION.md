@@ -1,5 +1,17 @@
 # Validation
 
+## Automatic history retention
+
+Verified on 2026-10-28 with Node.js 24 and synthetic data:
+
+- Retention is off by default. Revision-checked settings persist the switch and 1–3650-day age, with 30/60-day presets. Enabling or shortening the policy applies to existing eligible history; disabling prevents new batches.
+- Tests cover strict age boundaries, interrupted migrations, daily cursor/restart recovery, policy changes/outages, active work and callback protection, transactional metadata ownership, real Runner HTTP and file deletion, shared credential preservation, unsafe paths/symlinks/FIFOs, durable Manager cleanup retries and actual SQLite file contraction. Deferred compaction survives new sweeps.
+- The full backend suite passed 363 checks, TypeScript/production build and release validation passed (92 modules, 3 JSON resources). All four unmodified Docker targets built; the non-root, read-only, network-disabled test image passed 356 checks, excluding host deployment checks.
+- 66 focused production-bundle browser checks passed across retention settings, Admin/connection settings, streaming/deletion and HTTP targets. Coverage includes default-off behavior, custom age persistence, stale-write conflicts, English phone controls, cold-login transfer budgets and existing desktop/phone layouts. This was a focused run, not the full browser suite.
+- Independent review identified ancestor-symlink protection, lost deferred compaction and interrupted timestamp backfills. Regression tests reproduced each issue before the fixes. No Critical or Important findings remain.
+
+No real credentials, model tasks or deployed data were used. No live retention policy was enabled. Rebuild/recreate the services with the existing runtime directory to install the feature, then explicitly configure it in Admin.
+
 ## Per-plugin integration documentation
 
 Verified on 2026-10-24 with Node.js 24 and synthetic data:

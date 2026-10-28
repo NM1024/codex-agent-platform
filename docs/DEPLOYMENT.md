@@ -141,6 +141,18 @@ printf '%s' "$admin_password" | docker compose --env-file /data/codex-agent-plat
 unset admin_password
 ```
 
+## Automatic history cleanup
+
+Open **Settings → History retention**. Automatic deletion is **off by default** and stays off across upgrades until explicitly enabled. Choose 30 days, 60 days or a custom integer from 1 to 3650, then save the switch and retention days together. Settings persist across restarts. Concurrent changes require reloading the latest policy before saving.
+
+Enabling cleanup or shortening the age applies to already-expired data from the next background check (within roughly one minute). Owners perform daily scans in bounded batches, continuing large backlogs over later wakeups. Disabling prevents new batches; a batch already in progress can finish. No model allowance is used. There is no archive/export stage: deletion is permanent.
+
+- Management conversations expire from their last activity and include messages, execution/activity records, questions, uploaded/generated images and local session/work files. Unsent drafts, unconfirmed guidance and active/queued/recovering work are protected.
+- Completed/failed tasks expire from their end time. Their input/results/errors, tool and execution records, artifacts/session/work files and associated trigger history are removed together. Valid receipt windows, pending callbacks and callbacks still sending are protected. Runner must confirm file cleanup before Gateway deletes task metadata; unreachable Runner leaves the task for retry.
+- Plugin definitions, connection credentials, scheduled plan definitions, live settings and shared account authorization remain. This affects local platform data; it does not delete independent backups, upstream provider records or data already sent to external systems.
+
+Services reclaim SQLite free pages while idle; database size may contract later than deletion when work is active or temporary disk space is insufficient. Deleted rows no longer appear through the platform even while physical compaction is deferred. Preserve ordinary backups separately if you need records past the chosen age. To install these controls, rebuild and recreate the existing three services with the same runtime directory, then reload Admin; no new environment variable is required.
+
 ## Upgrade and backup
 
 Back up all runtime directories together while services are stopped, or use SQLite-consistent snapshots with coordinated workspace backups. Backups contain sensitive account state and business data. Do not delete data to upgrade. Build the new source, then run `start`; container recreation suspends/resumes incomplete work where Codex session state is available. Keep a rollback copy of source/images and data before upgrading. No rollback compatibility across future schema changes is promised in preview releases.

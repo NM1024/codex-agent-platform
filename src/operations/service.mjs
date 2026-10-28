@@ -9,12 +9,13 @@ import {taskDetails} from '../core/task-results.mjs';
 import {ConfigurationStore} from '../configuration/store.mjs';
 import {executionScope,runtimeSettings} from '../configuration/execution.mjs';
 import {bootstrapSettings} from '../configuration/bootstrap.mjs';
+import {retentionScope} from '../configuration/retention.mjs';
 
 const fault=(code,status=400)=>new HttpError(status,code,code);
 export class OperationsService {
   constructor({store,registry=store.registry,config,dispatcher,runner,restartGateway,configuration}) {
     Object.assign(this,{store,registry,config,dispatcher,runner,restartGateway});
-    this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config})]);
+    this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config}),retentionScope()]);
     this.schedules=new ScheduleStore(store,{clientId:config.clientId ?? 'default'});
     this.metrics=new ResourceSampler({diskPath:config.workspace ?? '/data'});
     const ajv=new Ajv({strict:true});this.checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));

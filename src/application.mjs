@@ -6,6 +6,7 @@ import { createPlatformCatalog } from './platform.mjs';
 import { loadTargets,httpConfiguration } from './capabilities/config.mjs';
 import { ConfigurationStore } from './configuration/store.mjs';
 import { executionScope } from './configuration/execution.mjs';
+import {retentionScope} from './configuration/retention.mjs';
 
 export function createApplication(role, env = process.env) {
   const config = loadConfig(role, env);
@@ -21,6 +22,7 @@ export function createApplication(role, env = process.env) {
     configuration: store => {
       const settings = new ConfigurationStore(store.db, [
       executionScope({ store, config }),
+      retentionScope(),
       httpConfiguration(catalog.targets,{name:'http_targets',initialTargets:()=>loadTargets(env)}),
       ]);
       store.plugins.reload();

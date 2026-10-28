@@ -7,6 +7,8 @@ import {executionProperties} from '../configuration/execution.mjs';
 import {createModelCatalog} from '../codex/models.mjs';
 const settingsProperties=Object.fromEntries(['concurrency','model','reasoningEffort','taskTimeoutMs','toolTimeoutMs'].map(key=>[key,executionProperties[key]]));
 const checkSettings=new Ajv({strict:true}).compile({type:'object',properties:settingsProperties,additionalProperties:false});
+const historyId={type:'string',pattern:'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'};
+const checkHistoryIdentity=new Ajv({strict:true}).compile({type:'object',properties:{run_id:historyId,task_id:historyId},required:['run_id','task_id'],additionalProperties:false});
 
 export function createRuntimeServer({ runtime, registry, config, probe, onRestart, models=createModelCatalog() }) {
   const metrics=new ResourceSampler({diskPath:config.workspace ?? '/workspace'});
@@ -34,6 +36,11 @@ export function createRuntimeServer({ runtime, registry, config, probe, onRestar
         });
       if (req.method !== "POST") throw fault("NOT_FOUND", 404);
       const body = await readJson(req);
+      if (path==='/internal/history/purge') {
+        if (!checkHistoryIdentity(body)) throw fault('INVALID_RUN',400);
+        await runtime.purgeHistory(body);
+        return json(res,200,{accepted:true});
+      }
       if (path==='/internal/config') {
         if(!checkSettings(body))throw fault('INVALID_CONFIG',400);
         Object.assign(runtime,body);return json(res,200,Object.fromEntries(Object.keys(settingsProperties).map(key=>[key,runtime[key]])));

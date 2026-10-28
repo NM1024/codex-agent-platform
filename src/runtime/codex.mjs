@@ -1,9 +1,9 @@
 import {renderSystemPrompt} from '../prompts.mjs';
 import { DEFAULT_TOOL_TIMEOUT_MS, DEFAULT_CONCURRENCY } from "../config.mjs";
-import { join } from "node:path";
+import { join, resolve, parse } from "node:path";
 import { readFile, symlink, lstat, rm, readdir } from "node:fs/promises";
 import { runtimeConfig } from "../codex/config.mjs";
-import { safeDirectory, atomicJson } from "../files.mjs";
+import { safeDirectory, atomicJson, containedPath, readRegular } from "../files.mjs";
 import { CodexRpcClient, filteredCodexEnv } from "../codex/rpc.mjs";
 import { initialize } from "../codex/session.mjs";
 import { digest } from "../core/registry.mjs";
@@ -16,7 +16,7 @@ import {validateModelEffort} from '../codex/models.mjs';
 const runSignature = ({run_id, task_id, type, input}) => digest({run_id, task_id, type, input});
 
 const validId = (value) =>
-  typeof value === "string" && /^[a-f0-9-]{36}$/.test(value);
+  typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value);
 const lifecycleKeys = [
   "run_id", "task_id", "status", "thread_id", "turn_id", "created_at",
   "started_at", "updated_at", "ended_at", "completed", "code",
@@ -58,6 +58,7 @@ export class AgentRuntime {
     });
     this.active = new Map();
     this.launches = new Map();
+    this.purges = new Map();
     this.cancelled = new Set();
     this.closed = false;
   }
@@ -66,6 +67,7 @@ export class AgentRuntime {
     if (this.closed) return Promise.reject(new Error("RUNNER_STOPPING"));
     if (!validId(run.run_id) || !validId(run.task_id))
       return Promise.reject(new Error("INVALID_RUN"));
+    if (this.purges.has(run.run_id)) return Promise.reject(new Error("RUN_CONFLICT"));
     const signature = runSignature(run);
     run = { ...run, generation: run.generation ?? 0,execution:{...runtimeSettings(this),...run.execution} };
     if (this.launches.has(run.run_id)) {
@@ -93,6 +95,50 @@ export class AgentRuntime {
     pending.generation = run.generation;
     pending.execution = run.execution;
     this.launches.set(run.run_id, pending);
+    return pending;
+  }
+  purgeHistory(identity) {
+    if (this.recovering) return Promise.reject(new Error("RUNNER_RECOVERING"));
+    if (this.closed) return Promise.reject(new Error("RUNNER_STOPPING"));
+    if (!identity || typeof identity !== "object" || Array.isArray(identity) ||
+        Object.keys(identity).length !== 2 || !Object.hasOwn(identity, "run_id") ||
+        !Object.hasOwn(identity, "task_id") || !validId(identity.run_id) || !validId(identity.task_id))
+      return Promise.reject(new Error("INVALID_RUN"));
+    const {run_id, task_id} = identity;
+    if (this.active.has(run_id) || this.launches.has(run_id))
+      return Promise.reject(new Error("RUN_CONFLICT"));
+    const existing = this.purges.get(run_id);
+    if (existing) return existing.task_id === task_id ? existing : Promise.reject(new Error("RUN_CONFLICT"));
+    // Reserve before any I/O, so neither launch nor recovery can race cleanup.
+    const pending = Promise.resolve().then(async () => {
+      const paths = [
+        [this.workspace, join(this.workspace, ".agent-runs", run_id)],
+        [this.workspace, join(this.workspace, "artifacts", run_id)],
+        [this.codexHome, join(this.codexHome, "runs", run_id)],
+      ];
+      // Preflight every target before deleting anything. Inspect the configured
+      // roots' ancestors too: a real directory can have a symlinked parent.
+      for (const [base, target] of paths) {
+        await containedPath(parse(resolve(base)).root, base, {allowMissing: true});
+        try { await containedPath(base, target, {allowMissing: true}); }
+        catch (error) { if (error.code !== "ENOENT") throw error; }
+      }
+      try {
+        const markerPath = join(paths[0][1], "launch.json");
+        const markerStat = await lstat(markerPath);
+        // Reject special files before open: opening a FIFO for reading could
+        // otherwise hold cleanup and Runner shutdown indefinitely.
+        if (!markerStat.isFile() || markerStat.isSymbolicLink() || markerStat.size > 1024 * 1024)
+          throw new Error("INVALID_FILE");
+        const marker = JSON.parse(await readRegular(this.workspace, markerPath, 1024 * 1024));
+        if (marker?.run_id !== run_id || marker?.task_id !== task_id) throw new Error("RUN_CONFLICT");
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
+      // Gateway owns the terminal/expiry decision. A stale crash marker need
+      // only agree on identity. Recursive rm unlinks child symlinks themselves.
+      for (const [, target] of paths) await rm(target, {recursive: true, force: true});
+    }).finally(() => { this.purges.delete(run_id); });
+    pending.task_id = task_id;
+    this.purges.set(run_id, pending);
     return pending;
   }
   async start(run, { scope } = {}) {
@@ -346,7 +392,7 @@ export class AgentRuntime {
     }
   }
   async recover() {
-    if (this.active.size || this.launches.size)
+    if (this.active.size || this.launches.size || this.purges.size)
       throw new Error("RUNNER_ACTIVE");
     this.recovering = true;
     try {
@@ -385,6 +431,7 @@ export class AgentRuntime {
     await Promise.allSettled([
       ...[...this.active.keys()].map(id => this.end(id, "SUSPENDED")),
       ...this.launches.values(),
+      ...this.purges.values(),
     ]);
   }
 }

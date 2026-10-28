@@ -6,6 +6,22 @@ import { PluginStore } from '../plugins/store.mjs';
 import { PluginConnectionStore } from '../plugins/connections.mjs';
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 const active = "'dispatching','running','completing','suspended'";
+const expiredHistory = `q.status IN ('completed','failed') AND q.finished_at IS NOT NULL AND q.finished_at<?
+  AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.task_id=q.task_id AND r.receipt_until>?)
+  AND NOT EXISTS(SELECT 1 FROM agent_operations o JOIN agent_runs r USING(run_id) WHERE r.task_id=q.task_id AND o.status='executing')
+  AND NOT EXISTS(SELECT 1 FROM agent_deliveries d WHERE d.task_id=q.task_id AND d.status IN ('pending','blocked_configuration','attempted'))`;
+function historyTimes({cutoff,now=Date.now()}={}) {
+  if (!Number.isSafeInteger(cutoff) || !Number.isSafeInteger(now)) throw fault('INVALID_INPUT',400);
+  return {cutoff,now};
+}
+function historyLimit(limit) {
+  if (!Number.isSafeInteger(limit) || limit<1 || limit>500) throw fault('INVALID_INPUT',400);
+  return limit;
+}
+function synchronousHistoryHook(hook,context) {
+  const result=hook?.(context);
+  if (result && typeof result.then==='function') throw new Error('ASYNC_HISTORY_HOOK');
+}
 
 export class RequestStore {
   constructor(path, { registry, queueLimit = 10000 } = {}) {
@@ -34,6 +50,13 @@ export class RequestStore {
     if (!this.requestColumns.has('retry_of')) {
       this.db.exec('ALTER TABLE agent_requests ADD COLUMN retry_of TEXT');this.requestColumns.add('retry_of');
     }
+    if (!this.requestColumns.has('finished_at')) {
+      this.db.exec('ALTER TABLE agent_requests ADD COLUMN finished_at INTEGER');
+      this.requestColumns.add('finished_at');
+    }
+    // Repair an interrupted upgrade that added the column before its backfill.
+    this.db.exec("UPDATE agent_requests SET finished_at=updated_at WHERE finished_at IS NULL AND status IN ('completed','failed')");
+    this.db.exec('CREATE INDEX IF NOT EXISTS agent_history_expiry ON agent_requests(finished_at,task_id)');
     if(this.registry.catalog.requirePluginConnections===true) {
       this.pluginConnections=new PluginConnectionStore(this.db,this.registry);
       this.registry.pluginConnections=this.pluginConnections;
@@ -105,6 +128,44 @@ export class RequestStore {
     if(args.before!==undefined){filters.push('created_at<?');values.push(args.before);}
     if(args.search){filters.push('(request_id LIKE ? OR input LIKE ?)');values.push(`%${args.search}%`,`%${args.search}%`);}
     return this.db.prepare(`SELECT task_id,request_id,type,status,error,created_at,updated_at,retry_of FROM agent_requests ${filters.length?'WHERE '+filters.join(' AND '):''} ORDER BY created_at DESC,task_id LIMIT ? OFFSET ?`).all(...values,args.limit ?? 50,args.offset ?? 0).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+  }
+  isHistoryIdle() {
+    return this.validations.size===0 && !this.db.prepare("SELECT 1 FROM agent_requests WHERE status NOT IN ('completed','failed') LIMIT 1").get();
+  }
+  expiredTasks({cutoff,now=Date.now(),cursor=null,limit=50}={}) {
+    historyTimes({cutoff,now});historyLimit(limit);
+    const values=[cutoff,now];let after='';
+    if(cursor!==null) {
+      if(!Number.isSafeInteger(cursor?.time)||typeof cursor?.id!=='string'||!cursor.id)throw fault('INVALID_INPUT',400);
+      after=' AND (q.finished_at>? OR (q.finished_at=? AND q.task_id>?))';
+      values.push(cursor.time,cursor.time,cursor.id);
+    }
+    const validating=[...this.validations].map(value=>value.split(':')[0]);
+    const validationClause=validating.length?` AND (q.run_id IS NULL OR q.run_id NOT IN (${validating.map(()=>'?').join(',')}))`:'';
+    return this.db.prepare(`SELECT q.task_id,q.run_id,q.finished_at FROM agent_requests q WHERE ${expiredHistory}${after}${validationClause} ORDER BY q.finished_at,q.task_id LIMIT ?`).all(...values,...validating,limit);
+  }
+  canPurgeTaskHistory(taskId,{cutoff,now=Date.now()}={}) {
+    historyTimes({cutoff,now});
+    const row=this.db.prepare(`SELECT q.run_id FROM agent_requests q WHERE ${expiredHistory} AND q.task_id=?`).get(cutoff,now,taskId);
+    return !!row && ![...this.validations].some(value=>value.startsWith(`${row.run_id}:`));
+  }
+  // Call only after owned files have been cleaned. Schedule trigger history can
+  // join this transaction through ScheduleStore.deleteTaskHistory(taskId).
+  purgeTaskHistory(taskId,{cutoff,now=Date.now()}={}) {
+    return this.transaction(()=>{
+      if(!this.canPurgeTaskHistory(taskId,{cutoff,now}))return false;
+      const row=this.raw(taskId),context={store:this,taskId,runId:row.run_id};
+      // Cleanup belongs to installed providers; expired JSON snapshots need not
+      // compile against tools or resources that may since have been retired.
+      const cleanup=this.registry.catalog.profiles?.[row.type]?.deleteTaskHistory
+        ?? this.registry.modules.get(row.type)?.deleteTaskHistory;
+      synchronousHistoryHook(cleanup,context);
+      synchronousHistoryHook(this.registry.catalog.deleteTaskHistory,context);
+      this.db.prepare('DELETE FROM agent_operations WHERE run_id IN (SELECT run_id FROM agent_runs WHERE task_id=?)').run(taskId);
+      for(const table of ['agent_results','agent_deliveries','platform_errors','agent_runs','agent_requests'])
+        this.db.prepare(`DELETE FROM ${table} WHERE task_id=?`).run(taskId);
+      return true;
+    });
   }
   operationRecords(runId){return this.db.prepare('SELECT tool,status FROM agent_operations WHERE run_id=?').all(runId);}
   retry(taskId,{itemIds}={}) {
@@ -179,7 +240,7 @@ export class RequestStore {
         input: JSON.stringify(input), execution_input: JSON.stringify(prepared.input ?? input),
         status: done ? "completed" : "queued",
         result: done ? JSON.stringify(prepared.result) : null,
-        created_at: timestamp, updated_at: timestamp,
+        created_at: timestamp, updated_at: timestamp, finished_at: done ? timestamp : null,
       };
       for (const column of ["fingerprint", "config_digest", "request_digest"])
         if (this.requestColumns.has(column)) values[column] = "";
@@ -435,11 +496,12 @@ export class RequestStore {
             "INSERT INTO agent_results(task_id,result_digest,receipt) VALUES(?,?,?)",
           )
           .run(run.task_id, resultDigest, JSON.stringify(receipt));
+        const finishedAt=Date.now();
         this.db
           .prepare(
-            "UPDATE agent_requests SET status='completed',result=?,updated_at=? WHERE task_id=? AND status='completing'",
+            "UPDATE agent_requests SET status='completed',result=?,updated_at=?,finished_at=? WHERE task_id=? AND status='completing'",
           )
-          .run(JSON.stringify(validated), Date.now(), run.task_id);
+          .run(JSON.stringify(validated), finishedAt, finishedAt, run.task_id);
         this.db
           .prepare("UPDATE agent_runs SET receipt_until=? WHERE run_id=?")
           .run(Date.now() + 30000, runId);
@@ -461,11 +523,12 @@ export class RequestStore {
     return this.transaction(() => {
       const run = this.run(runId);
       if (!run) return false;
+      const finishedAt=Date.now();
       const changed = this.db
         .prepare(
-          `UPDATE agent_requests SET status='failed',error=?,updated_at=? WHERE run_id=? AND status IN (${active})`,
+          `UPDATE agent_requests SET status='failed',error=?,updated_at=?,finished_at=? WHERE run_id=? AND status IN (${active})`,
         )
-        .run(JSON.stringify({ code,...(JSON.parse(run.runtime_metadata ?? '{}').error_message ? {message:JSON.parse(run.runtime_metadata).error_message,source:JSON.parse(run.runtime_metadata).error_source ?? 'runtime'}:{}) }), Date.now(), runId).changes;
+        .run(JSON.stringify({ code,...(JSON.parse(run.runtime_metadata ?? '{}').error_message ? {message:JSON.parse(run.runtime_metadata).error_message,source:JSON.parse(run.runtime_metadata).error_source ?? 'runtime'}:{}) }), finishedAt, finishedAt, runId).changes;
       if (changed) {
         this.db
           .prepare(

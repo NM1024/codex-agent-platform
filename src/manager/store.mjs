@@ -11,6 +11,14 @@ const conversationRow=row=>({...row,execution:JSON.parse(row.execution ?? '{}')}
 const messageRow=row=>({...row,execution:row.execution?JSON.parse(row.execution):null});
 const pageSize=(limit,fallback)=>{const value=limit??fallback;if(!Number.isInteger(value)||value<1||value>100)throw new HttpError(400,'INVALID_PAGINATION','每页数量必须是 1 到 100 的整数。');return value;};
 const invalidCursor=()=>new HttpError(400,'INVALID_CURSOR','分页位置无效，请重新打开对话。');
+const unfinishedUserStates="'queued','running','interrupted','draft','steering','steer_unknown'";
+const busyHistorySql=(conversation=null)=>[
+  `EXISTS(SELECT 1 FROM manager_messages m WHERE ${conversation?`m.conversation_id=${conversation} AND `:''}m.role='user' AND m.status IN (${unfinishedUserStates}))`,
+  `EXISTS(SELECT 1 FROM manager_questions q JOIN manager_messages m ON m.id=q.message_id WHERE ${conversation?`m.conversation_id=${conversation} AND `:''}q.status='pending')`,
+  `EXISTS(SELECT 1 FROM manager_actions a WHERE ${conversation?`a.conversation_id=${conversation} AND `:''}a.status IN ('pending','queued','executing','running'))`,
+  ...['manager_message_activity','manager_reply_items'].map(table=>`EXISTS(SELECT 1 FROM ${table} a JOIN manager_messages m ON m.id=a.message_id WHERE ${conversation?`m.conversation_id=${conversation} AND `:''}a.status='running')`),
+].join(' OR ');
+const retentionCutoff=cutoff=>{if(!Number.isSafeInteger(cutoff))throw new HttpError(400,'INVALID_RETENTION','历史保留截止时间无效。');return cutoff;};
 
 export class ManagerStore {
   constructor(path) {
@@ -26,12 +34,14 @@ export class ManagerStore {
       CREATE TABLE IF NOT EXISTS manager_reply_items(message_id TEXT NOT NULL,id TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(message_id,id));
       CREATE TABLE IF NOT EXISTS manager_questions(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,questions TEXT NOT NULL,answers TEXT,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS manager_generated_images(id TEXT PRIMARY KEY,message_id TEXT NOT NULL,conversation_id TEXT NOT NULL,item_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,width INTEGER NOT NULL,height INTEGER NOT NULL,size INTEGER NOT NULL,bytes BLOB NOT NULL,UNIQUE(message_id,item_id));
+      CREATE TABLE IF NOT EXISTS manager_conversation_cleanup(id TEXT PRIMARY KEY,created_at INTEGER NOT NULL,attempted_at INTEGER NOT NULL DEFAULT 0);
     `);
     for(const table of ['manager_conversations','manager_messages'])
       if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(column=>column.name==='execution'))this.db.exec(`ALTER TABLE ${table} ADD COLUMN execution TEXT`);
-    for(const [table,columns] of [['manager_messages',{reply_to:'TEXT',started_at:'INTEGER',completed_at:'INTEGER',updated_at:'INTEGER',partial_text:'TEXT',queued_at:'INTEGER',steer_parent_id:'TEXT'}],['manager_actions',{message_id:'TEXT'}]])
+    for(const [table,columns] of [['manager_messages',{reply_to:'TEXT',started_at:'INTEGER',completed_at:'INTEGER',updated_at:'INTEGER',partial_text:'TEXT',queued_at:'INTEGER',steer_parent_id:'TEXT'}],['manager_actions',{message_id:'TEXT'}],['manager_conversation_cleanup',{attempted_at:'INTEGER NOT NULL DEFAULT 0'}]])
       for(const [name,type] of Object.entries(columns))if(!this.db.prepare(`PRAGMA table_info(${table})`).all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
     this.db.exec('CREATE INDEX IF NOT EXISTS manager_history_order ON manager_messages(conversation_id,created_at); CREATE INDEX IF NOT EXISTS manager_reply_parent ON manager_messages(reply_to); CREATE INDEX IF NOT EXISTS manager_recent_conversations ON manager_conversations(updated_at DESC,id DESC);');
+    this.db.exec('CREATE INDEX IF NOT EXISTS manager_conversation_cleanup_order ON manager_conversation_cleanup(attempted_at,created_at,id);');
   }
   close(){this.events.removeAllListeners();this.db.close();}
   watch(id,listener){const handler=change=>{if(change.conversationId===id)listener(change);};this.events.on('change',handler);return()=>this.events.off('change',handler);}
@@ -44,6 +54,7 @@ export class ManagerStore {
   message(id){const row=this.db.prepare('SELECT * FROM manager_messages WHERE id=?').get(id);return row?this.publicMessage(row):null;}
   metadata(id){const row=this.db.prepare('SELECT * FROM manager_conversations WHERE id=?').get(id);if(!row)throw new HttpError(404,'CONVERSATION_NOT_FOUND','找不到管理会话。');return conversationRow(row);}
   observe(key,value){this.db.prepare('INSERT OR REPLACE INTO manager_observations VALUES(?,?,?)').run(key,JSON.stringify(value),Date.now());}
+  pruneObservations(cutoff){retentionCutoff(cutoff);return this.db.prepare('DELETE FROM manager_observations WHERE observed_at<?').run(cutoff).changes;}
   observation(key){const row=this.db.prepare('SELECT value,observed_at FROM manager_observations WHERE key=?').get(key);return row?{...JSON.parse(row.value),observed_at:row.observed_at}:null;}
   createConversation(title='新会话',sourceId=null) {
     if (sourceId) {const old=this.db.prepare('SELECT * FROM manager_conversations WHERE source_id=?').get(sourceId);if(old)return this.getConversationPage(old.id);}
@@ -134,11 +145,25 @@ export class ManagerStore {
     const items=rows.slice(0,size).map(conversationRow),last=items.at(-1);
     return {items,next_cursor:rows.length>size?`${last.updated_at}:${last.id}`:null};
   }
-  deleteConversation(id) {
-    this.metadata(id);
+  expiredConversations({cutoff,cursor=null,limit=50}) {
+    retentionCutoff(cutoff);const size=pageSize(limit,50);
+    if(cursor!==null&&(!cursor||!Number.isSafeInteger(cursor.time)||typeof cursor.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(cursor.id)))throw invalidCursor();
+    return this.db.prepare(`SELECT c.id,c.updated_at FROM manager_conversations c WHERE c.updated_at<? AND NOT (${busyHistorySql('c.id')}) ${cursor?'AND (c.updated_at>? OR (c.updated_at=? AND c.id>?))':''} ORDER BY c.updated_at,c.id LIMIT ?`).all(cutoff,...(cursor?[cursor.time,cursor.time,cursor.id]:[]),size);
+  }
+  isHistoryIdle(){return !this.db.prepare(`SELECT (${busyHistorySql()}) AS busy`).get().busy;}
+  pendingConversationCleanup(limit=50){return this.db.prepare('SELECT id,created_at FROM manager_conversation_cleanup ORDER BY attempted_at,created_at,id LIMIT ?').all(pageSize(limit,50));}
+  deferConversationCleanup(id){this.db.prepare('UPDATE manager_conversation_cleanup SET attempted_at=max(?,(SELECT COALESCE(max(attempted_at),0)+1 FROM manager_conversation_cleanup)) WHERE id=?').run(Date.now(),id);}
+  finishConversationCleanup(id){this.db.prepare('DELETE FROM manager_conversation_cleanup WHERE id=?').run(id);}
+  deleteConversation(id,{cutoff}={}) {
+    if(cutoff!==undefined)retentionCutoff(cutoff);
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      if(this.db.prepare("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','running','interrupted') LIMIT 1").get(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
+      // The scan is advisory: take the write lock before rechecking both age and activity.
+      const conversation=this.metadata(id);
+      const busy=cutoff===undefined?this.db.prepare("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','running','interrupted') LIMIT 1").get(id):this.db.prepare(`SELECT 1 FROM manager_conversations c WHERE c.id=? AND (${busyHistorySql('c.id')})`).get(id);
+      if(busy)throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
+      if(cutoff!==undefined&&conversation.updated_at>=cutoff)throw new HttpError(409,'CONVERSATION_NOT_EXPIRED','此对话尚未达到历史保留期限。');
+      this.db.prepare('INSERT OR IGNORE INTO manager_conversation_cleanup(id,created_at) VALUES(?,?)').run(id,Date.now());
       this.db.prepare('DELETE FROM manager_message_activity WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       this.db.prepare('DELETE FROM manager_reply_items WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       this.db.prepare('DELETE FROM manager_questions WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
@@ -272,12 +297,12 @@ export class ManagerStore {
   beginAction(conversationId,name,args={}) {
     const id=randomUUID(),now=Date.now(),target=args.task_id ?? args.type ?? args.id ?? args.definition?.type;
     const active=conversationId?this.db.prepare("SELECT id FROM manager_messages WHERE conversation_id=? AND role='user' AND status='running' ORDER BY created_at,rowid LIMIT 1").get(conversationId):null;
-    this.db.prepare("INSERT INTO manager_actions(id,conversation_id,name,target,status,summary,error,created_at,updated_at,message_id) VALUES(?,?,?,?,'executing',NULL,NULL,?,?,?)").run(id,conversationId,name,typeof target==='string'?target:null,now,now,active?.id ?? null);if(conversationId)this.changed(conversationId);return id;
+    this.db.prepare("INSERT INTO manager_actions(id,conversation_id,name,target,status,summary,error,created_at,updated_at,message_id) VALUES(?,?,?,?,'executing',NULL,NULL,?,?,?)").run(id,conversationId,name,typeof target==='string'?target:null,now,now,active?.id ?? null);if(conversationId){this.db.prepare('UPDATE manager_conversations SET updated_at=? WHERE id=?').run(now,conversationId);this.changed(conversationId);}return id;
   }
   finishAction(id,value,error) {
     const summary=value && typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([key])=>['task_id','retry_of','type','id','status','enabled','accepted','paused','concurrency'].includes(key))):null;
     this.db.prepare('UPDATE manager_actions SET status=?,summary=?,error=?,updated_at=? WHERE id=?').run(error?(error.effectUnknown?'unknown':'failed'):'completed',summary?JSON.stringify(summary):null,error?JSON.stringify({code:error.code ?? 'OPERATION_FAILED',message:error.message}):null,Date.now(),id);
-    const row=this.db.prepare('SELECT conversation_id FROM manager_actions WHERE id=?').get(id);if(row?.conversation_id)this.changed(row.conversation_id);
+    const row=this.db.prepare('SELECT conversation_id FROM manager_actions WHERE id=?').get(id);if(row?.conversation_id){this.db.prepare('UPDATE manager_conversations SET updated_at=? WHERE id=?').run(Date.now(),row.conversation_id);this.changed(row.conversation_id);}
   }
   actions(id){return this.db.prepare('SELECT * FROM manager_actions WHERE conversation_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,summary:row.summary?JSON.parse(row.summary):null,error:row.error?JSON.parse(row.error):null}));}
   actionsPage(id,messageIds=[]){return this.db.prepare(`SELECT * FROM (SELECT * FROM manager_actions WHERE conversation_id=? ${messageIds.length?`AND (message_id IS NULL OR message_id IN (${messageIds.map(()=>'?').join(',')}))`:''} ORDER BY created_at DESC,rowid DESC LIMIT 100) ORDER BY created_at`).all(id,...messageIds).map(row=>({...row,summary:row.summary?JSON.parse(row.summary):null,error:row.error?JSON.parse(row.error):null}));}
