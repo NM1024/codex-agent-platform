@@ -131,6 +131,13 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
     await writeFile(file,text);
   }
   assert.equal(run().status,0);
+  await cp(join(root,'frontend'),join(dir,'frontend'),{recursive:true});
+  await cp(join(root,'docs'),join(dir,'docs'),{recursive:true});
+  await cp(join(root,'README.md'),join(dir,'README.md'));
+  const managerSource=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs'),'--manager-source'],{cwd:dir,encoding:'utf8'});
+  assert.equal(managerSource().status,0,managerSource().stderr);
+  await unlink(join(dir,'frontend/src/PluginExecutionModal.tsx'));
+  const missingSource=managerSource();assert.notEqual(missingSource.status,0);assert.match(missingSource.stderr,/PluginExecutionModal/);
   await mkdir(join(dir,'src/manager/web'));
   await writeFile(join(dir,'src/manager/web','leftover.css'),'body { color: red; }');
   const obsolete=run();assert.notEqual(obsolete.status,0);assert.match(obsolete.stderr,/Obsolete Admin source directory/);

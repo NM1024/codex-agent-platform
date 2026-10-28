@@ -80,6 +80,13 @@ try {
     }
   if (await exists('src/application.mjs'))
     for (const resource of ['src/plugins/examples/content.review.json','src/plugins/examples/novel.illustrated.json'])await requireFile(resource);
+  if(process.argv.includes('--manager-source')) {
+    const required=['README.md','docs/ARCHITECTURE.md','frontend/src/pages/PluginsPage.tsx','frontend/src/PluginExecutionModal.tsx','src/manager/server.mjs','src/manager/project-source.mjs','prompts/manager-project.md'];
+    for(const resource of required)await requireFile(resource);
+    const {createProjectSourceReader}=await import('../src/manager/project-source.mjs');
+    const source=await createProjectSourceReader(root)({mode:'list',limit:200});
+    for(const resource of required)if(!source.files.some(file=>file.path===resource&&!file.unavailable))throw new Error(`Manager source unavailable: ${resource}`);
+  }
   await walk(join(root, "src"));
   await walk(join(root, "scripts"));
   console.log(`Release source validation passed (${checked} modules, ${checkedJson} JSON resources).`);

@@ -33,6 +33,11 @@ FROM base AS runner
 ENV CODEX_HOME=/codex HOME=/codex
 CMD ["node", "src/main-runner.mjs"]
 FROM base AS manager
+COPY --chown=1000:1000 frontend/src ./frontend/src
+COPY --chown=1000:1000 frontend/tsconfig.json frontend/vite.config.ts ./frontend/
+COPY --chown=1000:1000 docs ./docs
+COPY --chown=1000:1000 README.md README.zh-CN.md Dockerfile ./
+RUN node scripts/check-release.mjs --manager-source
 CMD ["node", "src/main-manager.mjs"]
 FROM base AS test
 COPY --chown=1000:1000 tests ./tests
