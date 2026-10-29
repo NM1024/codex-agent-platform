@@ -1,0 +1,67 @@
+name: Publish stable release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tested stable tag (vX.Y.Z)
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: .tmp/release-source
+      - name: Require exact-commit successful CI and matching stable version
+        run: |
+          python3 -B - <<'PY'
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag):
+              raise SystemExit('A stable vX.Y.Z tag is required')
+          sha = subprocess.check_output(['git', '-C', '.tmp/release-source', 'rev-parse', 'HEAD'], text=True).strip()
+          info = json.load(open('.tmp/release-source/package.json'))
+          if info['version'] != tag[1:]:
+              raise SystemExit('Tag and package version differ')
+          repo = os.environ['GITHUB_REPOSITORY']
+          runs = json.loads(subprocess.check_output(['gh', 'api', '--method', 'GET', f'repos/{repo}/actions/workflows/ci.yml/runs', '-f', f'head_sha={sha}', '-f', 'status=success', '-f', 'per_page=100']))
+          if not any(run['head_sha'] == sha and run['conclusion'] == 'success' for run in runs['workflow_runs']):
+              raise SystemExit('No successful complete CI run exists on this exact release commit')
+          print(f'Publishing validated tag {tag} from {sha}')
+          PY
+      - name: Package only the tested Git revision
+        run: |
+          python3 -B .tmp/release-source/scripts/package-release.py --output "$RUNNER_TEMP/release-assets"
+          (cd "$RUNNER_TEMP/release-assets" && sha256sum -c SHA256SUMS)
+          bash -n "$RUNNER_TEMP/release-assets/update.sh"
+      - name: Upload, verify and publish immutable stable assets
+        run: |
+          set -euo pipefail
+          notes="docs/releases/$RELEASE_TAG.md"
+          if [[ ! -f "$notes" ]]; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            printf 'Stable release %s.\n\nThe tagged commit passed complete CI. See README.md for installation and stable-release update instructions.\n' "$RELEASE_TAG" > "$notes"
+          fi
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$draft" != true ]]; then echo 'Stable release already published; refusing to replace its assets.' >&2; exit 1; fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG 正式版" --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/release-assets/codex-agent-platform-$RELEASE_TAG.tar.gz" "$RUNNER_TEMP/release-assets/SHA256SUMS" "$RUNNER_TEMP/release-assets/update.sh" --clobber
+          mkdir "$RUNNER_TEMP/verify-assets"
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/verify-assets"
+          cmp "$RUNNER_TEMP/release-assets/SHA256SUMS" "$RUNNER_TEMP/verify-assets/SHA256SUMS"
+          (cd "$RUNNER_TEMP/verify-assets" && sha256sum -c SHA256SUMS)
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest --notes-file "$notes"
