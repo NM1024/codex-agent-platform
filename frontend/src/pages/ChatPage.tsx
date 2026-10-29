@@ -32,10 +32,12 @@ const mergeConversation=(current:ChatConversation|undefined,item:ChatConversatio
     ...(gap?{history:item.history,olderLoaded:true,historyBacklog:[{resume:current.history,boundary:previous},...current.historyBacklog??[]]}:current.olderLoaded?{history:current.history,olderLoaded:true}:{})};
 };
 const conversationCounts=(item:Conversation)=>({queued_count:item.queued_count??item.messages?.filter(message=>message.role==='user'&&message.status==='queued').length,running_count:item.running_count??item.messages?.filter(message=>message.role==='user'&&['running','interrupted','recovering'].includes(message.status)).length});
+type ConversationSummary=Pick<Conversation,'id'|'title'|'execution'|'queued_count'|'running_count'>;
+const conversationSummary=(item:Conversation):ConversationSummary=>({id:item.id,title:item.title,execution:item.execution,...conversationCounts(item)});
 
 export default function ChatPage() {
   const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [listLoading,setListLoading]=useState(true);
   const [listCursor,setListCursor]=useState<string|null>(null);
   const [moreLoading,setMoreLoading]=useState(false);
@@ -139,7 +141,7 @@ export default function ChatPage() {
         if (!active) return;
         const items=Array.isArray(page)?page:page.items;
         if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);
-        const available=items.filter(item=>!deletedIds.current.has(item.id));
+        const available=items.filter(item=>!deletedIds.current.has(item.id)).map(conversationSummary);
         setConversations(current => [...available, ...current.filter(row => !deletedIds.current.has(row.id)&&!items.some(item => item.id === row.id))]);
         setDefaults({...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
           ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {})});
@@ -150,7 +152,7 @@ export default function ChatPage() {
       }).catch(error => {if (active) notify(t(error instanceof Error ? error.message : String(error)));}).finally(()=>{if(active)setListLoading(false);});
     const timer=setInterval(async()=>{
       if(fetchingList)return;fetchingList=true;
-      try {const page=await api<ConversationPage|Conversation[]>('/conversations');if(active){const items=Array.isArray(page)?page:page.items;setConversations(current=>mergeRows(items,current.filter(row=>!items.some(item=>item.id===row.id))).filter(item=>!deletedIds.current.has(item.id)));if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);}}catch{/* Background list failures preserve the sidebar. */}
+      try {const page=await api<ConversationPage|Conversation[]>('/conversations');if(active){const items=(Array.isArray(page)?page:page.items).map(conversationSummary);setConversations(current=>mergeRows(items,current.filter(row=>!items.some(item=>item.id===row.id))).filter(item=>!deletedIds.current.has(item.id)));if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);}}catch{/* Background list failures preserve the sidebar. */}
       finally {fetchingList=false;}
     },5000);
     return () => {active = false;clearInterval(timer);};
@@ -223,7 +225,7 @@ export default function ChatPage() {
           received();confirmMessages(item.messages??[]);setConversation(current=>mergeConversation(current,item));
           for(const message of item.messages??[])messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
           void reconcileOmitted(item);
-          setConversations(current=>current.map(row=>row.id===chatId?{...row,...item,...conversationCounts(item)}:row));
+          setConversations(current=>current.map(row=>row.id===chatId?conversationSummary(item):row));
           setSelections(current=>Object.hasOwn(current,chatId)?current:{...current,[chatId]:item.execution??{}});
         }catch{fallback=true;setStreamStatus('fallback');}
       });
@@ -239,7 +241,7 @@ export default function ChatPage() {
             const changed=new Map(patch.messages.map(message=>[message.id,message]));
             return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.get(message.id)??message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:mergeRows(current.actions,patch.actions)};
           });
-          setConversations(current=>current.map(row=>row.id===chatId?{...row,...patch.conversation}:row));
+          setConversations(current=>current.map(row=>row.id===chatId?conversationSummary({...row,...patch.conversation}):row));
         }catch{fallback=true;setStreamStatus('fallback');}
       });
       source.addEventListener('deleted',event=>{if(isCurrent()){try{if(JSON.parse((event as MessageEvent).data).id===chatId){source?.close();forgetConversation(chatId);}}catch{/* Ignore malformed events. */}}});
@@ -276,7 +278,7 @@ export default function ChatPage() {
   const loadMoreConversations=async()=>{
     if(!listCursor||listLock.current)return;
     listLock.current=true;setMoreLoading(true);
-    try {const page=await api<ConversationPage>('/conversations?before='+encodeURIComponent(listCursor));if(mounted.current){listExpanded.current=true;setConversations(current=>mergeRows(current,page.items).filter(item=>!deletedIds.current.has(item.id)));setListCursor(page.next_cursor);}}
+    try {const page=await api<ConversationPage>('/conversations?before='+encodeURIComponent(listCursor));if(mounted.current){listExpanded.current=true;setConversations(current=>mergeRows(current,page.items.map(conversationSummary)).filter(item=>!deletedIds.current.has(item.id)));setListCursor(page.next_cursor);}}
     catch(error){if(mounted.current)notify(t(error instanceof Error?error.message:String(error)));}
     finally{listLock.current=false;if(mounted.current)setMoreLoading(false);}
   };
@@ -352,7 +354,7 @@ export default function ChatPage() {
         const created = await api<ChatConversation>('/conversations', {title:text.slice(0, 30)||t('图片消息'), execution});
         id = created.id;
         if (mounted.current) {
-          setConversations(current => [created, ...current.filter(row => row.id !== created.id)]);
+          setConversations(current => [conversationSummary(created), ...current.filter(row => row.id !== created.id)]);
           setSelections(current => ({...current, [created.id]:execution}));
         }
         if (stillSelected()) {

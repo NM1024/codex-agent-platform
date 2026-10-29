@@ -1,3 +1,4 @@
+import {managerHistoryResponse} from './helpers/manager-history.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
@@ -68,7 +69,8 @@ test('management image events drain before completion, exclude foreign turns, an
     return {notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){},async request(method,params){
       calls.push({method,params});
       if(method==='thread/start'||method==='thread/read')return {thread:{id:'image-thread'}};
-      if(method==='thread/resume')return {thread:{id:'image-thread',turns:recovering?[{id:'recorded-turn',status:recordedStatus,items:[image,{id:'final',type:'agentMessage',text:'Recovered image'}]}]:[]}};
+      const history=managerHistoryResponse(method,params,recovering?[{id:'recorded-turn',status:recordedStatus,items:[image,{id:'final',type:'agentMessage',text:'Recovered image'}]}]:[]);if(history)return history;
+      if(method==='thread/resume')return {thread:{id:'image-thread',turns:[]}};
       if(method==='turn/start'){
         if(continuingMessage)assert.equal(store.message(continuingMessage.id).generated_images.length,1,'pre-restart image must be saved before continuation');
         emit('item/completed',{threadId:'foreign-thread',turnId:'image-turn',item:{...image,id:'foreign-thread-image'}});

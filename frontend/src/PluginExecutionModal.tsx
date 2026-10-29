@@ -1,3 +1,4 @@
+import './plugin-execution-i18n';
 import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,Form,Modal,Typography} from 'antd';
 import {AgentPicker,CatalogNote,LoadingState} from './components';

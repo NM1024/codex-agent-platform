@@ -4,8 +4,9 @@ import { readFile,readdir } from "node:fs/promises";
 import { t, setLocale, getLocale } from "../frontend/src/i18n.ts";
 
 test("console interface copy has English translations; business data remains literal", async () => {
-  // Load the same page-specific dictionary as the lazy settings module.
+  // Load the same page-specific dictionaries as the lazy page modules.
   await import('../frontend/src/retention-i18n.ts');
+  await import('../frontend/src/plugin-execution-i18n.ts');
   const directory=new URL('../frontend/src/',import.meta.url);
   const files=(await readdir(directory,{recursive:true})).filter(file=>/\.tsx?$/.test(file));
   const source=(await Promise.all(files.map(file=>readFile(new URL(file.replaceAll('\\','/'),directory),'utf8')))).join('\n');

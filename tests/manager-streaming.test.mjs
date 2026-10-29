@@ -53,16 +53,18 @@ test('stream authentication is rechecked before exposing later updates and unkno
   const expired=await stream.next();assert.equal(expired.event,'session-expired');assert.ok(!JSON.stringify(expired).includes('Must never'));assert.equal(await stream.next(),null);
 });
 
-test('public live reply text exceeds the activity budget without leaking split credentials or raw reasoning',()=>{
+test('public live reply text exceeds the activity budget without leaking split credentials or raw reasoning',t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
   const store=new ManagerStore(':memory:');try {
     const conversation=store.createConversation('Large reply'),message=store.enqueue(conversation.id,'Synthetic');store.markRunning(message.id);
     const progress=new ChatProgress({store,messageId:message.id,secrets:['synthetic-private-token']});
-    const delta=value=>progress.event({method:'item/agentMessage/delta',params:{itemId:'reply',delta:value}});
+    const delta=value=>{progress.event({method:'item/agentMessage/delta',params:{itemId:'reply',delta:value}});t.mock.timers.tick(40);};
     delta('Readable '.repeat(1400));assert.ok(store.getConversation(conversation.id).messages[0].partial_text.length>8192);
     delta('synthetic-private-');assert.ok(!store.getConversation(conversation.id).messages[0].partial_text.includes('synthetic-private-'));
     delta('token ');assert.ok(!store.getConversation(conversation.id).messages[0].partial_text.includes('synthetic-private-token'));
     progress.event({method:'item/reasoning/textDelta',params:{itemId:'hidden',delta:'RAW_PRIVATE_REASONING'}});
     assert.ok(!JSON.stringify(store.getConversation(conversation.id)).includes('RAW_PRIVATE_REASONING'));
+    progress.finish('unknown');
   } finally {store.close();}
 });
 
@@ -131,6 +133,6 @@ test('live reply survives reopen and recovery without replaying terminal work',{
   store=new ManagerStore(path);store.recover();
   const interrupted=store.getConversation(conversation.id).messages[0];assert.equal(interrupted.status,'interrupted');assert.equal(interrupted.partial_text,'Persisted partial reply');
   store.markRunning(message.id);store.finish(message,null,'Complete durable final reply');store.close();
-  store=new ManagerStore(path);assert.equal(store.recover().length,0);
+  store=new ManagerStore(path);assert.equal(store.recover(),0);
   const saved=store.getConversation(conversation.id);assert.equal(saved.messages.length,2);assert.equal(saved.messages[0].partial_text,null);assert.equal(saved.messages[1].text,'Complete durable final reply');
 });

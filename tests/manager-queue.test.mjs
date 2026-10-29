@@ -1,3 +1,4 @@
+import {managerHistoryResponse} from './helpers/manager-history.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
@@ -66,6 +67,7 @@ async function fixture(t,{steerError,holdSteer=false,recovered=[]}={}) {
     notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){},
     async request(method,params){
       calls.push({method,params});
+      const history=managerHistoryResponse(method,params,recovered);if(history)return history;
       if(method.startsWith('thread/'))return {thread:{id:'queue-thread',turns:recovered}};
       if(method==='turn/start'){complete();return {turn:{id:'queue-turn'}};}
       if(method==='turn/steer'){if(holdSteer)await held;if(steerError)throw new Error(steerError);return {turnId:'queue-turn'};}
@@ -133,7 +135,8 @@ test('reserved input reconciles from recorded input without starting or resendin
   const f=await fixture(t),message=f.agent.enqueue(f.conversation.id,'Before restart');
   f.store.reserveSteer(f.conversation.id,message.id,f.active.id,'queue-turn');
   f.finish();await f.agent.idle(f.conversation.id);
-  f.agent.reconcileSteers(f.active.id,[{id:'queue-turn',status:'completed',items:[{type:'userMessage',content:[{type:'text',text:`[management_message_id:${message.id}]\nBefore restart`}]}]}]);
+  const recorded=[{id:'queue-turn',status:'completed',items:[{type:'userMessage',content:[{type:'text',text:`[management_message_id:${message.id}]\nBefore restart`}]}]}];
+  await f.agent.reconcileSteers({request:async(method,params)=>managerHistoryResponse(method,params,recorded)},f.active.id,'queue-thread','queue-turn');
   assert.equal(f.store.message(message.id).status,'steered');
   assert.equal(f.calls.filter(call=>call.method==='turn/start').length,1);
   assert.equal(f.calls.filter(call=>call.method==='turn/steer').length,0);
@@ -149,11 +152,11 @@ test('persisted withdrawal and guidance survive reopening and completed native r
   store=new ManagerStore(path);
   await mkdir(join(root,'codex',c.id),{recursive:true});await writeFile(join(root,'codex',c.id,'auth.json'),'{}');
   const calls=[],agent=new ManagementAgent({store,root,authFile:join(root,'unused.json'),mcpUrl:'http://127.0.0.1/unused',createClient:()=>({
-    notify(){},async close(){},async request(method){calls.push(method);return method==='thread/resume'?{thread:{id:'recovery-thread',turns:[{id:'recovery-turn',status:'completed',items:[
+    notify(){},async close(){},async request(method,params){calls.push(method);const history=managerHistoryResponse(method,params,[{id:'recovery-turn',status:'completed',items:[
       {type:'userMessage',content:[{type:'text',text:`[management_message_id:${parent.id}]\nCurrent request`}]},
       {type:'userMessage',content:[{type:'text',text:`[management_message_id:${guidance.id}]\nRecovered guidance`}]},
       {id:'answer',type:'agentMessage',text:'Recovered final response'},
-    ]}]}}:{};},
+    ]}]);return history??(method==='thread/resume'?{thread:{id:'recovery-thread',turns:[]}}:{});},
   })});
   t.after(async()=>{await agent.stop();store.close();await rm(root,{recursive:true,force:true});});
   await agent.recover();await agent.idle(c.id);
