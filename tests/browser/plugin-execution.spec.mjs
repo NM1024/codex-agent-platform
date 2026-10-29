@@ -147,3 +147,17 @@ test('row actions are compact named icons with focus tooltips in both languages 
     }
   }
 });
+
+
+test('model tab can be opened while entry configuration is still loading',async({page})=>{
+  let release;const gate=new Promise(resolve=>release=resolve);
+  await page.route('**/admin/api/plugins/content.review/connection',async route=>{await gate;await route.continue();});
+  try{
+    await openModels(page);
+    const modal=page.locator('.plugin-connection-modal');
+    await expect(modal.getByRole('tab',{name:'模型设置',exact:true})).toHaveAttribute('aria-selected','true');
+    await choose(page,'#plugin-execution-model','Fixture Fast');
+    await saveModels(page);
+    expect((await operation(page,'plugin_get',{type:'content.review'})).execution.model).toBe('fixture-fast');
+  }finally{release();}
+});

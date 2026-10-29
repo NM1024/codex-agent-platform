@@ -628,3 +628,10 @@ button, input, textarea { font: inherit; }
 @media (max-height: 320px) { .chat-main:has(.chat-run-status) #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; } }
 
 .plugin-icon-actions > .ant-btn { flex: 0 0 32px; width: 32px; padding-inline: 0; }
+
+/* Keep the full-body loading indicator centered while its tabs remain usable. */
+.plugin-connection-modal.connection-loading .ant-modal-body { display: grid; grid-template-columns: minmax(0, 1fr); }
+.plugin-connection-modal.connection-loading .integration-loading,
+.plugin-connection-modal.connection-loading .connection-form { grid-area: 1 / 1; min-width: 0; }
+.plugin-connection-modal.connection-loading .integration-loading { min-height: min(240px, 40dvh); }
+.plugin-connection-modal.connection-loading .connection-form { align-self: start; margin-top: 0; }
