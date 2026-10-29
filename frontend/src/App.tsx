@@ -1,5 +1,5 @@
 import {cloneElement,Component,lazy,Suspense,useEffect,useRef,useState,type ReactElement,type ReactNode} from 'react';
-import {Alert,Button,Card,ConfigProvider,Form,Grid,Input,Layout,Select,Space,Typography,type ButtonProps,type DropdownProps} from 'antd';
+import {Alert,Button,Card,ConfigProvider,Form,Grid,Input,Layout,Modal,Select,Space,Typography,type ButtonProps,type DropdownProps} from 'antd';
 import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
 import {useConsole} from './context';
@@ -20,6 +20,8 @@ const pages={
   settings:lazy(()=>import('./pages/SettingsPage')),
 };
 const DeferredDropdown=lazy(()=>import('antd/es/dropdown'));
+// Reuse the shell's UI components so this lazy feature does not split AntD's cold-login chunks.
+const VersionEntry=lazy(()=>import('./VersionEntry')),versionUi={Alert,Button,Modal,Typography};
 class PageBoundary extends Component<{children:ReactNode;message:string;reload:string},{failed:boolean}> {
   state={failed:false};
   static getDerivedStateFromError(){return {failed:true};}
@@ -40,7 +42,7 @@ function Console(){
   useVisualViewport();
   const screens=Grid.useBreakpoint();
   const [menuOpen,setMenuOpen]=useState(false);
-  const {authenticated,setAuthenticated,api,act,t,view,navigate,notice}=useConsole(),[password,setPassword]=useState(''),[loginError,setLoginError]=useState(''),[loggingIn,setLoggingIn]=useState(false),loginLock=useRef(false);
+  const {authenticated,setAuthenticated,api,act,t,view,navigate,notice,locale}=useConsole(),[password,setPassword]=useState(''),[loginError,setLoginError]=useState(''),[loggingIn,setLoggingIn]=useState(false),loginLock=useRef(false);
   useEffect(()=>{setMenuOpen(false);},[view,authenticated,screens.lg]);
   if(!authenticated)return <main id="login" className="login-shell"><Card className="login-card"><Space className="brand-row"><Typography.Text strong>Codex Agent Platform</Typography.Text><Language id="login-language"/></Space><Typography.Title level={1}>{t('从这里，了解并管理运行。')}</Typography.Title><Typography.Paragraph type="secondary">{t('使用独立 Admin 密码登录，初始密码由部署时生成。')}</Typography.Paragraph><Form layout="vertical" onFinish={()=>{if(loginLock.current)return;loginLock.current=true;setLoggingIn(true);void act(async()=>{setLoginError('');try{await api('/login',{password});setPassword('');setAuthenticated(true);}catch(error){setLoginError(t(error instanceof Error?error.message:String(error)));}}).finally(()=>{loginLock.current=false;setLoggingIn(false);});}}><Form.Item label={t('Admin 密码')} htmlFor="password"><Input.Password id="password" autoComplete="current-password" required placeholder={t('输入 Admin 密码')} value={password} onChange={event=>setPassword(event.target.value)}/></Form.Item><Button htmlType="submit" type="primary" loading={loggingIn} block>{t('登录工作台')}</Button></Form>{(loginError||notice)&&<Alert type="error" title={loginError||notice} showIcon role="alert"/>}</Card></main>;
   const Page=pages[view];
@@ -59,7 +61,7 @@ function Console(){
           <Typography.Title id="page-title" level={1}>Codex Agent Platform</Typography.Title>
           <Typography.Title id="view-title" level={2}>{t(titles[view])}</Typography.Title>
         </div>
-        <ConfigProvider componentSize="small"><Space className="console-header-actions" size={screens.lg?8:2}><Button id="repository-link" type="text" aria-label={t('项目仓库')} title={t('项目仓库')} icon={<Icon name="repository"/>} href="https://github.com/NM1024/codex-agent-platform" target="_blank" rel="noopener noreferrer">{screens.lg?t('项目仓库'):undefined}</Button><Language id="app-language" compact={!screens.lg}/><AsyncButton id="logout" type="text" aria-label={t('退出')} title={t('退出')} icon={<Icon name="logout"/>} onClick={async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}}}>{screens.lg?t('退出'):undefined}</AsyncButton></Space></ConfigProvider>
+        <ConfigProvider componentSize="small"><Space className="console-header-actions" size={screens.lg?8:2}><Suspense fallback={null}><VersionEntry ui={versionUi} api={api} locale={locale}/></Suspense><Button id="repository-link" type="text" aria-label={t('项目仓库')} title={t('项目仓库')} icon={<Icon name="repository"/>} href="https://github.com/NM1024/codex-agent-platform" target="_blank" rel="noopener noreferrer">{screens.lg?t('项目仓库'):undefined}</Button><Language id="app-language" compact={!screens.lg}/><AsyncButton id="logout" type="text" aria-label={t('退出')} title={t('退出')} icon={<Icon name="logout"/>} onClick={async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}}}>{screens.lg?t('退出'):undefined}</AsyncButton></Space></ConfigProvider>
       </Layout.Header>
       <Layout.Content className={'console-content view-'+view}>
         {notice&&<Alert id="notice" role="status" type="info" showIcon title={notice}/>}

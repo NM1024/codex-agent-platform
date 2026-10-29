@@ -23,6 +23,7 @@ test('management code depends only on its own modules and shared contracts/adapt
 test('management can load without task runtime, concrete business, plugin compiler or Gateway operations',async t=>{
   const root=await mkdtemp(join(tmpdir(),'manager-only-'));t.after(()=>rm(root,{recursive:true,force:true}));
   await cp(source,join(root,'src'),{recursive:true,filter:path=>! /^(core|runtime|plugins|business|capabilities|operations)(\/|$)/.test(relative(source,path))});
+  await cp(join(service,'package.json'),join(root,'package.json'));
   await symlink(join(service,'node_modules'),join(root,'node_modules'),'dir');
   for(const file of ['manager/agent.mjs','manager/server.mjs','manager/mcp.mjs']) {
     const loaded=await import(pathToFileURL(join(root,'src',file)).href);assert.ok(Object.keys(loaded).length);

@@ -204,7 +204,7 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 ## Add your own work and schedules
 
-Global model and reasoning selectors are available in **Settings**. In **Management chat**, click the model name in the composer to open one panel with model choices and a stepped reasoning slider. Click a level or use the arrow/Home/End keys; dragging previews the level and saves on release. Reset restores inherited reasoning; Use model default remains a separate choice. Long model lists can be searched, and unavailable saved values remain readable. The panel becomes a bottom sheet on phones and supports short keyboard-height viewports. Use **Business plugins → Model settings** to select a plugin's model and reasoning effort directly, or ask the management Agent to configure them. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
+Global model and reasoning selectors are available in **Settings**. In **Management chat**, click the model name in the composer to open one panel with model choices and a stepped reasoning slider. Click a level or use the arrow/Home/End keys; dragging previews the level and saves on release. Reset restores inherited reasoning; Use model default remains a separate choice. Long model lists can be searched, and unavailable saved values remain readable. The panel becomes a bottom sheet on phones and supports short keyboard-height viewports. Use **Business plugins → Configure connection → Model settings** to select a plugin's model and reasoning effort directly, or ask the management Agent to configure them. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
 
 **Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
 
@@ -284,6 +284,25 @@ Use **Settings → History retention** to enable automatic deletion and choose 3
 ### Management memory
 
 Management conversations default to two simultaneous rounds, independently of business concurrency. Change this in **Settings → Manager** (1–5). Pending conversations wait in SQLite; normal continuation no longer returns complete history to the management service. Full records and the native context-compaction policy remain unchanged. See [memory controls and measurement](docs/MEMORY.md).
+
+### Version information and optional browser upgrades
+
+The topbar shows the version reported by the running Manager image. Open it to check the latest published stable release, read its release notes or copy the server update command. Checking does not start a model task or upgrade.
+
+For browser-triggered upgrades, first deploy a release containing this feature, then explicitly install the optional host service on a Linux systemd host:
+
+```bash
+sudo bash /data/codex-agent-platform/deploy.sh enable-web-update
+sudo bash /data/codex-agent-platform/deploy.sh web-update-status
+```
+
+Use the actual runtime launcher path. Source/runtime and `.env` must have trusted root-owned ancestry; for a user-owned Git checkout, run the verified stable bootstrap as root first and use its generated runtime launcher. The version dialog enables Upgrade only when a newer stable release and the host service are available. Confirm the maintenance interruption; progress survives Manager recreation and reconnects afterward. No Docker socket or arbitrary host command is exposed to Manager or its Agent. Ordinary installations work without this service.
+
+```bash
+sudo bash /data/codex-agent-platform/deploy.sh disable-web-update
+```
+
+Disabling during an upgrade interrupts it and may require recovery. Consult [deployment and recovery](docs/DEPLOYMENT.md#optional-host-service-for-browser-upgrades) before restoring a backup.
 
 ## Edit platform system prompts
 

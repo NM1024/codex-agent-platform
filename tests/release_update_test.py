@@ -66,8 +66,17 @@ class ReleaseUpdateTests(unittest.TestCase):
         if args[-2:] == ['config', '--format=json']:
             services = {}
             for name, mounts in u.MOUNTS.items():
-                services[name] = {'volumes':[{'type':'bind','source':str(self.data / sub),'target':target} for target, sub in mounts.items()]}
+                services[name] = {'image':f'codex-agent-platform-{name}:1.0.0','volumes':[{'type':'bind','source':str(self.data / sub),'target':target} for target, sub in mounts.items()]}
             return json.dumps({'services':services})
+        if args[:3]==['docker','image','inspect']:
+            return 'sha256:'+'a'*64
+        if '-q' in args and 'ps' in args:
+            return args[-1]+'-container'
+        if args[:2]==['docker','inspect']:
+            service=args[-1].removesuffix('-container')
+            return json.dumps([{'Image':'sha256:'+'a'*64,'Config':{'Image':f'codex-agent-platform-{service}:1.0.0','Labels':{'com.docker.compose.project':self.install.project,'com.docker.compose.service':service}},'State':{'Running':True,'Health':{'Status':'healthy'}}}])
+        if args[:2]==['docker','exec']:
+            return '1.0.0'
         return ''
 
     def update(self):
@@ -227,6 +236,17 @@ class ReleaseUpdateTests(unittest.TestCase):
                 u.update(self.install)
         self.assertTrue(any('start' in c for c in self.calls))
         self.assertFalse(any('validate' in c for c in self.calls))
+        self.assertFalse((self.data/'.deployment.json').exists())
+
+    def test_backup_failure_does_not_claim_restart_succeeded_when_restart_also_fails(self):
+        original=self.run_command
+        def failing_restart(args,**kwargs):
+            if args[-1]=='start':
+                raise u.UpdateError('restart failed')
+            return original(args,**kwargs)
+        with patch.object(u,'download',self.download),patch.object(u,'run',failing_restart),patch.object(u,'backup',side_effect=OSError('disk full')):
+            with self.assertRaisesRegex(u.UpdateError,'attempted to restart'):
+                u.update(self.install)
         self.assertFalse((self.data/'.deployment.json').exists())
 
     def test_concurrent_updates_are_rejected(self):

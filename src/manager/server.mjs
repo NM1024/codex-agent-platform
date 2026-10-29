@@ -9,12 +9,13 @@ import {staticEncoding} from './static-encoding.mjs';
 import {validateChatImages} from './chat-images.mjs';
 import {streamConversation} from './events.mjs';
 import {buildPluginIntegration} from './plugin-integration.mjs';
+import {createVersionService,createUpgradeClient} from './version.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
 const entityTag=bytes=>'"'+createHash('sha256').update(bytes).digest('base64url')+'"';
 const matchesTag=(header,etag)=>(header??'').split(',').some(value=>value.trim()==='*'||value.trim().replace(/^W\//,'')===etag);
-export function createManagerServer({store,agent,operations,auth,metrics}) {
+export function createManagerServer({store,agent,operations,auth,metrics,versionService=createVersionService(),upgradeClient=createUpgradeClient()}) {
   const streams=new Set();let eventsClosed=false;
   const server=createServer(async(req,res)=>{
     try {
@@ -45,6 +46,15 @@ export function createManagerServer({store,agent,operations,auth,metrics}) {
         res.setHeader('set-cookie',auth.cookie(session.token,req,session.expires_at));return json(res,200,{authenticated:true,expires_at:session.expires_at});
       }
       if(!auth.authorize(req))throw new HttpError(401,'UNAUTHORIZED','请使用 Admin 密码登录。');
+      if(req.method==='GET'&&path==='/admin/api/version')return json(res,200,{current:versionService.current});
+      if(req.method==='GET'&&path==='/admin/api/version/latest')return json(res,200,await versionService.latest());
+      if(req.method==='GET'&&path==='/admin/api/upgrade')return json(res,200,await upgradeClient.status());
+      if(req.method==='POST'&&path==='/admin/api/upgrade') {
+        const body=await readJson(req,1024);
+        if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length||url.search)throw new HttpError(400,'INVALID_INPUT','升级操作仅接受空对象。');
+        const status=await upgradeClient.start();
+        return json(res,status.available&&status.job?202:503,status);
+      }
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
       if(req.method==='POST'&&path==='/admin/api/logout'){auth.logout(req);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{logged_out:true});}
       if(req.method==='POST'&&path==='/admin/api/password'){const body=await readJson(req);await auth.changePassword(body.currentPassword,body.password);res.setHeader('set-cookie',auth.cookie('',req));return json(res,200,{updated:true,sessions_revoked:true});}

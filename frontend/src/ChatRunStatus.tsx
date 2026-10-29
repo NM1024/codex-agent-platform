@@ -1,3 +1,4 @@
+import './chat-status-i18n';
 import {useEffect,useState} from 'react';
 import {useConsole} from './context';
 import {Icon} from './Icon';

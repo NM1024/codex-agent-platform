@@ -27,3 +27,8 @@ workspace/
 /platform-deploy.sh
 /releases/
 /backups/
+
+/updater/
+
+__pycache__/
+*.pyc

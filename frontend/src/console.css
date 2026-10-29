@@ -534,6 +534,7 @@ button, input, textarea { font: inherit; }
 .view-tasks .table-name-cell .table-summary, .view-overview .table-name-cell .table-summary { display: block; white-space: nowrap; text-overflow: ellipsis; }
 .expanded-table .table-meta-cell .table-field-value { white-space: nowrap; }
 .expanded-table .plugin-row-actions { flex-wrap: wrap; }
+.expanded-table .plugin-icon-actions { flex-wrap: nowrap; }
 .expanded-table .table-summary { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 @container (max-width: 1050px) {
   .expanded-table .ant-table-thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -625,3 +626,5 @@ button, input, textarea { font: inherit; }
 
 :root[data-tiny-viewport] .chat-main:has(.chat-run-status) #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; }
 @media (max-height: 320px) { .chat-main:has(.chat-run-status) #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; } }
+
+.plugin-icon-actions > .ant-btn { flex: 0 0 32px; width: 32px; padding-inline: 0; }
