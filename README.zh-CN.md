@@ -8,7 +8,7 @@
 
 这个自托管平台面向开发者和受信任的小团队：你可以把内容审核、结构化报告、图文创作、定时处理等工作接入现有系统。平台负责排队、执行记录、文件保存和日常管理，你主要定义“输入什么、要完成什么、最后返回什么”。
 
-**当前正式版本：v1.0.0。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
+**当前正式版本：v1.0.1。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
 
 ## 目录
 
@@ -87,7 +87,7 @@ Docker 镜像已经包含 Node.js、SQLite 支持和固定版本的 Codex CLI，
 ### 1. 获取代码并初始化私有配置
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/NM1024/codex-agent-platform.git
+git clone --branch v1.0.1 --depth 1 https://github.com/NM1024/codex-agent-platform.git
 cd codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```

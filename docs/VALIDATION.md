@@ -311,7 +311,7 @@ Raw scratch measurements additionally distinguish cgroup file/anonymous pages fr
 After merging the model-settings/read-only-source and automatic-retention changes, the combined branch passed 446 backend checks, 439 checks in the non-root/read-only/network-disabled test container, and 21 focused browser checks covering plugin model settings, retention, management concurrency, summary-only sidebars, streaming/deletion and the shell. All four Docker targets built, including Manager's packaged-source validation; release validation passed 96 modules and 3 JSON resources. The plugin-specific dictionary now loads with the plugin page, preserving the existing cold-login transfer budget. The combined cleanup path retains transactional expiry/busy checks and durable file retries while removing scheduling/queue-version rows. Independent integration review found no blocking issue.
 
 
-## Admin configuration and optional host upgrades (v1.1.0 candidate)
+## Admin configuration and optional host upgrades (released as v1.0.1)
 
 `npm test` passed 463 checks, including running-version/auth/origin/IPC metadata tests, 19 existing updater scenarios and 17 host-service scenarios through host-only wrappers. Release validation and Manager packaged-source validation passed 100 modules / 3 JSON resources. Host tests use real temporary Unix HTTP sockets and a detached synthetic worker; systemd unit syntax is checked against a synthetic Docker prerequisite. They do not install a system service or read real account state.
 

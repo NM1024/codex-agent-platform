@@ -78,9 +78,9 @@ CONFIG
   build)
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.1.0 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.1.0 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.1.0 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.1 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.1 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.1 "$agent_source_dir"
     else agent_compose build; fi
     ;;
   start)
