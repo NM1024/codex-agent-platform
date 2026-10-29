@@ -275,7 +275,7 @@ sudo bash /data/codex-agent-platform/deploy.sh status
 sudo bash /data/codex-agent-platform/deploy.sh logs
 ```
 
-Use your actual runtime path. Update selects GitHub's latest published stable Release and verifies its versioned source asset with SHA-256; it never follows `main`, drafts or prereleases. It stages source and builds before a short maintenance interruption, backs up runtime state, then restarts with health checks. `.env`, account authorization and history remain. Backups include secrets: retain them privately and plan space for both backup and image builds. A failed health check reports the backup and does not automatically downgrade a migrated database. See [update and recovery details](docs/DEPLOYMENT.md#stable-release-updates).
+Use your actual runtime path. Update selects GitHub's latest published stable Release and verifies its versioned source asset with SHA-256; it never follows `main`, drafts or prereleases. It stages source and builds before a maintenance interruption, backs up runtime state, then restarts with health checks. `.env`, account authorization and history remain. Backups include secrets: retain them privately and plan space for both backup and image builds. A failed health check reports the backup and does not automatically downgrade a migrated database. See [update and recovery details](docs/DEPLOYMENT.md#stable-release-updates).
 
 ### Automatically delete expired history
 

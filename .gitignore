@@ -21,3 +21,9 @@ workspace/
 *.key
 *.p12
 *.pfx
+/node_modules
+/.deployment.json
+/.update.lock
+/platform-deploy.sh
+/releases/
+/backups/

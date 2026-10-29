@@ -269,7 +269,7 @@ sudo bash /data/codex-agent-platform/deploy.sh status
 sudo bash /data/codex-agent-platform/deploy.sh logs
 ```
 
-将路径换成你的实际运行目录。只选择 GitHub 最新已发布的正式 Release，校验版本包的 SHA-256，不跟随 `main`、草稿或预发布版本。先下载并构建镜像，再短暂停服，一致备份运行数据，重启并检查健康状态。保留 `.env`、账户授权和历史数据，不改原来的 Git 工作区。
+将路径换成你的实际运行目录。只选择 GitHub 最新已发布的正式 Release，校验版本包的 SHA-256，不跟随 `main`、草稿或预发布版本。先下载并构建镜像，再停服并一致备份运行数据（停服时长取决于数据量），重启并检查健康状态。保留 `.env`、账户授权和历史数据，不改原来的 Git 工作区。
 
 备份含有密钥与授权文件，必须私密保存；磁盘需为备份和镜像构建预留空间。健康检查失败会报告备份位置，不会自动降级已迁移的数据库。详见[更新与恢复说明](docs/DEPLOYMENT.md#stable-release-updates)。
 
