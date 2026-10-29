@@ -1,5 +1,5 @@
 import { createHash,randomBytes } from 'node:crypto';
-import { join,resolve,relative,sep } from 'node:path';
+import { join,resolve,relative,sep,parse } from 'node:path';
 import { lstat,symlink,rm } from 'node:fs/promises';
 import { safeDirectory,containedPath } from '../files.mjs';
 import {HttpError} from '../errors.mjs';
@@ -8,7 +8,7 @@ import { initialize } from '../codex/session.mjs';
 import { runtimeConfig } from '../codex/config.mjs';
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
 import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
-import {DEFAULT_CONCURRENCY} from '../config.mjs';
+import {currentPlatformContext} from './project-context.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 import {validateModelEffort} from '../codex/models.mjs';
@@ -33,17 +33,29 @@ export class ManagementAgent {
     state.questions.delete(questionId);pending.resolve(result.response);
     return {id:questionId,status:'answered'};
   }
-  async deleteConversation(id) {
+  async deleteConversation(id,options) {
     if(this.running.has(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
-    const result=this.store.deleteConversation(id);
+    const result=this.store.deleteConversation(id,options);
+    const complete=await this.cleanupConversationFiles(id);
+    return {...result,...(!complete?{cleanup_pending:true}:{})};
+  }
+  async cleanupConversationFiles(id) {
     const cleanup=await Promise.allSettled(['codex','work'].map(async directory=>{
       const base=resolve(this.root),target=resolve(base,directory,id),rel=relative(base,target);
-      if(!/^[a-f0-9-]{36}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
+      if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
+      // A real root may itself sit beneath a symlinked ancestor.
+      await containedPath(parse(base).root,base,{allowMissing:true});
       await containedPath(base,target,{allowMissing:true});
       // fs.rm removes an auth.json symlink itself, never its external target.
       await rm(target,{recursive:true,force:true});
     }));
-    return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
+    if(cleanup.some(value=>value.status==='rejected')){this.store.deferConversationCleanup(id);return false;}
+    this.store.finishConversationCleanup(id);return true;
+  }
+  async retryConversationCleanup({limit=50}={}) {
+    const rows=this.store.pendingConversationCleanup(limit);let completed=0;
+    for(const {id} of rows)if(await this.cleanupConversationFiles(id))completed++;
+    return {attempted:rows.length,completed,pending:rows.length-completed};
   }
   enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);this.kick(conversationId);return message;}
   requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);this.kick(conversationId);return message;}
@@ -143,7 +155,8 @@ export class ManagementAgent {
       });
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=[this.instructions ?? readSystemPrompt('manager'),renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY}),readSystemPrompt('manager-connections')].join('\n\n');
+      const context=currentPlatformContext();
+      const prompt=[this.instructions ?? readSystemPrompt('manager'),`当前平台上下文版本：${context.revision}。以下规则来自当前部署，每轮重新加载，适用于已有对话。历史回复、总结或保存的职责中若有过时的功能描述或权限判断，以本轮平台规则和实际工具返回值为准；保留用户的业务目标，但不能沿用旧版本限制或扩大当前权限。需要再次核对时调用 platform_context，查看实现时调用 project_source，不要声称自动读过全部源码。`,context.instructions].join('\n\n');
       const config=runtimeConfig({native:{imageGeneration:true,webSearch:true},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs,userInput:true});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:true}:{ephemeral:false}),

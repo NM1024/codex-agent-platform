@@ -1,5 +1,17 @@
 # Validation
 
+## Automatic history retention
+
+Verified on 2026-10-28 with Node.js 24 and synthetic data:
+
+- Retention is off by default. Revision-checked settings persist the switch and 1–3650-day age, with 30/60-day presets. Enabling or shortening the policy applies to existing eligible history; disabling prevents new batches.
+- Tests cover strict age boundaries, interrupted migrations, daily cursor/restart recovery, policy changes/outages, active work and callback protection, transactional metadata ownership, real Runner HTTP and file deletion, shared credential preservation, unsafe paths/symlinks/FIFOs, durable Manager cleanup retries and actual SQLite file contraction. Deferred compaction survives new sweeps.
+- The full backend suite passed 363 checks, TypeScript/production build and release validation passed (92 modules, 3 JSON resources). All four unmodified Docker targets built; the non-root, read-only, network-disabled test image passed 356 checks, excluding host deployment checks.
+- 66 focused production-bundle browser checks passed across retention settings, Admin/connection settings, streaming/deletion and HTTP targets. Coverage includes default-off behavior, custom age persistence, stale-write conflicts, English phone controls, cold-login transfer budgets and existing desktop/phone layouts. This was a focused run, not the full browser suite.
+- Independent review identified ancestor-symlink protection, lost deferred compaction and interrupted timestamp backfills. Regression tests reproduced each issue before the fixes. No Critical or Important findings remain.
+
+No real credentials, model tasks or deployed data were used. No live retention policy was enabled. Rebuild/recreate the services with the existing runtime directory to install the feature, then explicitly configure it in Admin.
+
 ## Per-plugin integration documentation
 
 Verified on 2026-10-24 with Node.js 24 and synthetic data:
@@ -293,3 +305,7 @@ Current 4→32 saved turns kept worker RSS near 63 MiB, while native Codex RSS s
 - Independent review found malformed-history replay risk, backpressured-response retention during deletion and silently omitted uncertain action context. Each issue received a failing regression and a verified fix. No remaining Critical or Important findings were identified. A suspected SSE initial-snapshot closure leak was rejected after a WeakRef/GC probe demonstrated collection while the stream remained open.
 
 Raw scratch measurements additionally distinguish cgroup file/anonymous pages from process RSS/PSS and JS heap. The versioned benchmark emits source hashes, seed SHA-256 manifests, protocol result bytes and child-process cleanup checks. It does not read real login files or enable production cleanup/retention.
+
+### Integration with model/source access and history retention
+
+After merging the model-settings/read-only-source and automatic-retention changes, the combined branch passed 446 backend checks, 439 checks in the non-root/read-only/network-disabled test container, and 21 focused browser checks covering plugin model settings, retention, management concurrency, summary-only sidebars, streaming/deletion and the shell. All four Docker targets built, including Manager's packaged-source validation; release validation passed 96 modules and 3 JSON resources. The plugin-specific dictionary now loads with the plugin page, preserving the existing cold-login transfer budget. The combined cleanup path retains transactional expiry/busy checks and durable file retries while removing scheduling/queue-version rows. Independent integration review found no blocking issue.

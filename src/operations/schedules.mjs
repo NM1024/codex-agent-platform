@@ -19,6 +19,13 @@ export class ScheduleStore {
       CREATE TABLE IF NOT EXISTS platform_schedule_runs(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,due_at INTEGER NOT NULL,triggered_at INTEGER NOT NULL,task_id TEXT NOT NULL,UNIQUE(schedule_id,due_at));
       CREATE TABLE IF NOT EXISTS platform_inspections(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,conversation_id TEXT,created_at INTEGER NOT NULL);
     `);
+    if(!this.db.prepare('PRAGMA table_info(platform_inspections)').all().some(column=>column.name==='finished_at')) {
+      this.db.exec('ALTER TABLE platform_inspections ADD COLUMN finished_at INTEGER');
+    }
+    // Repair interrupted upgrades too. Legacy admission time does not establish
+    // when an inspection finished, so unknown terminal ages start at migration.
+    this.db.prepare("UPDATE platform_inspections SET finished_at=? WHERE finished_at IS NULL AND status IN ('accepted','cancelled')").run(Date.now());
+    this.db.exec('CREATE INDEX IF NOT EXISTS platform_inspection_expiry ON platform_inspections(finished_at,id)');
     if(!this.db.prepare('PRAGMA table_info(platform_schedules)').all().some(column=>column.name==='deleted_at'))this.db.exec('ALTER TABLE platform_schedules ADD COLUMN deleted_at INTEGER');
   }
   get(id) {
@@ -59,7 +66,7 @@ export class ScheduleStore {
       if(!row)throw new HttpError(404,'SCHEDULE_NOT_FOUND','找不到定时计划。');
       const deleted_at=row.deleted_at??Date.now();
       if(row.deleted_at===null)this.db.prepare('UPDATE platform_schedules SET enabled=0,definition=?,deleted_at=?,updated_at=? WHERE id=?').run(JSON.stringify({...JSON.parse(row.definition),enabled:false}),deleted_at,deleted_at,id);
-      this.db.prepare("UPDATE platform_inspections SET status='cancelled' WHERE schedule_id=? AND status='queued'").run(id);
+      this.db.prepare("UPDATE platform_inspections SET status='cancelled',finished_at=? WHERE schedule_id=? AND status='queued'").run(Date.now(),id);
       return {id,deleted:true,deleted_at};
     });
   }
@@ -68,6 +75,21 @@ export class ScheduleStore {
       this.setEnabled(plan.id,false);
       this.db.prepare("UPDATE platform_schedules SET blocked_reason='PLUGIN_DELETED' WHERE id=?").run(plan.id);
     }
+  }
+  // The caller may compose this with RequestStore.purgeTaskHistory in its transaction.
+  deleteTaskHistory(taskId) {
+    return this.db.prepare('DELETE FROM platform_schedule_runs WHERE task_id=?').run(taskId).changes;
+  }
+  pruneInspectionHistory({cutoff,limit=50}={}) {
+    if(!Number.isSafeInteger(cutoff)||!Number.isSafeInteger(limit)||limit<1||limit>500)throw new HttpError(400,'INVALID_INPUT','Invalid retention bounds.');
+    return this.store.transaction(()=>{
+      const rows=this.db.prepare("SELECT id FROM platform_inspections WHERE status IN ('accepted','cancelled') AND finished_at<? ORDER BY finished_at,id LIMIT ?").all(cutoff,limit);
+      for(const {id} of rows) {
+        this.deleteTaskHistory(id);
+        this.db.prepare('DELETE FROM platform_inspections WHERE id=?').run(id);
+      }
+      return rows.length;
+    });
   }
   pendingInspections(){return this.db.prepare("SELECT id,message,status FROM platform_inspections WHERE status IN ('queued','claimed') ORDER BY created_at").all();}
   claimInspection(id) {
@@ -80,7 +102,7 @@ export class ScheduleStore {
   }
   acknowledgeInspection(id,conversationId) {
     if(typeof id!=='string'||typeof conversationId!=='string')throw new HttpError(400,'INVALID_INPUT','巡检记录和管理会话编号不正确。');
-    this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=? WHERE id=? AND status='claimed'").run(conversationId,id);
+    this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=?,finished_at=? WHERE id=? AND status='claimed'").run(conversationId,Date.now(),id);
     const row=this.db.prepare('SELECT status,conversation_id FROM platform_inspections WHERE id=?').get(id);
     return {accepted:row?.status==='accepted'&&row.conversation_id===conversationId};
   }
@@ -92,7 +114,7 @@ export class ScheduleStore {
         const event=randomUUID();let task_id;
         if (plan.kind==='task') task_id=this.store.accept(this.clientId,{type:plan.type,request_id:`schedule:${id}:${plan.next_run_at}`,input:plan.input}).task_id;
         else {
-          task_id=randomUUID();this.db.prepare('INSERT INTO platform_inspections VALUES(?,?,?,\'queued\',NULL,?)').run(task_id,id,plan.message,now);
+          task_id=randomUUID();this.db.prepare('INSERT INTO platform_inspections(id,schedule_id,message,status,conversation_id,created_at) VALUES(?,?,?,\'queued\',NULL,?)').run(task_id,id,plan.message,now);
         }
         this.db.prepare('INSERT INTO platform_schedule_runs VALUES(?,?,?,?,?)').run(event,id,plan.next_run_at,now,task_id);
         this.db.prepare('UPDATE platform_schedules SET next_run_at=?,blocked_reason=NULL,updated_at=? WHERE id=?').run(nextAt(plan.cron,plan.timezone,now),now,id);

@@ -204,7 +204,7 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 
 ## Add your own work and schedules
 
-Global model and reasoning selectors are available in **Settings**. In **Management chat**, click the model name in the composer to open one panel with model choices and a stepped reasoning slider. Click a level or use the arrow/Home/End keys; dragging previews the level and saves on release. Reset restores inherited reasoning; Use model default remains a separate choice. Long model lists can be searched, and unavailable saved values remain readable. The panel becomes a bottom sheet on phones and supports short keyboard-height viewports. Ask the management Agent to configure a plugin's model and reasoning effort. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
+Global model and reasoning selectors are available in **Settings**. In **Management chat**, click the model name in the composer to open one panel with model choices and a stepped reasoning slider. Click a level or use the arrow/Home/End keys; dragging previews the level and saves on release. Reset restores inherited reasoning; Use model default remains a separate choice. Long model lists can be searched, and unavailable saved values remain readable. The panel becomes a bottom sheet on phones and supports short keyboard-height viewports. Use **Business plugins → Model settings** to select a plugin's model and reasoning effort directly, or ask the management Agent to configure them. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
 
 **Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
 
@@ -226,6 +226,8 @@ Management chat preserves each public assistant message when a final result arri
 
 Ask the management Agent to generate an image directly in chat. This uses native image generation and requires account/model access; no business plugin is needed. Generated images stay private to the conversation and offer a preview and download. Click an uploaded or generated chat image to zoom, rotate and browse its message's images inside the current page; close with the close control or Escape. Downloads remain separate. New reply text appears smoothly as it arrives; saved history appears immediately. The sidebar loads 30 conversations at a time. Chats initially show the latest 20 request/reply groups (plus an older active request when needed); use **Load more conversations** or **Load earlier messages** for older history.
 
+Existing management chats receive current platform rules and a content revision on every turn. Ask the Agent to refresh `platform_context` or use `project_source` to list, search and read the deployed management code, Admin frontend, prompts and docs. Source access is read-only and excludes runtime files and credentials. Rebuild/redeploy Manager after a code update; it reads the running image, not an upstream checkout.
+
 The management Agent also has Codex native live web search and public-page reading. Ask it to research a topic or read a public URL; it chooses when to use the tools and links its sources. Web access uses Codex's hosted tools, without a platform crawler, extra search API key, or broader command/network permissions. Actual availability depends on your account/model and the target website; this does not provide authenticated browsing or access to your private network. Web content cannot authorize management operations.
 
 The operations overview uses separate cards for host CPU/memory, the data filesystem, Manager container CPU/memory and process RSS. Capacity cards show used/total and availability; task collection, concurrency and service readiness have distinct states. The page refreshes automatically while preserving an open concurrency draft.
@@ -244,7 +246,7 @@ Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into
 - **Use pause for maintenance.** Pausing stops new dispatches while accepted requests queue up and current work continues. Inspect active tasks before a restart. Restore service access and saved files so incomplete conversations can resume.
 - **Change ordinary settings in Admin or management MCP.** Saved values override initial `.env` defaults. Active execution keeps its launch settings; later work uses updated model/timeouts. Ports, mounts, runtime paths and internal credentials need deployment changes.
 - **Treat retries as new work.** An explicit retry creates a related new task and preserves the old record. It may repeat model calls or external effects. An `unknown` delivery outcome needs investigation before another attempt.
-- **Back up and watch storage.** Databases, conversation files and artifacts are persistent. There is no automatic retention policy or hard global spending cap in this preview. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
+- **Back up and watch storage.** Databases, conversation files and artifacts persist unless optional history cleanup is enabled. This preview has no hard global spending cap. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
 
 Basic commands, run from the source directory:
 
@@ -255,6 +257,10 @@ sudo ./deploy.sh stop /data/codex-agent-platform
 ```
 
 For upgrades, back up first, fetch the intended release, build it, then start it. Do not delete runtime directories to upgrade. See [deployment and recovery](docs/DEPLOYMENT.md).
+
+### Automatically delete expired history
+
+Use **Settings → History retention** to enable automatic deletion and choose 30 days, 60 days or a custom retention age. It is off by default. Enabled daily sweeps permanently remove expired management chats, completed/failed task records and their related images/files; unfinished work and configuration remain. Chats age from their last activity, tasks from completion. Enabling or shortening retention also applies to existing expired data. See [cleanup scope and behavior](docs/DEPLOYMENT.md#automatic-history-cleanup).
 
 ### Management memory
 

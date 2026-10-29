@@ -20,6 +20,7 @@ export function configuredDelivery(resolveTarget) {
 export function deliveryCatalog({targets={}}={}) {
   return {
     initializeStorage:({db})=>db.exec('CREATE TABLE IF NOT EXISTS platform_delivery_details(task_id TEXT PRIMARY KEY,http_status INTEGER,error_code TEXT,updated_at INTEGER)'),
+    deleteTaskHistory:({store,taskId})=>store.db.prepare('DELETE FROM platform_delivery_details WHERE task_id=?').run(taskId),
     deliveryDetails:(store,taskId)=>store.db.prepare('SELECT http_status,error_code,updated_at FROM platform_delivery_details WHERE task_id=?').get(taskId),
     delivery:definition=>configuredDelivery(()=>Object.hasOwn(targets,definition.target)?targets[definition.target]:undefined),
   };

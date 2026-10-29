@@ -9,12 +9,13 @@ import {taskDetails} from '../core/task-results.mjs';
 import {ConfigurationStore} from '../configuration/store.mjs';
 import {executionScope,runtimeSettings} from '../configuration/execution.mjs';
 import {bootstrapSettings} from '../configuration/bootstrap.mjs';
+import {retentionScope} from '../configuration/retention.mjs';
 
 const fault=(code,status=400)=>new HttpError(status,code,code);
 export class OperationsService {
   constructor({store,registry=store.registry,config,dispatcher,runner,restartGateway,configuration}) {
     Object.assign(this,{store,registry,config,dispatcher,runner,restartGateway});
-    this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config})]);
+    this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config}),retentionScope()]);
     this.schedules=new ScheduleStore(store,{clientId:config.clientId ?? 'default'});
     this.metrics=new ResourceSampler({diskPath:config.workspace ?? '/data'});
     const ajv=new Ajv({strict:true});this.checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
@@ -70,6 +71,7 @@ export class OperationsService {
       return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'可调用 plugin_connection_initialize 初始化缺失入口信息；请到业务插件列表的“配置接入”领取生成的入口密钥或手动配置，完成后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未完成配置或密钥未领取前不能启用、提交任务、试运行或执行定时计划。'}:saved;
     }
     if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
+    if (action==='plugin_execution_update') return pluginView(this.store.transaction(()=>this.store.plugins.setExecution(args.type,args.execution,args.revision)));
     if (action==='plugin_delete') return this.store.transaction(()=>{
       // Pause dependent plans and mark the plugin in one durable transaction.
       this.schedules.disableForPlugin(args.type);

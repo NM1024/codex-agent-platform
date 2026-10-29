@@ -597,6 +597,8 @@ const english: Record<string, string> = {
   '对话配置已保存':'Conversation settings saved',
   '模型列表暂不可用，保留当前配置。请检查 Codex 登录和服务连接后刷新。':'Model list unavailable. Current settings are preserved. Check Codex login and connectivity, then refresh.',
 };
+// Page-specific copy can join the dictionary when its lazy module loads.
+export function registerEnglish(messages: Record<string,string>) {Object.assign(english,messages);}
 let locale = "zh-CN";
 try {
   if (localStorage.getItem("agent-console-language") === "en") locale = "en";
