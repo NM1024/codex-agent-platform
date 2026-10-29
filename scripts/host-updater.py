@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional root-owned Unix HTTP upgrade service; never accepts deployment options."""
+"""Root-owned Unix HTTP upgrade service; never accepts deployment options."""
 import argparse
 import ast
 import contextlib
@@ -11,6 +11,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import socket
 import socketserver
 import stat
@@ -29,6 +31,11 @@ ACTIVE=('queued','running')
 PHASES=('queued','checking','downloading','building','stopping','backing_up','validating','restarting','verifying','completed','failed','interrupted')
 STATES=(*ACTIVE,'succeeded','failed','interrupted')
 ENV={'PATH':'/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8','PYTHONDONTWRITEBYTECODE':'1'}
+HELPER_ROOT=Path('/usr/local/lib/codex-agent-platform-updater')
+CONFIG_ROOT=Path('/etc/codex-agent-platform-updater')
+STATE_ROOT=Path('/var/lib/codex-agent-platform-updater')
+UNIT_ROOT=Path('/etc/systemd/system')
+POLICY='.web-update-policy.json'
 
 def atomic(path, value):
     fd,temp=tempfile.mkstemp(prefix='.'+path.name,dir=path.parent)
@@ -281,7 +288,7 @@ def refresh_files(source,target):
 
 
 def refresh_helper(cfg):
-    base=Path('/usr/local/lib/codex-agent-platform-updater')/identity(cfg['data'])
+    base=HELPER_ROOT/identity(cfg['data'])
     if Path(__file__).resolve().parent!=base:return False
     state_path=Path(cfg['data'])/'.deployment.json';trusted(state_path)
     source=Path(json.loads(state_path.read_text())['source']);trusted(source,True)
@@ -289,44 +296,122 @@ def refresh_helper(cfg):
     return True
 
 
+def read_policy(data):
+    path=Path(data)/POLICY
+    if path.is_symlink():raise ValueError('Refusing symlink web update policy')
+    if not path.exists():return True
+    trusted(path)
+    if path.stat().st_size>256:raise ValueError('Invalid web update policy')
+    value=json.loads(path.read_text())
+    if not isinstance(value,dict) or set(value)!={'enabled'} or not isinstance(value['enabled'],bool):
+        raise ValueError('Invalid web update policy')
+    return value['enabled']
+
+
+@contextlib.contextmanager
+def setup_lock(data):
+    trusted(data,True)
+    path=Path(data)/'.web-update.lock'
+    if path.exists() or path.is_symlink():trusted(path)
+    fd=os.open(path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'a') as out:
+        fcntl.flock(out,fcntl.LOCK_EX)
+        yield
+
+
+def systemd_available():
+    if sys.platform!='linux' or not Path('/run/systemd/system').is_dir() or not shutil.which('systemctl'):return False
+    try:
+        return subprocess.run(['systemctl','show','--property=Version','--value'],env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5).returncode==0
+    except (OSError,subprocess.SubprocessError):return False
+
+
+def ensure_web_update(source,data,project):
+    try:
+        if os.geteuid()!=0:raise ValueError('root is required; run deployment with sudo')
+        with setup_lock(data):
+            if not read_policy(data):
+                print('Web upgrades remain explicitly disabled for '+str(data))
+                return 0
+            if not systemd_available():raise ValueError('a running Linux/systemd host is required')
+            unit='codex-agent-platform-updater-'+identity(data)+'.service'
+            active=subprocess.run(['systemctl','is-active','--quiet',unit],env=ENV,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+            # Never restart a broker/worker while it is upgrading its own deployment.
+            if active.returncode==0:return 0
+            if not (Path(data)/POLICY).exists() and (UNIT_ROOT/unit).exists():
+                enabled=subprocess.run(['systemctl','is-enabled',unit],env=ENV,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=10)
+                if enabled.stdout.strip() in ('disabled','masked','masked-runtime'):
+                    atomic(Path(data)/POLICY,{'enabled':False})
+                    print('Preserved previously disabled web upgrade service for '+str(data))
+                    return 0
+            # Distinguish our partially-created unit from a legacy operator opt-out.
+            atomic(Path(data)/POLICY,{'enabled':True})
+            install_service(source,data,project,staged=os.environ.get('PLATFORM_UPDATE_STAGED')=='1')
+    except Exception as error:
+        entry=str(Path(source or '.')/'deploy.sh')
+        status=shlex.join(['sudo','bash',entry,'web-update-status',str(data)])
+        repair=shlex.join(['sudo','bash',entry,'enable-web-update',str(data)])
+        print('Web upgrade setup unavailable: '+str(error)+'. CLI update remains available. '
+              'Inspect: '+status+'; retry setup: '+repair,file=sys.stderr)
+    return 0
+
+
 def install(action,source,data,project):
+    if action=='ensure-web-update':return ensure_web_update(source,data,project)
     if os.geteuid()!=0:raise ValueError('Host updater setup requires root')
     key=identity(data)
-    base=Path('/usr/local/lib/codex-agent-platform-updater')/key
-    config_dir=Path('/etc/codex-agent-platform-updater')
-    state=Path('/var/lib/codex-agent-platform-updater')/key
+    state=STATE_ROOT/key
     unit='codex-agent-platform-updater-'+key+'.service'
-    config=config_dir/(key+'.json')
     if action=='web-update-status':
         print(json.dumps(status_info(data,state),indent=2),flush=True)
         return subprocess.run(['systemctl','status','--no-pager',unit],env=ENV).returncode
-    if action=='disable-web-update':
-        subprocess.run(['systemctl','disable','--now',unit],check=True,env=ENV)
-        # systemd terminates workers too; uncertainty remains visible on next startup.
-        if state.exists():JobStore(state).interrupt()
-        socket_path=Path(data)/'updater/updater.sock'
-        if socket_path.exists() and stat.S_ISSOCK(socket_path.lstat().st_mode):socket_path.unlink()
+    with setup_lock(data):
+        read_policy(data)
+        if action=='disable-web-update':
+            atomic(Path(data)/POLICY,{'enabled':False})
+            if systemd_available() and (UNIT_ROOT/unit).exists():
+                subprocess.run(['systemctl','disable','--now',unit],check=True,env=ENV)
+            # systemd terminates workers too; uncertainty remains visible on next startup.
+            if state.exists():
+                trusted(state,True);JobStore(state).interrupt()
+            socket_path=Path(data)/'updater/updater.sock'
+            if socket_path.exists() and stat.S_ISSOCK(socket_path.lstat().st_mode):socket_path.unlink()
+            print('Web upgrades explicitly disabled for '+str(data))
+            return 0
+        if not systemd_available():raise ValueError('Web upgrades require a running Linux/systemd host; CLI update remains available')
+        atomic(Path(data)/POLICY,{'enabled':True})
+        install_service(source,data,project)
         return 0
+
+
+def install_service(source,data,project,staged=False):
+    key=identity(data)
+    base=HELPER_ROOT/key
+    config_dir=CONFIG_ROOT
+    state=STATE_ROOT/key
+    unit='codex-agent-platform-updater-'+key+'.service'
+    config=config_dir/(key+'.json')
     module=updater_module()
     installation=module.discover(source,data,project)
+    selected_source=Path(source).resolve() if staged else installation.source
     try:
-        trusted(installation.source,True)
-        for name in ('compose.yaml','deploy.sh','package.json'):trusted(installation.source/name)
+        trusted(selected_source,True)
+        for name in ('compose.yaml','deploy.sh','package.json'):trusted(selected_source/name)
     except (OSError,ValueError):
         raise ValueError('Source must be root-owned. First run the verified stable update bootstrap as root to stage a root-owned release, then run the runtime deploy.sh enable-web-update command.') from None
     trusted(installation.data,True)
     trusted(installation.data/'.env')
     for folder in (base,config_dir,state):
         folder.mkdir(parents=True,exist_ok=True,mode=0o700); trusted(folder,True); folder.chmod(0o700)
-    import shutil
     for name in ('host-updater.py','update-release.py'):
+        trusted(Path(__file__).with_name(name))
         target=base/name
         if target.is_symlink():raise ValueError('Refusing symlink installed helper')
         shutil.copyfile(Path(__file__).with_name(name),target); target.chmod(0o600)
-    cfg={'source':str(installation.source),'data':str(installation.data),'project':installation.project,'state':str(state),'upstream':REPO}
+    cfg={'source':str(selected_source),'data':str(installation.data),'project':installation.project,'state':str(state),'upstream':REPO}
     atomic(config,cfg); prepare_channel(installation.data/'updater')
     contents=systemd_unit(base,config,installation.data)
-    unit_path=Path('/etc/systemd/system')/unit
+    unit_path=UNIT_ROOT/unit
     if unit_path.is_symlink():raise ValueError('Refusing symlink unit file')
     unit_path.write_text(contents); unit_path.chmod(0o644)
     subprocess.run(['systemctl','daemon-reload'],check=True,env=ENV)
@@ -340,20 +425,20 @@ def status_info(data,state):
     if state.exists():
         trusted(state,True)
         job=JobStore(state).read()
-    return {'job':job,'backup_directory':str(Path(data)/'backups'),'log_file':str(state/'worker.log'),
+    return {'job':job,'web_update_enabled':read_policy(data),'backup_directory':str(Path(data)/'backups'),'log_file':str(state/'worker.log'),
             'recovery':'Inspect host backups and deployment recovery instructions; do not downgrade migrated databases.'}
 
 
 def systemd_unit(base,config,data):
     # Paths enter systemd argv through quoted arguments, never a shell.
     def quote(value):return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
-    contents='''[Unit]\nDescription=Codex Agent Platform optional host updater\nAfter=docker.service\nRequires=docker.service\n[Service]\nType=simple\nUser=root\nGroup=root\nUMask=0077\nRestart=on-failure\nRestartSec=5\nKillMode=control-group\nTimeoutStopSec=30\nNoNewPrivileges=true\nProtectSystem=full\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n'''
+    contents='''[Unit]\nDescription=Codex Agent Platform host updater\nAfter=docker.service\nRequires=docker.service\n[Service]\nType=simple\nUser=root\nGroup=root\nUMask=0077\nRestart=on-failure\nRestartSec=5\nKillMode=control-group\nTimeoutStopSec=30\nNoNewPrivileges=true\nProtectSystem=full\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n'''
     contents=contents.replace('[Install]', 'ReadWritePaths='+quote(base)+' '+quote(data)+'\n'+ 'ExecStart=/usr/bin/python3 -B '+quote(base/'host-updater.py')+' serve --config '+quote(config)+'\n[Install]')
     return contents
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=('serve','worker','enable-web-update','disable-web-update','web-update-status'))
+    parser.add_argument('action',choices=('serve','worker','ensure-web-update','enable-web-update','disable-web-update','web-update-status'))
     parser.add_argument('--config',type=Path); parser.add_argument('--job')
     parser.add_argument('--source',type=Path); parser.add_argument('--data',type=Path); parser.add_argument('--project')
     args=parser.parse_args(); os.umask(0o077)

@@ -50,6 +50,8 @@ def main():
                 return sock.getsockname()[1]
         try:
             u.run(['bash',str(source/'deploy.sh'),'init',str(data)])
+            # This synthetic test must never install a root service on the CI host.
+            (data/'.web-update-policy.json').write_text('{"enabled":false}\n')
             with (data/'.env').open('a') as env:
                 env.write(f'\nPLATFORM_PORT={port()}\nMANAGER_PORT={port()}\nEXECUTION_PAUSED=true\n')
             sentinel=data/'workspace'/'synthetic-preserved.txt'
@@ -64,6 +66,7 @@ def main():
             assert state['version']==version
             assert Path(state['source'])!=source
             assert (data/'.env').read_bytes()==before
+            assert json.loads((data/'.web-update-policy.json').read_text())=={'enabled':False}
             assert sentinel.read_text().startswith('synthetic retained')
             assert Path(state['backup']).is_file()
             u.run(['bash',str(data/'deploy.sh'),'status'])

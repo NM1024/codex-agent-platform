@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Stable release: v1.0.1.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Stable release: v1.0.2.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -85,8 +85,8 @@ Run the server commands from the same cloned source directory. Keep runtime data
 ### 1. Get the source and initialize private configuration
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/NM1024/codex-agent-platform.git
-cd codex-agent-platform
+sudo git clone --branch v1.0.2 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
 
@@ -285,24 +285,25 @@ Use **Settings → History retention** to enable automatic deletion and choose 3
 
 Management conversations default to two simultaneous rounds, independently of business concurrency. Change this in **Settings → Manager** (1–5). Pending conversations wait in SQLite; normal continuation no longer returns complete history to the management service. Full records and the native context-compaction policy remain unchanged. See [memory controls and measurement](docs/MEMORY.md).
 
-### Version information and optional browser upgrades
+### Version information and browser upgrades
 
 The topbar shows the version reported by the running Manager image. Open it to check the latest published stable release, read its release notes or copy the server update command. Checking does not start a model task or upgrade.
 
-For browser-triggered upgrades, first deploy a release containing this feature, then explicitly install the optional host service on a Linux systemd host:
+Standard root deployments on Linux/systemd configure the host upgrade service automatically when starting the platform. Upgrades from older releases also add it automatically; no separate installation command is required. Check it with:
 
 ```bash
-sudo bash /data/codex-agent-platform/deploy.sh enable-web-update
-sudo bash /data/codex-agent-platform/deploy.sh web-update-status
+sudo ./deploy.sh web-update-status /data/codex-agent-platform
 ```
 
-Use the actual runtime launcher path. Source/runtime and `.env` must have trusted root-owned ancestry; for a user-owned Git checkout, run the verified stable bootstrap as root first and use its generated runtime launcher. The version dialog enables Upgrade only when a newer stable release and the host service are available. Confirm the maintenance interruption; progress survives Manager recreation and reconnects afterward. No Docker socket or arbitrary host command is exposed to Manager or its Agent. Ordinary installations work without this service.
+Run these commands from the source directory, using your actual runtime path. A runtime `deploy.sh` launcher is created after the first successful update and can then be used too. Source/runtime and `.env` must have trusted root-owned ancestry; the installation example uses `/opt` for this reason. An existing user-owned checkout can use the CLI stable updater as root to stage a trusted release. Hosts without running systemd, non-root deployments and setup failures print a warning and retain CLI updates. To retry setup after resolving the warning, use `sudo ./deploy.sh enable-web-update /data/codex-agent-platform`.
+
+The version dialog enables Upgrade only when a newer stable release and the host service are available. Confirm the maintenance interruption; progress survives Manager recreation and reconnects afterward. No Docker socket or arbitrary host command is exposed to Manager or its Agent. You can explicitly opt out, including before first start after `init`:
 
 ```bash
-sudo bash /data/codex-agent-platform/deploy.sh disable-web-update
+sudo ./deploy.sh disable-web-update /data/codex-agent-platform
 ```
 
-Disabling during an upgrade interrupts it and may require recovery. Consult [deployment and recovery](docs/DEPLOYMENT.md#optional-host-service-for-browser-upgrades) before restoring a backup.
+The choice is saved and remains disabled across restarts and updates; `enable-web-update` restores it. Previously disabled v1.0.1 systemd units are also respected. Disabling during an upgrade interrupts it and may require recovery. Consult [deployment and recovery](docs/DEPLOYMENT.md#host-service-for-browser-upgrades) before restoring a backup.
 
 ## Edit platform system prompts
 

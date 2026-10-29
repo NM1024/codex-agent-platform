@@ -24,6 +24,8 @@ workspace/
 /node_modules
 /.deployment.json
 /.update.lock
+/.web-update.lock
+/.web-update-policy.json
 /platform-deploy.sh
 /releases/
 /backups/

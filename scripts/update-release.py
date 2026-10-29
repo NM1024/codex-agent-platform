@@ -258,7 +258,7 @@ def backup(install,path):
     # Services are stopped. Include every installation-owned file except update artifacts.
     # dereference=False preserves the shared login symlink without following it.
     with tarfile.open(path,'x:gz',dereference=False) as tar:
-        for name in ('.env',STATE,'deploy.sh','platform-deploy.sh','data','workspace','codex','manager'):
+        for name in ('.env',STATE,'.web-update-policy.json','deploy.sh','platform-deploy.sh','data','workspace','codex','manager'):
             file=install.data/name
             if file.exists() or file.is_symlink():
                 tar.add(file,arcname=name,recursive=True)
@@ -321,6 +321,7 @@ def update(install,event=None):
                 event('verifying')
                 config=check_mounts(install,install.source)
                 verify_images(install,install.source,expected_images(config,tag),tag)
+                run(['bash',str(install.source/'deploy.sh'),'ensure-web-update',str(install.data)],env={**os.environ,'PLATFORM_PROJECT':install.project})
                 event('completed',installed_version=tag[1:])
                 print(f'Already running latest stable release {tag}.')
                 return

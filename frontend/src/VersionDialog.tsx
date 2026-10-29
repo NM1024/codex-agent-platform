@@ -4,7 +4,7 @@ import {activeUpgrade,type LatestVersion,type UpgradeJob,type UpgradeStatus,type
 import {versionText} from './version-i18n';
 const expired=(error:unknown)=>error instanceof Error&&'status' in error&&error.status===401;
 const updateCommand='curl -fL https://github.com/NM1024/codex-agent-platform/releases/latest/download/update.sh -o /tmp/codex-platform-update.sh\nsudo bash /tmp/codex-platform-update.sh update';
-const setupCommand='sudo ./deploy.sh enable-web-update [runtime]';
+const setupCommand='sudo ./deploy.sh web-update-status [runtime]\nsudo ./deploy.sh enable-web-update [runtime]';
 const phases:Record<string,string>={queued:'等待升级',checking:'正在检查版本',downloading:'正在下载',building:'正在构建',stopping:'正在停止服务',backing_up:'正在备份',validating:'正在验证数据',restarting:'正在重启服务',verifying:'正在验证部署',completed:'升级完成',failed:'升级失败，请在部署服务器检查状态与备份。',interrupted:'升级已中断，需在部署服务器检查后手动处理。'};
 function jobText(job:UpgradeJob){return job.state==='failed'?phases.failed:job.state==='interrupted'?phases.interrupted:job.state==='succeeded'?phases.completed:['completed','failed','interrupted'].includes(job.phase)?'升级正在进行':phases[job.phase]??'升级正在进行';}
 
@@ -65,7 +65,7 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
       {confirming&&<Alert type="warning" showIcon title={t('维护期间服务会短暂中断，运行中的工作可能暂停。升级会先构建、备份，再重启服务；请确认当前适合维护。')}/>}
       {status===null&&!reconnecting&&<Typography.Paragraph type="secondary">{t('正在读取升级服务状态…')}</Typography.Paragraph>}
       {status?.available&&!job&&<Typography.Paragraph type="secondary">{t('升级服务已就绪')}</Typography.Paragraph>}
-      {status?.available===false&&!busy&&<section className="version-section"><h3>{t('启用网页升级')}</h3><p>{t('网页升级服务未启用或暂时不可用。管理员需先在部署服务器上执行一次以下命令；将 [runtime] 替换为已有运行目录，多实例时必须指定。')}</p><pre className="version-command">{setupCommand}</pre></section>}
+      {status?.available===false&&!busy&&<section className="version-section"><h3>{t('检查网页升级服务')}</h3><p>{t('标准部署会自动配置网页升级。服务可能已关闭或自动配置未完成；请先检查状态，需要时恢复启用。将 [runtime] 替换为已有运行目录。不支持 systemd 的环境请使用命令行更新。')}</p><pre className="version-command">{setupCommand}</pre></section>}
       <section className="version-section"><h3>{t('命令行更新')}</h3><p>{t('在部署服务器上运行。多个实例时，请在 update 后加上已有运行目录。')}</p><pre id="version-update-command" className="version-command">{updateCommand}</pre><div className="version-copy-row"><Button onClick={()=>{void navigator.clipboard?.writeText(updateCommand).then(()=>{if(alive.current)setCopyState('更新命令已复制。');}).catch(()=>{if(alive.current)setCopyState('无法复制，请手动选择命令。');});if(!navigator.clipboard)setCopyState('无法复制，请手动选择命令。');}}>{t('复制更新命令')}</Button>{copyState&&<span role="status">{t(copyState)}</span>}</div></section>
     </div>
   </Modal>;

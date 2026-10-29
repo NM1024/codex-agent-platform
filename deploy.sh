@@ -20,6 +20,7 @@ fi
 agent_project="${PLATFORM_PROJECT:-codex-agent-platform}"
 if [[ ! "$agent_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then echo 'Invalid PLATFORM_PROJECT' >&2; exit 1; fi
 agent_compose() { docker compose --project-name "$agent_project" --env-file "$agent_deploy_dir/.env" -f "$agent_source_dir/compose.yaml" "$@"; }
+agent_ensure_web_update() { python3 -B "$agent_source_dir/scripts/host-updater.py" ensure-web-update --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"; }
 case "$agent_action" in
   init)
     mkdir -p -- "$agent_deploy_dir"
@@ -68,25 +69,29 @@ CONFIG
     # Atomic no-overwrite creation, including concurrent init invocations.
     if ln -- "$agent_temp" "$agent_deploy_dir/.env" 2>/dev/null; then echo "Created configuration in $agent_deploy_dir/.env; build images and sign in before starting."; else echo 'Existing configuration retained.'; fi
     ;;
-  enable-web-update|disable-web-update|web-update-status)
+  ensure-web-update|enable-web-update|disable-web-update|web-update-status)
     exec python3 -B "$agent_source_dir/scripts/host-updater.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
     ;;
   validate)
     agent_compose config --quiet
     agent_compose run --rm --no-deps --entrypoint node gateway scripts/validate-config.mjs
+    # Compatibility with already-published updaters, which invoke staged validate
+    # but have no hook after activation. Ordinary validation has no host effects.
+    if [[ "${PLATFORM_UPDATE_STAGED:-}" == 1 ]]; then agent_ensure_web_update; fi
     ;;
   build)
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.1 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.1 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.1 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.2 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.2 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.2 "$agent_source_dir"
     else agent_compose build; fi
     ;;
   start)
     "$agent_source_dir/deploy.sh" init "$agent_deploy_dir"
     "$agent_source_dir/deploy.sh" validate "$agent_deploy_dir"
     agent_compose up -d --no-build
+    agent_ensure_web_update
     ;;
   stop) agent_compose down ;;
   status) agent_compose ps ;;
