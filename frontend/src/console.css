@@ -133,6 +133,7 @@ button, input, textarea { font: inherit; }
 .settings-tabs .ant-tabs-tabpane { min-width: 0; }
 .settings-tabs .ant-card-body { padding: 24px; }
 .settings-stack { display: grid; gap: 20px; }
+.retention-presets { display: flex; gap: 8px; margin-top: 8px; }
 .settings-stack form { max-width: 760px; }
 .settings-form .form-grid { grid-template-columns: minmax(0,1fr); }
 .settings-form { --settings-label-width: 180px; --settings-label-gap: 20px; }

@@ -1,7 +1,8 @@
 export function createDeliveryWorker({ store, config }) {
   let current,
     again = false;
-  return function deliver() {
+  const active=new Set();
+  function deliver() {
     again = true;
     if (current) return current;
     current = (async () => {
@@ -25,6 +26,7 @@ export function createDeliveryWorker({ store, config }) {
               "UPDATE agent_deliveries SET status='pending' WHERE task_id=? AND status='blocked_configuration'",
             )
             .run(row.task_id);
+          active.add(row.task_id);
           try {
             const outcome = await module.delivery.execute({
               store,
@@ -51,12 +53,14 @@ export function createDeliveryWorker({ store, config }) {
                 "UPDATE agent_deliveries SET status='unknown' WHERE task_id=?",
               )
               .run(row.task_id);
-          }
+          } finally {active.delete(row.task_id);}
         }
       } while (again);
     })().finally(() => {
       current = null;
     });
     return current;
-  };
+  }
+  deliver.active=active;
+  return deliver;
 }

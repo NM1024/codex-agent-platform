@@ -246,7 +246,7 @@ Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into
 - **Use pause for maintenance.** Pausing stops new dispatches while accepted requests queue up and current work continues. Inspect active tasks before a restart. Restore service access and saved files so incomplete conversations can resume.
 - **Change ordinary settings in Admin or management MCP.** Saved values override initial `.env` defaults. Active execution keeps its launch settings; later work uses updated model/timeouts. Ports, mounts, runtime paths and internal credentials need deployment changes.
 - **Treat retries as new work.** An explicit retry creates a related new task and preserves the old record. It may repeat model calls or external effects. An `unknown` delivery outcome needs investigation before another attempt.
-- **Back up and watch storage.** Databases, conversation files and artifacts are persistent. There is no automatic retention policy or hard global spending cap in this preview. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
+- **Back up and watch storage.** Databases, conversation files and artifacts persist unless optional history cleanup is enabled. This preview has no hard global spending cap. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
 
 Basic commands, run from the source directory:
 
@@ -257,6 +257,10 @@ sudo ./deploy.sh stop /data/codex-agent-platform
 ```
 
 For upgrades, back up first, fetch the intended release, build it, then start it. Do not delete runtime directories to upgrade. See [deployment and recovery](docs/DEPLOYMENT.md).
+
+### Automatically delete expired history
+
+Use **Settings → History retention** to enable automatic deletion and choose 30 days, 60 days or a custom retention age. It is off by default. Enabled daily sweeps permanently remove expired management chats, completed/failed task records and their related images/files; unfinished work and configuration remain. Chats age from their last activity, tasks from completion. Enabling or shortening retention also applies to existing expired data. See [cleanup scope and behavior](docs/DEPLOYMENT.md#automatic-history-cleanup).
 
 ## Edit platform system prompts
 

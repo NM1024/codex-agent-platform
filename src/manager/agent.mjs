@@ -1,5 +1,5 @@
 import { createHash,randomBytes } from 'node:crypto';
-import { join,resolve,relative,sep } from 'node:path';
+import { join,resolve,relative,sep,parse } from 'node:path';
 import { lstat,symlink,rm } from 'node:fs/promises';
 import { safeDirectory,containedPath } from '../files.mjs';
 import {HttpError} from '../errors.mjs';
@@ -32,17 +32,29 @@ export class ManagementAgent {
     state.questions.delete(questionId);pending.resolve(result.response);
     return {id:questionId,status:'answered'};
   }
-  async deleteConversation(id) {
+  async deleteConversation(id,options) {
     if(this.running.has(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
-    const result=this.store.deleteConversation(id);this.waiting.delete(id);this.wakes.delete(id);
+    const result=this.store.deleteConversation(id,options);this.waiting.delete(id);this.wakes.delete(id);
+    const complete=await this.cleanupConversationFiles(id);
+    return {...result,...(!complete?{cleanup_pending:true}:{})};
+  }
+  async cleanupConversationFiles(id) {
     const cleanup=await Promise.allSettled(['codex','work'].map(async directory=>{
       const base=resolve(this.root),target=resolve(base,directory,id),rel=relative(base,target);
-      if(!/^[a-f0-9-]{36}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
+      if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
+      // A real root may itself sit beneath a symlinked ancestor.
+      await containedPath(parse(base).root,base,{allowMissing:true});
       await containedPath(base,target,{allowMissing:true});
       // fs.rm removes an auth.json symlink itself, never its external target.
       await rm(target,{recursive:true,force:true});
     }));
-    return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
+    if(cleanup.some(value=>value.status==='rejected')){this.store.deferConversationCleanup(id);return false;}
+    this.store.finishConversationCleanup(id);return true;
+  }
+  async retryConversationCleanup({limit=50}={}) {
+    const rows=this.store.pendingConversationCleanup(limit);let completed=0;
+    for(const {id} of rows)if(await this.cleanupConversationFiles(id))completed++;
+    return {attempted:rows.length,completed,pending:rows.length-completed};
   }
   enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
   requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}

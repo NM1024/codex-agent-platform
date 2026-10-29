@@ -13,6 +13,7 @@ export function artifactFor(store,taskId,id) {
 export function capabilityCatalog({workspace,targets={},resources={}}={}) {
   const catalog={targets,resources,processors:{register_image:saveArtifact,write_text_artifact:saveArtifact}};
   catalog.initializeStorage=({db})=>db.exec('CREATE TABLE IF NOT EXISTS platform_artifacts(artifact_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,run_id TEXT NOT NULL,metadata TEXT NOT NULL)');
+  catalog.deleteTaskHistory=({store,taskId})=>store.db.prepare('DELETE FROM platform_artifacts WHERE task_id=?').run(taskId);
   catalog.artifactsFor=(store,taskId)=>store.db.prepare('SELECT metadata FROM platform_artifacts WHERE task_id=?').all(taskId).map(row=>JSON.parse(row.metadata));
   catalog.readArtifact=async(store,taskId,id)=>{
     const artifact=artifactFor(store,taskId,id);
