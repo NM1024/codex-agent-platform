@@ -1,6 +1,7 @@
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  '待核实的操作记录过多，已暂停自动恢复，请先核查操作结果。':'Too many operations need verification. Automatic recovery is paused; verify their results first.',
   '正在核对运行状态':'Confirming task status',
   '状态待确认':'Status unconfirmed',
   '正在生成图片':'Generating image',
@@ -520,12 +521,14 @@ const english: Record<string, string> = {
     "New targets apply to the next tool call or unsent delivery. Omit an existing target token to keep it; remove the target name to delete the target.",
   "管理 Agent": "Management Agent",
   管理模型: "Manager model",
+  管理并发数: "Manager concurrency",
+  "图片正在处理中，请稍后重试。": "Images are being processed. Please try again shortly.",
   "管理轮次超时（毫秒）": "Manager turn timeout (ms)",
   "管理工具超时（毫秒）": "Manager tool timeout (ms)",
   管理提示词: "Manager instructions",
   "巡检轮询间隔（毫秒）": "Inspection polling interval (ms)",
-  "模型、提示词和超时用于下一轮。巡检轮询间隔动态生效，不打断当前对话。":
-    "Model, instructions and timeouts apply to the next turn. Inspection polling changes apply immediately without interrupting the current conversation.",
+  "模型、提示词和超时用于下一轮。管理并发默认 2，最多 5；调整并发和巡检间隔不打断正在执行的轮次。":
+    "Model, instructions and timeouts apply to the next turn. Manager concurrency defaults to 2, with a maximum of 5. Concurrency and inspection interval changes preserve active turns.",
   "Admin 会话": "Admin sessions",
   "登录有效期（毫秒）": "Session lifetime (ms)",
   "登录会话有效期用于下一次登录；修改密码通过独立密码操作。":

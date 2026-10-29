@@ -270,3 +270,26 @@ Final verification for this follow-up: `npm test` passed 294 tests; `npm run tes
 ### Overview viewport CI timing
 
 The `227cc78` push workflow failed one overview geometry assertion while the same commit's PR workflow passed. Frame-level diagnostics reproduced the cause: resizing to 320px immediately after choosing a locale left the closing desktop language popup at its old coordinates, briefly making document width 1333px (1793px from the wider desktop case). The test now waits for the popup to become hidden and polls document width after resizing before measuring cards. Existing width limits, card-height checks and empty-state centering remain unchanged; production code is unchanged. Local verification passed 294 application tests, release validation and ten consecutive executions of the affected bilingual, five-viewport browser test.
+
+## Manager memory bounds
+
+Verified on 2026-10-29 with Node.js 24 and pinned Codex 0.159.2. The clean-checkout comparison is reproducible with `python3 tests/benchmarks/manager-memory/run.py`; its README describes isolated workers, baseline extraction, synthetic seeds and scope. No actual account credentials, external model tasks or production data were used.
+
+The benchmark runs the full `ManagementAgent`/`ManagerStore` execution path against baseline `8db12f7`, with the model fixture in a separate process and identical disk-backed seeds for both versions. It measures the management execution worker and native Codex separately, not the complete HTTP Manager container. The native binary is invoked directly; the production npm launcher has additional per-slot overhead. Peaks are approximate, sampled at a target 25 ms, and include process high-water readings; RSS sums can count shared executable pages more than once.
+
+| Synthetic workload | Baseline | Optimized | Measurement |
+| --- | ---: | ---: | --- |
+| Resume 32 saved turns, about 256 KiB output per turn | 8,405,402 B | 2,693 B | Native resume result, without the small RPC envelope |
+| Execute continuation of that 32-turn thread | 168.2 MiB | 63.0 MiB | Peak management worker RSS |
+| Hold 2,000 queued conversations using stub turns | 261.7 MiB / 2,000 clients | 61.4 MiB / 2 clients | Peak management worker RSS and created clients |
+| Execute six conversations using real native Codex | 566.9 MiB / 6 active | 226.4 MiB / 2 active | Maximum simultaneous worker/native RSS sum |
+
+Current 4→32 saved turns kept worker RSS near 63 MiB, while native Codex RSS still grew from about 93 to 177 MiB. Current 2→2,000 queued stub conversations increased worker RSS from about 55 to 61 MiB and post-GC heap from 8.8 to 9.1 MiB. Neither result establishes constant complete-container RAM for arbitrary context, queued input size, large images or traffic. Codex's normal compaction policy is unchanged. Separate three-run prepared-statement experiments isolated roughly 40 MiB of native allocation high-water at 2,000 queued conversations; the production bounded statement cache reproduced the improvement without the experimental wrapper.
+
+- Full backend verification passed 383 checks, including TypeScript/production build; release validation passed 90 modules and 3 JSON resources. Regression coverage includes bounded scheduling, fairness, resize, legacy settings, restart/wake/idle behavior, no-replay malformed/unavailable history, unknown-operation retention/overflow, real cursor paging and retained context, large final text, split credentials, image admission and binding/cache bounds.
+- All four unmodified Docker targets built. The non-root, read-only, network-disabled container suite passed 376 checks, excluding host deployment checks. Tests use writable OS temporary directories, not the read-only application root.
+- 78 focused production-bundle browser checks passed across Admin/layout/settings, summary-only sidebars, native streaming/deletion, queues, questions and image caching. The final new concurrency check was rerun after fixing its login-wait fixture race; 77 other checks passed in the broader run. This was not the complete browser suite.
+- A real isolated three-container deployment admitted six synthetic management conversations as two running/four queued. All six completed, the ready queue emptied and every Codex child exited. Idle working-set samples were about 62/34/72 MiB for Gateway/Runner/Manager; held short turns put Manager near 174 MiB. These samples use an internal-only network and temporary data, and are reference measurements rather than predictions for an existing server.
+- Independent review found malformed-history replay risk, backpressured-response retention during deletion and silently omitted uncertain action context. Each issue received a failing regression and a verified fix. No remaining Critical or Important findings were identified. A suspected SSE initial-snapshot closure leak was rejected after a WeakRef/GC probe demonstrated collection while the stream remained open.
+
+Raw scratch measurements additionally distinguish cgroup file/anonymous pages from process RSS/PSS and JS heap. The versioned benchmark emits source hashes, seed SHA-256 manifests, protocol result bytes and child-process cleanup checks. It does not read real login files or enable production cleanup/retention.

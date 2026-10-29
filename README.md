@@ -256,6 +256,10 @@ sudo ./deploy.sh stop /data/codex-agent-platform
 
 For upgrades, back up first, fetch the intended release, build it, then start it. Do not delete runtime directories to upgrade. See [deployment and recovery](docs/DEPLOYMENT.md).
 
+### Management memory
+
+Management conversations default to two simultaneous rounds, independently of business concurrency. Change this in **Settings → Manager** (1–5). Pending conversations wait in SQLite; normal continuation no longer returns complete history to the management service. Full records and the native context-compaction policy remain unchanged. See [memory controls and measurement](docs/MEMORY.md).
+
 ## Edit platform system prompts
 
 Platform-owned system instructions and message templates live in [`prompts/`](prompts/README.md), with an index explaining each file, its placeholders and how changes take effect. They use plain Markdown and do not require bilingual copies. You can translate or adapt the wording without searching application code; Admin language selection does not rewrite prompts.

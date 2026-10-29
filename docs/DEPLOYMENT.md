@@ -159,3 +159,11 @@ Rebuild and restart with the existing runtime directory using `deploy.sh build`,
 - During an appropriate maintenance window, validate pause/resume and concurrency changes; lowering concurrency does not stop active tasks. Restart Runner only after reading the confirmation because it can interrupt active connections.
 
 Only the Manager data filesystem and the metrics already collected by the platform are displayed; this view does not enumerate every disk or collect network traffic/history. Warning colors do not automatically pause dispatch.
+
+## Management concurrency and memory
+
+Rebuild and recreate the existing services with the same runtime directory to install the memory controls. No new environment variable is required. Existing Manager settings gain `concurrency:2` while retaining model, prompt, timeouts and settings revision. In **Settings → Manager**, choose 1–5 simultaneous management rounds. This does not change business task concurrency or stop rounds already running.
+
+Pending conversations and interrupted wake signals remain in SQLite. Saved conversations are not deleted or shortened, normal continuations preserve their native thread context, and Codex's existing compaction strategy stays unchanged. Busy image uploads can return retryable `503 IMAGE_PROCESSING_BUSY`; no management message has been enqueued on that failure. If unconfirmed operation history exceeds the bounded recovery context, automatic recovery pauses explicitly rather than repeating uncertain work.
+
+For resource diagnosis, separate anonymous/process memory from file pages. An idle container can retain executable/library and database pages after Codex subprocesses exit; `docker stats` normally excludes inactive file pages but can include active ones. See [memory behavior, limits and benchmark method](MEMORY.md).

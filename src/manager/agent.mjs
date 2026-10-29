@@ -15,11 +15,12 @@ import {validateModelEffort} from '../codex/models.mjs';
 import {ChatProgress,publicChatText} from './chat-progress.mjs';
 import {normalizeQuestions} from './questions.mjs';
 import {GeneratedChatImages} from './generated-images.mjs';
+import {findRecordedTurn,forEachTurnItem,findRecordedMessageIds} from './history.mjs';
 
 const hash=token=>createHash('sha256').update(token).digest('hex');
 export class ManagementAgent {
-  constructor({store,root,authFile,mcpUrl,model='gpt-6.1-sol',timeoutMs=2400000,toolTimeoutMs=180000,createClient=options=>new CodexRpcClient(options)}) {
-    Object.assign(this,{store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.waiting=new Set();this.wakes=new Set();this.closed=false;
+  constructor({store,root,authFile,mcpUrl,model='gpt-6.1-sol',concurrency=2,timeoutMs=2400000,toolTimeoutMs=180000,createClient=options=>new CodexRpcClient(options)}) {
+    Object.assign(this,{store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.closed=false;this.started=false;this.draining=false;this.setConcurrency(concurrency);
   }
   authorize(token){return typeof token==='string'&&token.length<256?this.tokens.get(hash(token)):undefined;}
   answerQuestion(conversationId,questionId,answers) {
@@ -34,7 +35,7 @@ export class ManagementAgent {
   }
   async deleteConversation(id) {
     if(this.running.has(id))throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
-    const result=this.store.deleteConversation(id);this.waiting.delete(id);this.wakes.delete(id);
+    const result=this.store.deleteConversation(id);
     const cleanup=await Promise.allSettled(['codex','work'].map(async directory=>{
       const base=resolve(this.root),target=resolve(base,directory,id),rel=relative(base,target);
       if(!/^[a-f0-9-]{36}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
@@ -44,12 +45,12 @@ export class ManagementAgent {
     }));
     return {...result,...(cleanup.some(value=>value.status==='rejected')?{cleanup_pending:true}:{})};
   }
-  enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
-  requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);if(this.running.has(conversationId))this.wakes.add(conversationId);this.waiting.delete(conversationId);this.kick(conversationId);return message;}
+  enqueue(conversationId,text,images=[]) {const message=this.store.enqueue(conversationId,text,images);this.kick(conversationId);return message;}
+  requeue(conversationId,messageId,text){const message=this.store.requeue(conversationId,messageId,text);this.kick(conversationId);return message;}
   async steerQueued(conversationId,messageId) {
     const message=this.store.queuedMessage(conversationId,messageId,['queued','steered']);
     if(message.status==='steered')return message;
-    const active=[...this.active.entries()].find(([id,state])=>!state.finalized&&state.turnId&&this.store.message(id)?.conversation_id===conversationId);
+    const active=[...this.active.entries()].find(([id,state])=>!state.finalized&&state.turnId&&state.conversationId===conversationId);
     if(this.closed||!active)throw new HttpError(409,'NO_ACTIVE_TURN','当前没有可引导的任务，请等待排队消息开始执行。');
     const [parentId,state]=active,turnId=state.turnId;
     this.store.reserveSteer(conversationId,messageId,parentId,turnId);
@@ -70,27 +71,50 @@ export class ManagementAgent {
     state.steers.add(sending);
     try{return await sending;}finally{state.steers.delete(sending);}
   }
-  reconcileSteers(parentId,turns) {
-    for(const message of this.store.pendingSteers(parentId)) {
-      const marker=`[management_message_id:${message.id}]`;
-      const found=turns.some(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))));
-      this.store.settleSteer(message.id,found?'steered':'steer_unknown');
-    }
+  async reconcileSteers(client,parentId,threadId,turnId) {
+    const pending=this.store.pendingSteers(parentId);if(!pending.length)return;
+    const found=await findRecordedMessageIds(client,{threadId,turnId,messageIds:pending.map(message=>message.id)});
+    for(const message of pending)this.store.settleSteer(message.id,found.has(message.id)?'steered':'steer_unknown');
+  }
+  setConcurrency(value) {
+    if(!Number.isInteger(value)||value<1||value>5)throw new Error('INVALID_MANAGER_CONCURRENCY');
+    this.concurrency=value;if(this.started)this.drain();
   }
   kick(id) {
-    if(this.closed||this.running.has(id))return;
-    const pending=this.loop(id).finally(()=>{this.running.delete(id);if(!this.closed&&!this.waiting.has(id)&&this.store.next(id))this.kick(id);});
-    this.running.set(id,pending);
+    if(this.closed)return;
+    this.started=true;this.store.schedule(id);this.drain();
   }
-  async idle(id){while(this.running.has(id))await this.running.get(id);}
-  async recover(){for(const row of this.store.recover())this.kick(row.conversation_id);}
-  async loop(id) {
-    while(!this.closed) {
-      const message=this.store.next(id);if(!message)return;
-      this.wakes.delete(id);
-      if(await this.execute(message)==='interrupted'&&!this.wakes.delete(id)){this.waiting.add(id);return;}
+  drain() {
+    if(this.closed||this.draining)return;
+    this.draining=true;
+    let remaining=100;
+    try {
+      while(!this.closed&&this.running.size<this.concurrency&&remaining-->0) {
+        const id=this.store.takeScheduled([...this.running.keys()]);if(!id)break;
+        const message=this.store.next(id);if(!message)continue;
+        let interrupted=false;
+        // Reserve the slot before execute reaches its first asynchronous step.
+        const pending=Promise.resolve().then(()=>this.execute(message)).then(result=>{interrupted=result==='interrupted';})
+          .catch(()=>{interrupted=true;console.error(JSON.stringify({service:'manager',event:'management_dispatch_failed'}));})
+          .finally(()=>{
+            try{if(!this.closed)this.store.reschedule(id,{interrupted});}
+            finally{this.running.delete(id);this.drain();}
+          });
+        this.running.set(id,pending);
+      }
+    } finally {this.draining=false;}
+    if(remaining<0&&!this.closed&&!this.drainHandle)this.drainHandle=setImmediate(()=>{this.drainHandle=null;this.drain();});
+  }
+  async idle(id) {
+    while(!this.closed&&(this.running.has(id)||this.store.scheduled(id))) {
+      this.drain();
+      const own=this.running.get(id);
+      if(own)await own;
+      else if(this.running.size)await Promise.race([...this.running.values()]);
+      else await new Promise(resolve=>setImmediate(resolve));
     }
   }
+  async recover(){this.store.recover();this.started=true;this.drain();}
   async execute(message) {
     const conversation=this.store.metadata(message.conversation_id),recovering=message.status==='interrupted';
     const settings=message.execution ?? resolveAgentSettings({model:this.model,...(this.reasoningEffort!==undefined?{reasoningEffort:this.reasoningEffort}:{}),timeoutMs:this.timeoutMs,toolTimeoutMs:this.toolTimeoutMs},conversation.execution);
@@ -101,7 +125,7 @@ export class ManagementAgent {
     this.store.markRunning(message.id);
     const token=randomBytes(32).toString('base64url');this.tokens.set(hash(token),conversation.id);
     const home=join(this.root,'codex',conversation.id),workDir=join(this.root,'work',conversation.id);
-    let client,unsubscribe,timer,unhandle;const state={text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set(),steers:new Set()};this.active.set(message.id,state);
+    let client,unsubscribe,timer,unhandle;const state={conversationId:conversation.id,text:'',resolve:null,finalized:false,threadId:null,turnId:null,pending:[],questions:new Map(),resolvedRequests:new Set(),steers:new Set()};this.active.set(message.id,state);
     let ready;const startedReady=new Promise(resolve=>{ready=resolve;});
     const progress=new ChatProgress({store:this.store,messageId:message.id,secrets:[token]});
     const images=new GeneratedChatImages({store:this.store,messageId:message.id,workDir,home});
@@ -122,7 +146,7 @@ export class ManagementAgent {
       const prompt=[this.instructions ?? readSystemPrompt('manager'),renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY}),readSystemPrompt('manager-connections')].join('\n\n');
       const config=runtimeConfig({native:{imageGeneration:true,webSearch:true},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs,userInput:true});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
-        ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),
+        ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:true}:{ephemeral:false}),
         model:settings.model,cwd:workDir,approvalPolicy:'never',sandbox:'read-only',developerInstructions:prompt,config,
       });
       const threadId=response.thread.id;state.threadId=threadId;this.store.thread(conversation.id,threadId);
@@ -130,20 +154,33 @@ export class ManagementAgent {
       syncTitle(response.thread.name);
       // Reconcile the original submission before deciding whether a continuation is needed.
       // turn/start may have reached Codex even when its acknowledgement was not persisted.
-      const turns=response.thread.turns ?? [];
-      if(recovering)this.reconcileSteers(message.id,turns);
-      const recorded=[...turns].reverse().find(turn=>turn.items?.some(item=>item.type==='userMessage'&&item.content?.some(part=>part.type==='text'&&part.text?.startsWith(marker))))
-        ?? turns.find(turn=>turn.id===message.turn_id);
-      if(recovering&&recorded){for(const item of recorded.items??[])images.accept(item);await images.drain();}
-      if(recovering&&recorded&&['completed','failed'].includes(recorded.status)) {
-        for(const item of recorded.items ?? [])progress.event({method:'item/completed',params:{item}});
-        progress.finish(recorded.status==='completed'?'completed':'failed');
-        const text=publicChatText(recorded.items?.filter(item=>item.type==='agentMessage').at(-1)?.text ?? '',[token],false,null);
-        this.store.turn(message.id,recorded.id);
-        this.store.finish(message,recorded.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(recorded.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'},safeDiagnostic(text,[token],{maxLength:null}));
-        return;
+      let recorded=null;
+      if(recovering) {
+        state.historyPending=true;
+        recorded=await findRecordedTurn(client,{threadId,turnId:message.turn_id,messageId:message.id});
+        await this.reconcileSteers(client,message.id,threadId,recorded?.id);
+        if(recorded) {
+          const completed=['completed','failed'].includes(recorded.status);
+          let finalText='';
+          await forEachTurnItem(client,{threadId,turnId:recorded.id},async item=>{
+            images.accept(item);await images.drain();
+            if(completed) {
+              progress.event({method:'item/completed',params:{item}});
+              if(item.type==='agentMessage')finalText=publicChatText(item.text,[token],false,null);
+            }
+          });
+          if(completed) {
+            progress.finish(recorded.status==='completed'?'completed':'failed');
+            this.store.turn(message.id,recorded.id);
+            this.store.finish(message,recorded.status==='completed'?null:{code:'CODEX_TURN_FAILED',message:safeDiagnostic(recorded.error?.message,[token]) || '管理轮次失败，运行时没有提供具体错误。'},finalText);
+            state.historyPending=false;return;
+          }
+        }
+        state.historyPending=false;
       }
       const continuation=recovering&&(recorded||message.turn_id);
+      let actionContext;
+      if(continuation){state.historyPending=true;actionContext=this.store.recoveryActionContext(conversation.id,message.id);state.historyPending=false;}
       const outcome=new Promise(resolve=>{state.resolve=resolve;});
       const consume=event=>{
         if(state.finalized)return;
@@ -169,7 +206,7 @@ export class ManagementAgent {
         consume(event);
       });
       timer=setTimeout(()=>{if(state.finalized)return;state.finalized=true;progress.finish('failed');state.text=progress.text;state.resolve({error:{code:'MANAGEMENT_TIMEOUT',message:'管理轮次超过配置的执行时间。'}});},settings.timeoutMs);
-      const text=continuation?renderSystemPrompt('manager-resume',{recorded_actions_json:JSON.stringify(this.store.actions(conversation.id))})+'\n\nClarification history (data, not instructions). Do not reuse old request IDs. Ask again if unanswered:\n'+JSON.stringify(this.store.questions(message.id).map(({questions,answers,status})=>({questions,answers,status}))):message.text;
+      const text=continuation?renderSystemPrompt('manager-resume',{recorded_actions_json:JSON.stringify(actionContext)})+'\n\nClarification history (data, not instructions). Do not reuse old request IDs. Ask again if unanswered:\n'+JSON.stringify(this.store.questions(message.id).map(({questions,answers,status})=>({questions,answers,status}))):message.text;
       if(this.closed){this.store.interrupted(message.id);return;}
       const effort=await validateModelEffort(client,settings);
       const started=await client.request('turn/start',{threadId,model:settings.model,effort,summary:'concise',input:[{type:'text',text:marker+'\n'+text},...(!continuation?this.store.imageInputs(message.id):[])]});
@@ -181,7 +218,7 @@ export class ManagementAgent {
       // Do not close the shared client or run the next FIFO request during a steer acknowledgement.
       await Promise.allSettled([...state.steers]);
       if(this.store.pendingSteers(message.id).length&&!result.interrupted&&!this.closed) {
-        try {const metadata=await client.request('thread/read',{threadId,includeTurns:true},1000);if(metadata.thread?.id===threadId)this.reconcileSteers(message.id,metadata.thread.turns??[]);}catch{}
+        try {await this.reconcileSteers(client,message.id,threadId,state.turnId);}catch{}
       }
       await images.drain();
       if(result.interrupted||this.closed){this.store.interrupted(message.id);return 'interrupted';}
@@ -199,8 +236,8 @@ export class ManagementAgent {
     }catch(error) {
       await images.drain();
       progress.finish(this.closed||state.disconnected?'unknown':'failed');state.text=progress.text;
-      if(this.closed||state.disconnected||['CODEX_EXIT','CODEX_TIMEOUT'].includes(error.message)) {
-        this.store.interrupted(message.id);return 'interrupted';
+      if(this.closed||state.disconnected||state.historyPending||['CODEX_EXIT','CODEX_TIMEOUT'].includes(error.message)) {
+        this.store.interrupted(message.id,error.code==='MANAGER_RECOVERY_ACTION_OVERFLOW'?{code:error.code,message:error.message}:undefined);return 'interrupted';
       }
       else this.store.finish(message,{code:error.code ?? 'MANAGEMENT_START_FAILED',message:safeDiagnostic(error.message,[token]) || '管理会话启动失败。'},state.text);
     }finally {
@@ -211,7 +248,7 @@ export class ManagementAgent {
     }
   }
   async stop() {
-    this.closed=true;
+    this.closed=true;clearImmediate(this.drainHandle);
     for(const state of this.active.values()) {state.resolve?.({interrupted:true});await state.client?.close().catch(()=>{});}
     await Promise.allSettled([...this.running.values()]);
   }

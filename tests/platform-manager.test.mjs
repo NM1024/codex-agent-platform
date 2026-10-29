@@ -1,3 +1,4 @@
+import {managerHistoryResponse} from './helpers/manager-history.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp,rm } from 'node:fs/promises';
@@ -23,8 +24,11 @@ async function setup(t,fixtureOptions={}) {
   const url=`http://127.0.0.1:${server.address().port}/mcp`;
   const createClient=options=>{
     const listeners=new Set();const client={notify(){},subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},async close(){fixtureOptions.onClose?.();if(fixtureOptions.closeGate)await fixtureOptions.closeGate;},async request(method,params,timeoutMs){
-      calls.push({method,params,timeoutMs});if(method==='thread/start')return {thread:{id:'persistent-manager',name:fixtureOptions.threadName ?? null}};
-      if(method==='thread/resume')return {thread:{id:params.threadId,name:fixtureOptions.threadName ?? null,turns:resumeTurns}};
+      calls.push({method,params,timeoutMs});
+      if(['thread/items/list','thread/turns/list'].includes(method)&&fixtureOptions.historyError)throw new Error(fixtureOptions.historyError);
+      const history=managerHistoryResponse(method,params,resumeTurns);if(history)return history;
+      if(method==='thread/start')return {thread:{id:'persistent-manager',name:fixtureOptions.threadName ?? null}};
+      if(method==='thread/resume')return {thread:{id:params.threadId,name:fixtureOptions.threadName ?? null,turns:[]}};
       if(method==='thread/read') {
         fixtureOptions.onRead?.();
         if(fixtureOptions.readError)throw new Error(fixtureOptions.readError);
@@ -55,6 +59,8 @@ test('management conversation executes real MCP writes and continues the same th
   agent.enqueue(conversation.id,'继续调整');await agent.idle(conversation.id);
   assert.equal(calls.filter(call=>call.method==='thread/start').length,1);
   assert.equal(calls.filter(call=>call.method==='thread/resume').length,1);
+  assert.equal(calls.find(call=>call.method==='thread/resume').params.excludeTurns,true);
+  assert.equal(calls.filter(call=>['thread/items/list','thread/turns/list'].includes(call.method)).length,0,'ordinary continuation reads no historical payload');
   assert.equal(store.getConversation(conversation.id).messages.filter(row=>row.role==='assistant').length,2);
   assert.equal(business.plugins.get(plugin.type).name,plugin.name);
   assert.equal(store.actions(conversation.id).filter(row=>row.status==='completed').length,2);
@@ -262,4 +268,38 @@ test('a new management message queued during disconnect cleanup still wakes the 
   const messages=store.getConversation(conversation.id).messages;
   assert.equal(messages.find(row=>row.id===first.id).status,'completed');
   assert.equal(messages.find(row=>row.id===next.id).status,'completed');
+});
+
+
+test('unavailable paged recovery remains interrupted and never replays a potentially completed operation',async t=>{
+  const options={historyError:'CODEX_TIMEOUT'};
+  const {store,agent,calls,resumeTurns}=await setup(t,options),conversation=store.createConversation();
+  store.thread(conversation.id,'persistent-manager');const message=store.enqueue(conversation.id,'Synthetic acknowledged operation');
+  store.markRunning(message.id);store.turn(message.id,'original-turn');
+  resumeTurns.push({id:'original-turn',status:'completed',items:[{id:'final',type:'agentMessage',text:'Already performed'}]});
+  await agent.recover();await agent.idle(conversation.id);
+  assert.equal(store.message(message.id).status,'interrupted');assert.equal(calls.filter(call=>call.method==='turn/start').length,0);
+  options.historyError=null;await agent.recover();await agent.idle(conversation.id);
+  assert.equal(store.message(message.id).status,'completed');assert.equal(calls.filter(call=>call.method==='turn/start').length,0);
+});
+
+test('continuation context reads only bounded recent action records instead of the whole conversation',async t=>{
+  const {store,agent,calls}=await setup(t),conversation=store.createConversation();
+  for(let n=0;n<250;n++){const id=store.beginAction(conversation.id,'synthetic',{id:'historical-'+n});store.finishAction(id,{id:'historical-'+n});}
+  const message=store.enqueue(conversation.id,'Original operation');store.thread(conversation.id,'persistent-manager');store.markRunning(message.id);store.turn(message.id,'known-turn');
+  store.actions=()=>{throw new Error('Unbounded historical actions must not be loaded');};
+  await agent.recover();await agent.idle(conversation.id);
+  const started=calls.find(call=>call.method==='turn/start');assert.ok(started);
+  assert.ok(started.params.input[0].text.length<50000);assert.ok(!started.params.input[0].text.includes('historical-0'));
+  assert.equal(store.message(message.id).status,'completed');
+});
+
+test('recovery pauses before a new turn when its unconfirmed operation context cannot fit safely',async t=>{
+  const {store,agent,calls}=await setup(t),conversation=store.createConversation();
+  const message=store.enqueue(conversation.id,'Synthetic pending operations');store.thread(conversation.id,'persistent-manager');store.markRunning(message.id);store.turn(message.id,'known-turn');
+  for(let n=0;n<101;n++){const id=store.beginAction(conversation.id,'retry',{task_id:'uncertain-'+n});store.finishAction(id,null,{effectUnknown:true,code:'CODEX_TIMEOUT',message:'Synthetic'});}
+  await agent.recover();await agent.idle(conversation.id);
+  assert.equal(calls.filter(call=>call.method==='turn/start').length,0);
+  assert.equal(store.message(message.id).status,'interrupted');
+  assert.equal(store.message(message.id).error.code,'MANAGER_RECOVERY_ACTION_OVERFLOW');
 });
