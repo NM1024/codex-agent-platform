@@ -108,7 +108,9 @@ test('code copy stays inside the upper right corner without covering code or fol
   for(const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
     await page.setViewportSize(viewport);
     await expect(pre).toBeVisible();await expect(copy).toBeVisible();
-    // Measure one committed frame; responsive relayout can replace nodes between protocol reads.
+    // A viewport change can remount the responsive shell after visibility checks.
+    // Retry the complete same-frame geometry assertion against the current nodes.
+    await expect(async()=>{
     const {codeBox,buttonBox,firstLine}=await block.evaluate(element=>{
       const pre=element.querySelector('pre'),button=element.querySelector('button'),code=pre.querySelector('code'),range=document.createRange();
       range.setStart(code.firstChild,0);range.setEnd(code.firstChild,1);
@@ -120,6 +122,7 @@ test('code copy stays inside the upper right corner without covering code or fol
     expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeLessThanOrEqual(12);
     expect(codeBox.x+codeBox.width-buttonBox.x-buttonBox.width).toBeGreaterThanOrEqual(0);
     expect(firstLine.y).toBeGreaterThanOrEqual(buttonBox.y+buttonBox.height);
+    }).toPass({timeout:5000});
     const scrollPosition=await block.evaluate(element=>{
       const pre=element.querySelector('pre'),button=element.querySelector('button'),before=button.getBoundingClientRect().x;
       pre.scrollLeft=pre.scrollWidth;

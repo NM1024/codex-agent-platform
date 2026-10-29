@@ -168,6 +168,9 @@ test("release ignore rules retain Codex source modules and exclude runtime authe
     { cwd: dir },
   );
   assert.equal(source.status, 1, "src/codex must be included in Git releases");
+  for(const artifact of ['.deployment.json','.update.lock','platform-deploy.sh','releases/source/package.json','backups/synthetic.tar.gz']) {
+    assert.equal(spawnSync('git',['-c','core.excludesFile=/dev/null','check-ignore','--quiet',artifact],{cwd:dir}).status,0,`Update runtime artifact must remain ignored: ${artifact}`);
+  }
   assert.equal(
     spawnSync(
       "git",

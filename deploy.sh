@@ -4,6 +4,19 @@ umask 077
 agent_source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 agent_action="${1:-status}"
 agent_deploy_dir="${2:-/data/codex-agent-platform}"
+# Updates run from a verified staged release; other commands follow active source.
+if [[ "$agent_action" == update || ( "$agent_action" != init && "${PLATFORM_UPDATE_STAGED:-}" != 1 ) ]]; then
+  command -v python3 >/dev/null || { echo 'Python 3.10+ is required (apt install python3).' >&2; exit 1; }
+  agent_resolve_args=(--source "$agent_source_dir")
+  if [[ -n "${2:-}" ]]; then agent_resolve_args+=(--data "$2"); fi
+  if [[ -n "${PLATFORM_PROJECT:-}" ]]; then agent_resolve_args+=(--project "$PLATFORM_PROJECT"); fi
+  if [[ "$agent_action" == update ]]; then exec python3 -B "$agent_source_dir/scripts/update-release.py" update "${agent_resolve_args[@]}"; fi
+  agent_resolved="$(python3 -B "$agent_source_dir/scripts/update-release.py" resolve "${agent_resolve_args[@]}")"
+  mapfile -t agent_paths <<< "$agent_resolved"
+  agent_deploy_dir="${agent_paths[1]}"
+  export PLATFORM_PROJECT="${agent_paths[2]}"
+  if [[ "${agent_paths[0]}" != "$agent_source_dir" ]]; then exec bash "${agent_paths[0]}/deploy.sh" "$agent_action" "$agent_deploy_dir"; fi
+fi
 agent_project="${PLATFORM_PROJECT:-codex-agent-platform}"
 if [[ ! "$agent_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then echo 'Invalid PLATFORM_PROJECT' >&2; exit 1; fi
 agent_compose() { docker compose --project-name "$agent_project" --env-file "$agent_deploy_dir/.env" -f "$agent_source_dir/compose.yaml" "$@"; }
@@ -58,9 +71,9 @@ CONFIG
   build)
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:0.1.0-preview.1 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:0.1.0-preview.1 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:0.1.0-preview.1 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.0 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.0 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.0 "$agent_source_dir"
     else agent_compose build; fi
     ;;
   start)
@@ -70,8 +83,9 @@ CONFIG
     ;;
   stop) agent_compose down ;;
   status) agent_compose ps ;;
+  logs) agent_compose logs --tail=100 gateway runner manager ;;
   login)
     agent_compose run --rm --no-deps --entrypoint codex runner login --device-auth
     ;;
-  *) echo 'Usage: ./deploy.sh init|validate|build|start|stop|status|login [deployment-directory]' >&2; exit 2 ;;
+  *) echo 'Usage: ./deploy.sh init|validate|build|start|stop|status|logs|login|update [deployment-directory]' >&2; exit 2 ;;
 esac

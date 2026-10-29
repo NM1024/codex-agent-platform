@@ -1,6 +1,6 @@
 # Deployment and operations
 
-Use a Linux host with Docker Engine, Compose v2 and outbound HTTPS access to the OpenAI authentication/Codex services. The pinned runtime is Codex `0.159.2`, Node.js `24`, with default model `gpt-6.1-sol`. Model availability depends on your own account. No API Key or substitute model/image provider is configured.
+Use a Linux host with Docker Engine, Compose v2 (2.20+), Python 3.10+, curl and outbound HTTPS access to the OpenAI authentication/Codex services. The pinned runtime is Codex `0.159.2`, Node.js `24`, with default model `gpt-6.1-sol`. Model availability depends on your own account. No API Key or substitute model/image provider is configured.
 
 ## Fresh installation
 
@@ -155,7 +155,7 @@ Services reclaim SQLite free pages while idle; database size may contract later 
 
 ## Upgrade and backup
 
-Back up all runtime directories together while services are stopped, or use SQLite-consistent snapshots with coordinated workspace backups. Backups contain sensitive account state and business data. Do not delete data to upgrade. Build the new source, then run `start`; container recreation suspends/resumes incomplete work where Codex session state is available. Keep a rollback copy of source/images and data before upgrading. No rollback compatibility across future schema changes is promised in preview releases.
+Back up all runtime directories together while services are stopped, or use SQLite-consistent snapshots with coordinated workspace backups. Backups contain sensitive account state and business data. Do not delete data to upgrade. Build the new source, then run `start`; container recreation suspends/resumes incomplete work where Codex session state is available. Keep a rollback copy of source/images and data before upgrading. Schema rollback compatibility is not promised; restore the pre-update runtime backup together with its matching source/images.
 
 ## System prompt changes
 
@@ -185,3 +185,22 @@ Rebuild and recreate the existing services with the same runtime directory to in
 Pending conversations and interrupted wake signals remain in SQLite. Saved conversations are not deleted or shortened, normal continuations preserve their native thread context, and Codex's existing compaction strategy stays unchanged. Busy image uploads can return retryable `503 IMAGE_PROCESSING_BUSY`; no management message has been enqueued on that failure. If unconfirmed operation history exceeds the bounded recovery context, automatic recovery pauses explicitly rather than repeating uncertain work.
 
 For resource diagnosis, separate anonymous/process memory from file pages. An idle container can retain executable/library and database pages after Codex subprocesses exit; `docker stats` normally excludes inactive file pages but can include active ones. See [memory behavior, limits and benchmark method](MEMORY.md).
+
+
+## Stable release updates
+
+`deploy.sh update [runtime-directory]` installs GitHub's latest published stable Release, not a branch tip. Source, checksums and a standalone `update.sh` are attached to each release. For an older installation without this command, download the latest release's `update.sh` and run `sudo bash update.sh update`. It embeds the updater and discovers the original Compose source path from container labels; no host Node installation or Git checkout is required. Python 3.10+, curl, Docker Engine and Compose v2 2.20+ are required. Outbound HTTPS to api.github.com, github.com, release-asset redirects, npm and the image registry is needed.
+
+Discovery uses existing Manager containers (including stopped containers), exact bind mounts and Compose project labels. An explicit runtime path or `PLATFORM_PROJECT` disambiguates installations. If containers no longer exist, provide the initialized runtime path from an existing source directory. Unsupported custom Compose files/overrides require manual upgrading; the updater will not guess a configuration. Never run two Compose projects against the same data directory. Environment overrides must agree with the persisted data path.
+
+The updater locks one installation, validates published stable semantic-version metadata and asset URLs, verifies SHA256SUMS and archive paths/types, stages a private source copy under `releases/`, and checks the three services' persistent mounts. It builds first, then stops the same project, saves a consistent private backup under `backups/`, validates the new runtime configuration and starts with `--wait`. Validation can migrate SQLite data, so it happens after backup. Successful health checks record `.deployment.json` and install a fixed runtime `deploy.sh` launcher. If source and runtime share a directory containing an existing deployment script, the generated launcher is `platform-deploy.sh` so source is preserved. Future `update`, `status`, `logs`, `start`, `stop`, `login` and `build` follow the active release. The original source checkout remains untouched. A current installed release is a no-op. Previews, drafts, missing assets and downgrades are refused.
+
+Backups include `.env`, management/task databases, workspaces, artifacts, account authorization and the previous update state/launcher. They exclude release source and previous backups, and do not follow symlinks. Backups are sensitive, are not covered by automatic history cleanup and are not automatically pruned. Source stages/images are also retained; review disk use and delete old backups/images only after verifying the deployment. Build or download failure leaves old services running. Backup failure attempts to restart the old stopped containers. Failed validation or health checks leave the new attempt unactivated, retain its diagnostics and report the backup; some new containers may be running, so inspect the printed Compose command. Health checks establish service liveness, not account/model availability; no model task is submitted by update.
+
+### Recovering a failed update
+
+Do not point an old image at a database already migrated by a newer version. First stop the affected project using the exact project and Compose arguments printed by the updater. Keep the failed runtime separately for diagnosis. Restore the full pre-update backup into a separate private runtime directory, or restore its contents into the original directory only after moving aside the failed state. The backup `.env` refers to the original runtime path: verify it deliberately before starting. Use the matching previous source recorded in `.deployment.json` (or the original checkout for the first update), build its images and start against the restored data. Do not delete Docker volumes or shared login state as an upgrade step. Update can interrupt current turns; schedule a maintenance window and pause new work when appropriate.
+
+### Publishing a stable version
+
+Update package.json/package-lock.json, Compose/build image tags and Codex client version together. Commit, run all checks, and wait for CI success on the exact commit before creating `vX.Y.Z`. Package that exact Git commit with `python3 scripts/package-release.py --revision <commit> --output .tmp/release`. The packager uses git archive with explicit distributable roots; local changes, dependencies, runtime files and credentials are excluded. Upload the resulting versioned tar.gz, `SHA256SUMS` and `update.sh` to a non-prerelease GitHub Release and mark it latest only after asset upload. Do not replace published stable tags/assets. Publishing a tag alone does not make it an updater target.
