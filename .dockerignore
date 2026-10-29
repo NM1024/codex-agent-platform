@@ -11,4 +11,9 @@
 !tests/**
 !frontend/
 !frontend/**
+!docs/
+!docs/**
+!README.md
+!README.zh-CN.md
+!Dockerfile
 src/manager/web-dist/

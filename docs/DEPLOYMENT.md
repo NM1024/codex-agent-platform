@@ -57,7 +57,7 @@ Admin **Settings → Task execution** and **Settings → Management Agent** prov
 
 Each **Management chat** can save its own model and reasoning settings above the composer. Sending a message also saves the current choices. They apply to subsequent turns; already running work keeps its settings. Started message settings are recorded for inspection and recovery.
 
-The **Business plugins** page displays saved definitions and model overrides with enable/disable switches. Ask the management Agent to create/edit a plugin, configure its optional `execution` object or run a trial. Existing accepted tasks retain their plugin snapshot; editing a plugin affects only new submissions.
+Open **Business plugins → Model settings** to choose a plugin's model and reasoning effort directly, or ask the management Agent to configure its optional `execution` object. Saving updates only these overrides and checks the plugin revision; if another operator or Agent changed the plugin, reload before saving. Business instructions, enablement and connections stay separate. Existing accepted tasks retain their plugin snapshot; editing a plugin affects only new submissions. Creation, business logic edits and trials still use management chat.
 
 **Inherit global settings** leaves that override unset. **Model default** stores a null reasoning effort. A different model selected without an explicit effort uses that model's default rather than inheriting an effort from the global model. An explicit effort is checked against the selected model before a model turn starts.
 
@@ -147,7 +147,13 @@ Back up all runtime directories together while services are stopped, or use SQLi
 
 ## System prompt changes
 
-The image includes the root `prompts/` directory. Rebuild/redeploy after editing its fixed message templates. Existing Manager instructions are persisted, including their initial default; ask the management Agent to update `manager.instructions` through management MCP to apply revised editable instructions without a restart. The versioned project rules and human-only connection policy are independently appended on every management start/resume, so an image upgrade applies these rules to the next turn even with saved custom instructions. The Agent obtains live configuration and capabilities from tools rather than reading repository documents. See the [system prompt guide](../prompts/README.md). Plugin instructions continue to be managed as plugin configuration.
+The image includes the root `prompts/` directory. Rebuild/redeploy after editing its fixed message templates. Existing Manager instructions are persisted, including their initial default; ask the management Agent to update `manager.instructions` through management MCP to apply revised editable instructions without a restart. The versioned project rules and human-only connection policy are independently appended on every management start/resume with a content revision. An image upgrade applies these rules to the next turn even with saved custom instructions; history and custom responsibilities remain. `platform_context` explicitly refreshes those current rules without requiring Gateway. Live configuration and capabilities still come from their own tools. See the [system prompt guide](../prompts/README.md). Plugin instructions continue to be managed as plugin configuration.
+
+### Read-only management source
+
+Manager's `project_source` tool lists, searches and reads allowlisted files from the **currently deployed image**. The Manager image includes `frontend/src`, management/shared adapter source, `prompts`, `docs` and selected root documents. Use `mode: "list"` to find paths, `mode: "read"` with a repository-relative path for numbered lines, or `mode: "search"` with a literal query. `offset` starts at zero; follow `next_offset` for more results. Every response includes a source content revision. Source access works in existing conversations and without Gateway; relevant excerpts are sent to the model as tool results.
+
+The tool has no write, shell, execution or Git operation. Fixed path/type allowlists exclude credentials, runtime volumes, generated bundles, hidden paths and symlinks. Reads and searches are bounded; oversized files are reported as unavailable. It does not clone a repository or turn source support into account authorization. After updating source, rebuild and recreate Manager with the existing runtime directory; `git pull` alone cannot update files inside a running image. Reload Admin, continue an old chat and ask it to refresh `platform_context` and inspect the implementation with `project_source`. The Manager target runs `check-release.mjs --manager-source` to verify that its readable source was packaged.
 
 ### Operations overview after an update
 

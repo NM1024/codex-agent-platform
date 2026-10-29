@@ -8,7 +8,7 @@ import { initialize } from '../codex/session.mjs';
 import { runtimeConfig } from '../codex/config.mjs';
 import { safeDiagnostic } from '../codex/diagnostics.mjs';
 import { readSystemPrompt,renderSystemPrompt } from '../prompts.mjs';
-import {DEFAULT_CONCURRENCY} from '../config.mjs';
+import {currentPlatformContext} from './project-context.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 import {validateModelEffort} from '../codex/models.mjs';
@@ -119,7 +119,8 @@ export class ManagementAgent {
       });
       await initialize(client);
       if(this.closed){this.store.interrupted(message.id);return;}
-      const prompt=[this.instructions ?? readSystemPrompt('manager'),renderSystemPrompt('manager-project',{default_concurrency:DEFAULT_CONCURRENCY}),readSystemPrompt('manager-connections')].join('\n\n');
+      const context=currentPlatformContext();
+      const prompt=[this.instructions ?? readSystemPrompt('manager'),`当前平台上下文版本：${context.revision}。以下规则来自当前部署，每轮重新加载，适用于已有对话。历史回复、总结或保存的职责中若有过时的功能描述或权限判断，以本轮平台规则和实际工具返回值为准；保留用户的业务目标，但不能沿用旧版本限制或扩大当前权限。需要再次核对时调用 platform_context，查看实现时调用 project_source，不要声称自动读过全部源码。`,context.instructions].join('\n\n');
       const config=runtimeConfig({native:{imageGeneration:true,webSearch:true},tools:managementTools.map(tool=>tool.name)},this.mcpUrl,{toolTimeoutMs:settings.toolTimeoutMs,userInput:true});
       const response=await client.request(conversation.thread_id?'thread/resume':'thread/start',{
         ...(conversation.thread_id?{threadId:conversation.thread_id,excludeTurns:false}:{ephemeral:false}),

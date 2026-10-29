@@ -58,4 +58,9 @@ export class PluginStore {
     return {type,deleted:true,deleted_at};
   }
   setEnabled(type,enabled) {const {revision,updated_at,...definition}=this.get(type);if(enabled)this.registry.pluginConnections?.assertReady(type);return this.save({...definition,enabled});}
+  setExecution(type,execution,expectedRevision) {
+    const {revision,updated_at,...definition}=this.get(type);
+    if(revision!==expectedRevision)throw new HttpError(409,'PLUGIN_REVISION_CONFLICT','业务插件已被修改，请重新读取后再保存。');
+    return this.save({...definition,execution});
+  }
 }

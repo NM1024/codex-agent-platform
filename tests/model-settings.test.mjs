@@ -6,6 +6,7 @@ import {readModels,validateModelEffort,createModelCatalog} from '../src/codex/mo
 import {createApplication} from '../src/application.mjs';
 import {RequestStore} from '../src/core/store.mjs';
 import {Dispatcher} from '../src/core/dispatcher.mjs';
+import {OperationsService} from '../src/operations/service.mjs';
 import {ManagerStore} from '../src/manager/store.mjs';
 import {createManagerConfiguration} from '../src/manager/configuration.mjs';
 import {DatabaseSync} from 'node:sqlite';
@@ -20,6 +21,29 @@ test('model overrides inherit settings but a different model uses its own defaul
   assert.equal(resolveAgentSettings(base,{reasoningEffort:null}).reasoningEffort,null);
   assert.equal(resolveAgentSettings(base,{model:'fixture-b',reasoningEffort:'low'}).reasoningEffort,'low');
   assert.equal(base.reasoningEffort,'high');
+});
+
+test('plugin execution updates preserve current business logic and accepted task snapshots',async t=>{
+  const app=createApplication('gateway',{RUNNER_TOKEN:'synthetic-runner'});
+  const store=new RequestStore(':memory:',{registry:app.registry});t.after(()=>store.close());
+  const operations=new OperationsService({...app,store});
+  configurePlugin(store,'content.review');
+  const before=store.plugins.get('content.review');
+  const accepted=store.accept('fixture',{type:before.type,input:{content:'Synthetic article'},request_id:'before-model-change'});
+  const connection=store.pluginConnections.get(before.type);
+  const updated=await operations.execute('plugin_execution_update',{type:before.type,revision:before.revision,execution:{model:'fixture-b',reasoningEffort:'low'}});
+  assert.deepEqual(updated.execution,{model:'fixture-b',reasoningEffort:'low'});
+  for(const key of ['instructions','input_schema','result_schema','capabilities','enabled'])assert.deepEqual(updated[key],before[key]);
+  assert.deepEqual(store.pluginConnections.get(before.type),connection);
+  assert.notDeepEqual(store.moduleFor(store.raw(accepted.task_id)).definition.execution,updated.execution);
+  await assert.rejects(operations.execute('plugin_execution_update',{type:before.type,revision:before.revision,execution:{}}),{code:'PLUGIN_REVISION_CONFLICT'});
+  await assert.rejects(operations.execute('plugin_execution_update',{type:before.type,revision:updated.revision,execution:{model:''}}),{code:'INVALID_MANAGEMENT_INPUT'});
+  const reset=await operations.execute('plugin_execution_update',{type:before.type,revision:updated.revision,execution:{reasoningEffort:null}});
+  assert.deepEqual(reset.execution,{reasoningEffort:null});
+  const inherited=await operations.execute('plugin_execution_update',{type:before.type,revision:reset.revision,execution:{}});
+  assert.deepEqual(inherited.execution,{});
+  store.plugins.delete(before.type);
+  await assert.rejects(operations.execute('plugin_execution_update',{type:before.type,revision:inherited.revision,execution:{}}),{code:'PLUGIN_NOT_FOUND'});
 });
 
 test('model discovery reads all pages and excludes hidden models without starting a turn',async()=>{

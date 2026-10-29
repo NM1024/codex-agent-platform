@@ -70,6 +70,7 @@ export class OperationsService {
       return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'可调用 plugin_connection_initialize 初始化缺失入口信息；请到业务插件列表的“配置接入”领取生成的入口密钥或手动配置，完成后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未完成配置或密钥未领取前不能启用、提交任务、试运行或执行定时计划。'}:saved;
     }
     if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
+    if (action==='plugin_execution_update') return pluginView(this.store.transaction(()=>this.store.plugins.setExecution(args.type,args.execution,args.revision)));
     if (action==='plugin_delete') return this.store.transaction(()=>{
       // Pause dependent plans and mark the plugin in one durable transaction.
       this.schedules.disableForPlugin(args.type);
