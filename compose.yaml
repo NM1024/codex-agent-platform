@@ -1,7 +1,7 @@
 name: codex-agent-platform
 services:
   gateway:
-    image: codex-agent-platform-gateway:1.1.0
+    image: codex-agent-platform-gateway:1.0.1
     build:
       context: .
       target: gateway
@@ -43,7 +43,7 @@ services:
       timeout: 5s
       retries: 3
   runner:
-    image: codex-agent-platform-runner:1.1.0
+    image: codex-agent-platform-runner:1.0.1
     build:
       context: .
       target: runner
@@ -81,7 +81,7 @@ services:
       timeout: 5s
       retries: 3
   manager:
-    image: codex-agent-platform-manager:1.1.0
+    image: codex-agent-platform-manager:1.0.1
     build:
       context: .
       target: manager
