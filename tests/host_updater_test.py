@@ -114,15 +114,22 @@ class HostUpdaterTests(unittest.TestCase):
 
     def test_unix_http_is_bounded_and_duplicate_requests_reuse_job(self):
         h=self.host(); path=self.root/'updater.sock'; launches=[]
-        server=h.Server(str(path),h.Handler);server.store=h.JobStore(self.root/'private')
+        # Transport coverage must run under arbitrary CI host UIDs. Peer admission
+        # is exercised separately against the unchanged production implementation.
+        class TransportServer(h.Server):
+            def verify_request(self,request,address):return True
+        server=TransportServer(str(path),h.Handler);server.store=h.JobStore(self.root/'private')
         server.launch=lambda job:launches.append(job['id'])
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
         def request(method,url,body=None,headers=None):
             conn=http.client.HTTPConnection('localhost',timeout=3)
-            conn.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);conn.sock.connect(str(path))
-            conn.request(method,url,body,headers or {})
-            response=conn.getresponse();result=(response.status,json.loads(response.read()));conn.close();return result
+            try:
+                conn.sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);conn.sock.connect(str(path))
+                conn.request(method,url,body,headers or {})
+                response=conn.getresponse()
+                return response.status,json.loads(response.read())
+            finally:conn.close()
         status,body=request('GET','/status');self.assertEqual((status,body),(200,{'available':True,'job':None}))
         status,body=request('POST','/upgrade',b'{}');self.assertEqual(status,202)
         job=body['job'];self.assertEqual(job['state'],'queued')
@@ -132,6 +139,17 @@ class HostUpdaterTests(unittest.TestCase):
         self.assertEqual(request('POST','/upgrade',b'a'*65)[0],400)
         self.assertEqual(request('GET','/status?data=/tmp')[0],404)
         self.assertTrue(hasattr(server,'slots'),'HTTP concurrency must have an explicit bound')
+
+    def test_production_peer_admission_allows_only_root_and_manager_uid(self):
+        h=self.host()
+        server=h.Server.__new__(h.Server)
+        for uid,allowed in ((0,True),(1000,True),(1001,False),(65534,False)):
+            with self.subTest(uid=uid):
+                def credentials(level,option,length):
+                    self.assertEqual((level,option,length),(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
+                    return h.struct.pack('3i',1234,uid,1000)
+                peer=SimpleNamespace(getsockopt=credentials)
+                self.assertIs(h.Server.verify_request(server,peer,None),allowed)
 
     def test_worker_records_phase_failure_and_bounds_private_subprocess_log(self):
         h=self.host();store=h.JobStore(self.root/'state');job=store.admit(lambda job:None)
