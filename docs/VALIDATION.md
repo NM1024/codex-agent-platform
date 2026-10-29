@@ -322,3 +322,11 @@ Final review found no new blocking boundary issue. An inherited backup-failure m
 The GitHub runner uses UID1001. The Unix HTTP transport fixture explicitly bypasses peer authorization in its test-only server, while separate SO_PEERCRED assertions verify production accepts only root/UID1000 and rejects UID1001/65534. This preserves the production boundary and makes transport validation independent of the developer or CI account.
 
 The connection-loading regression introduced by the third tab is covered by the original loading-center matrix and a new interaction test: tabs and the indicator share a bounded grid area, including narrow English layouts, and Model settings remains usable while the entry request is pending. Nine focused layout/model/cold-login checks passed after the fix without weakening assertions.
+
+## Default browser-upgrade service (v1.0.2)
+
+Local validation passed 464 backend checks, including 30 host-helper and 21 updater Python scenarios through host-only wrappers, plus types, release-resource and Manager-source checks (100 modules / 3 JSON resources). Seven version-dialog browser tests passed, including bilingual 320px layouts, unavailable-service guidance, upgrade reconnect and the unchanged cold-login budget. English phone output was visually inspected.
+
+New regressions were observed failing before implementation: standard start/staged-validation setup, durable opt-out and backup preservation, same-version repair, active broker preservation and retry after partial setup. Independent review identified partial installation being mistaken for legacy disable and a nonexistent first-install runtime launcher in the documentation. Enabled intent is now persisted before installation, three additional retry/diagnostic tests passed RED→GREEN, and fresh-install commands use the source entry point. The complete backend suite passed again after these fixes.
+
+Host tests redirect all installation roots and system commands. Synthetic Compose smoke data explicitly disables web upgrades; validation must not install a real service on development or CI hosts. Complete exact-commit CI, including Docker targets and real Compose updates, is required before tagging this patch release. Previously published tags/assets remain immutable.

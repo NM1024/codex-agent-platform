@@ -16,6 +16,7 @@ test('running version precedes repository and unavailable host gives honest setu
   await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copiedVersionCommand=text;}}}));
   await setup(page);expect(await page.locator('#version-entry').evaluate(node=>Boolean(node.parentElement.nextElementSibling?.querySelector('#repository-link')))).toBe(true);
   await page.locator('#version-entry').click();const panel=dialog(page);await expect(panel).toContainText('当前运行版本');await expect(panel).toContainText('1.2.3');
+  await expect(panel).toContainText('标准部署会自动配置网页升级');await expect(panel).toContainText('web-update-status');
   await expect(panel).toContainText('enable-web-update');await expect(panel.locator('#version-upgrade')).toBeDisabled();
   await panel.locator('#version-check').click();await expect(panel).toContainText('1.3.0');
   await expect(panel.locator('#version-release')).toHaveAttribute('href',latest.release_url);await expect(panel.locator('#version-update-command')).toContainText('releases/latest/download/update.sh');
@@ -30,6 +31,7 @@ test('version dialog keeps header and actions reachable at 320px in both languag
     for(const viewport of [{width:1440,height:1000},{width:320,height:568},{width:844,height:390}]){
       await page.setViewportSize(viewport);await expect(page.locator('#version-entry')).toBeInViewport({ratio:1});await expect(page.locator('#page-title')).toBeVisible();
       await page.locator('#version-entry').click();const panel=dialog(page);await expect(panel).toContainText(locale==='en'?'Version & updates':'版本与更新');
+      await expect(panel).toContainText(locale==='en'?'Standard deployments configure browser upgrades automatically':'标准部署会自动配置网页升级');
       await expect(panel.locator('#version-check')).toBeInViewport({ratio:1});await expect(panel.locator('#version-upgrade')).toBeInViewport({ratio:1});
       expect(await panel.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);await page.screenshot({path:`.tmp/version-upgrade/${locale}-${viewport.width}.png`,animations:'disabled'});
       await panel.getByRole('button',{name:locale==='en'?'Close':'关闭',exact:true}).last().click();

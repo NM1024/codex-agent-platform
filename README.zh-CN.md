@@ -8,7 +8,7 @@
 
 这个自托管平台面向开发者和受信任的小团队：你可以把内容审核、结构化报告、图文创作、定时处理等工作接入现有系统。平台负责排队、执行记录、文件保存和日常管理，你主要定义“输入什么、要完成什么、最后返回什么”。
 
-**当前正式版本：v1.0.1。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
+**当前正式版本：v1.0.2。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
 
 ## 目录
 
@@ -87,8 +87,8 @@ Docker 镜像已经包含 Node.js、SQLite 支持和固定版本的 Codex CLI，
 ### 1. 获取代码并初始化私有配置
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/NM1024/codex-agent-platform.git
-cd codex-agent-platform
+sudo git clone --branch v1.0.2 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
 
@@ -273,26 +273,25 @@ sudo bash /data/codex-agent-platform/deploy.sh logs
 
 备份含有密钥与授权文件，必须私密保存；磁盘需为备份和镜像构建预留空间。健康检查失败会报告备份位置，不会自动降级已迁移的数据库。详见[更新与恢复说明](docs/DEPLOYMENT.md#stable-release-updates)。
 
-### 顶栏版本信息与可选网页升级
+### 顶栏版本信息与网页升级
 
 顶栏显示当前 Manager 镜像的实际版本。点击后可检查最新正式 Release、查看发布说明或复制服务器更新命令；检查版本不会执行模型任务或升级。
 
-先部署包含此功能的新版本，再在 Linux systemd 宿主机上手动安装一次可选更新服务：
+标准 Linux/systemd 部署以 root 启动时会自动安装并启用宿主机更新服务；从旧版升级时也会自动补装，不再需要单独执行安装命令。可用以下命令检查状态：
 
 ```bash
-sudo bash /data/codex-agent-platform/deploy.sh enable-web-update
-sudo bash /data/codex-agent-platform/deploy.sh web-update-status
+sudo ./deploy.sh web-update-status /data/codex-agent-platform
 ```
 
-请使用实际运行目录中的脚本入口。源码、运行目录及 `.env` 的路径层级须由 root 持有且不能被其他用户修改；若 Git 工作区属于普通用户，先以 root 执行已校验的正式版更新脚本，再使用生成的运行目录入口。
+上述命令在源码目录执行，并指定实际运行目录；首次成功更新后才会生成运行目录中的 `deploy.sh` 入口，之后也可使用该入口。源码、运行目录及 `.env` 的路径层级须由 root 持有且不能被其他用户修改，因此首次安装示例将源码放在 `/opt`。已有普通用户工作区可先以 root 执行命令行正式版更新，让脚本生成可信源码。没有运行中的 systemd、非 root 部署或自动配置失败时会明确提示，命令行更新仍可使用；解决提示的问题后，可执行 `sudo ./deploy.sh enable-web-update /data/codex-agent-platform` 重试配置。
 
 有新版且宿主机服务可用时，版本窗口才启用升级按钮。确认停服后，由宿主机服务执行下载校验、构建、备份和健康重启，网页会跟踪同一个持久任务并在 Manager 重启后重连。Manager 和管理 Agent 不会获得 Docker socket 或任意宿主机命令权限；不安装服务也能正常使用平台。
 
 ```bash
-sudo bash /data/codex-agent-platform/deploy.sh disable-web-update
+sudo ./deploy.sh disable-web-update /data/codex-agent-platform
 ```
 
-升级途中停用服务会中断任务，可能需要恢复；恢复备份前请先阅读[部署与恢复说明](docs/DEPLOYMENT.md#optional-host-service-for-browser-upgrades)。
+关闭选择会持久保存，后续启动和升级不会重新开启；`enable-web-update` 可恢复启用，旧版已经禁用的 systemd 服务也会保留关闭状态。首次 `init` 后即可提前关闭。升级途中停用服务会中断任务，可能需要恢复；恢复备份前请先阅读[部署与恢复说明](docs/DEPLOYMENT.md#host-service-for-browser-upgrades)。
 
 ### 自动清理到期历史数据
 

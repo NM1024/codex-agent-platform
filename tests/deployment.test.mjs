@@ -6,6 +6,26 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
+test('start and successful staged validation ensure web upgrades; ordinary validation and failures do not',async t=>{
+  const {mkdir,copyFile,writeFile}=await import('node:fs/promises');
+  const dir=await mkdtemp(join(tmpdir(),'default-web-update-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const source=join(dir,'source'),runtime=join(dir,'runtime'),bin=join(dir,'bin'),log=join(dir,'commands');
+  for(const path of [source,join(source,'scripts'),runtime,bin])await mkdir(path,{recursive:true});
+  await copyFile(join(root,'deploy.sh'),join(source,'deploy.sh'));await import('node:fs/promises').then(fs=>fs.chmod(join(source,'deploy.sh'),0o700));
+  await writeFile(join(source,'scripts/update-release.py'),'import sys\nfrom pathlib import Path\nprint(Path(__file__).resolve().parents[1]);print(sys.argv[sys.argv.index("--data")+1]);print("synthetic")\n');
+  await writeFile(join(source,'scripts/host-updater.py'),'import os,sys,json\nwith open(os.environ["COMMAND_LOG"],"a") as out:out.write(json.dumps({"helper":sys.argv[1:],"staged":os.environ.get("PLATFORM_UPDATE_STAGED")})+"\\n")\n');
+  await writeFile(join(bin,'docker'),'#!/usr/bin/env python3\nimport sys,os,json\nwith open(os.environ["COMMAND_LOG"],"a") as out:out.write(json.dumps({"docker":sys.argv[1:]})+"\\n")\nif os.environ.get("FAIL_VALIDATION")=="1" and "scripts/validate-config.mjs" in sys.argv:sys.exit(3)\nif os.environ.get("FAIL_START")=="1" and "up" in sys.argv:sys.exit(4)\n',{mode:0o700});
+  for(const [action,staged,failure,want] of [['start',false,'',1],['validate',true,'',1],['validate',false,'',0],['validate',true,'validation',0],['start',false,'start',0]]){
+    await writeFile(log,'');
+    const env={...process.env,PATH:bin+':'+process.env.PATH,COMMAND_LOG:log,PLATFORM_PROJECT:'synthetic'};delete env.PLATFORM_UPDATE_STAGED;
+    if(staged)env.PLATFORM_UPDATE_STAGED='1';if(failure==='validation')env.FAIL_VALIDATION='1';if(failure==='start')env.FAIL_START='1';
+    const result=spawnSync('bash',[join(source,'deploy.sh'),action,runtime],{encoding:'utf8',env});
+    assert.equal(result.status===0,!failure,result.stderr);
+    const commands=(await readFile(log,'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse),helpers=commands.filter(x=>x.helper);
+    assert.equal(helpers.length,want,JSON.stringify({action,staged,failure,commands}));
+    if(want){assert.equal(helpers[0].helper[0],'ensure-web-update');assert.deepEqual(helpers[0].helper.slice(1),['--source',source,'--data',runtime,'--project','synthetic']);assert.ok(commands.at(-1).helper);}
+  }
+});
 test("Compose separates credentials, persists volumes and only binds gateway loopback", async () => {
   const compose = await readFile(join(root, "compose.yaml"), "utf8");
   assert.match(compose, /127\.0\.0\.1/);

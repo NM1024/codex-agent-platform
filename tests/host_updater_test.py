@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import http.client
+import io
+import shlex
 import socket
 import subprocess
 import sys
@@ -12,6 +14,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from contextlib import ExitStack,redirect_stderr
 
 ROOT = Path(__file__).resolve().parents[1]
 def load(name, path):
@@ -29,6 +32,144 @@ class HostUpdaterTests(unittest.TestCase):
     def host(self):
         self.assertTrue((ROOT/'scripts/host-updater.py').exists(), 'host updater service is missing')
         return load('host_updater', ROOT/'scripts/host-updater.py')
+
+    def setup_installation(self):
+        h=self.host()
+        self.assertTrue(hasattr(h,'ensure_web_update'),'default web updater setup is missing')
+        stack=ExitStack();self.addCleanup(stack.close)
+        for key,sub in [('HELPER_ROOT','helpers'),('CONFIG_ROOT','config'),('STATE_ROOT','state'),('UNIT_ROOT','units')]:
+            folder=self.root/sub;folder.mkdir()
+            stack.enter_context(patch.object(h,key,folder))
+        source=self.root/'source';data=self.root/'runtime'
+        source.mkdir();data.mkdir();(source/'scripts').mkdir()
+        (data/'.env').write_text('PLATFORM_DATA_DIR='+str(data))
+        for name in ('compose.yaml','deploy.sh','package.json'):(source/name).write_text('synthetic')
+        for name in ('host-updater.py','update-release.py'):(source/'scripts'/name).write_text('print("synthetic")\n')
+        installation=SimpleNamespace(source=source,data=data,project='synthetic')
+        stack.enter_context(patch.object(h,'updater_module',return_value=SimpleNamespace(discover=lambda *args:installation)))
+        stack.enter_context(patch.object(h,'trusted'))
+        stack.enter_context(patch.object(h.os,'geteuid',return_value=0))
+        stack.enter_context(patch.object(h.os,'chown'))
+        stack.enter_context(patch.object(h,'systemd_available',return_value=True))
+        calls=[]
+        def command(args,**kwargs):
+            calls.append(args)
+            return SimpleNamespace(returncode=1 if args[1]=='is-active' else 0)
+        stack.enter_context(patch.object(h.subprocess,'run',side_effect=command))
+        return h,source,data,calls
+
+    def test_standard_supported_host_automatically_installs_service(self):
+        h,source,data,calls=self.setup_installation()
+        self.assertEqual(h.ensure_web_update(source,data,'synthetic'),0)
+        key=h.identity(data)
+        cfg=json.loads((h.CONFIG_ROOT/(key+'.json')).read_text())
+        self.assertEqual((cfg['data'],cfg['project']),(str(data),'synthetic'))
+        self.assertTrue((h.UNIT_ROOT/('codex-agent-platform-updater-'+key+'.service')).is_file())
+        self.assertIn(['systemctl','enable','--now','codex-agent-platform-updater-'+key+'.service'],calls)
+        self.assertEqual((h.HELPER_ROOT/key/'host-updater.py').read_bytes(),(ROOT/'scripts/host-updater.py').read_bytes())
+
+    def test_existing_active_service_is_not_reinstalled_or_restarted(self):
+        h,source,data,calls=self.setup_installation()
+        with patch.object(h.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as command:
+            self.assertEqual(h.ensure_web_update(source,data,'synthetic'),0)
+        self.assertEqual(list(h.UNIT_ROOT.iterdir()),[])
+        self.assertEqual([x.args[0] for x in command.call_args_list],[['systemctl','is-active','--quiet','codex-agent-platform-updater-'+h.identity(data)+'.service']])
+
+    def test_disable_persists_across_ensure_and_explicit_enable_restores_default(self):
+        h,source,data,calls=self.setup_installation()
+        self.assertEqual(h.install('disable-web-update',source,data,'synthetic'),0)
+        self.assertFalse(h.read_policy(data))
+        calls.clear();h.ensure_web_update(source,data,'synthetic')
+        self.assertEqual(calls,[])
+        h.install('enable-web-update',source,data,'synthetic')
+        self.assertTrue(h.read_policy(data))
+        policy=data/h.POLICY
+        self.assertEqual(policy.stat().st_mode&0o777,0o600)
+
+    def test_non_root_and_missing_systemd_skip_without_host_changes(self):
+        h,source,data,calls=self.setup_installation()
+        with patch.object(h.os,'geteuid',return_value=1000):h.ensure_web_update(source,data,'synthetic')
+        with patch.object(h,'systemd_available',return_value=False):h.ensure_web_update(source,data,'synthetic')
+        self.assertEqual(calls,[])
+        self.assertEqual(list(h.UNIT_ROOT.iterdir()),[])
+
+    def test_auto_install_failure_warns_but_explicit_enable_reports_failure(self):
+        h,source,data,calls=self.setup_installation()
+        with patch.object(h.subprocess,'run',side_effect=subprocess.CalledProcessError(1,['systemctl'])):
+            self.assertEqual(h.ensure_web_update(source,data,'synthetic'),0)
+            with self.assertRaises(subprocess.CalledProcessError):h.install('enable-web-update',source,data,'synthetic')
+
+    def test_staged_validation_installs_selected_release_helper(self):
+        h,source,data,calls=self.setup_installation()
+        staged=self.root/'selected';staged.mkdir()
+        for name in ('compose.yaml','deploy.sh','package.json'):(staged/name).write_text('selected')
+        with patch.dict(os.environ,{'PLATFORM_UPDATE_STAGED':'1'}):h.ensure_web_update(staged,data,'synthetic')
+        cfg=json.loads((h.CONFIG_ROOT/(h.identity(data)+'.json')).read_text())
+        self.assertEqual(cfg['source'],str(staged))
+
+    def test_policy_symlinks_and_invalid_policy_never_enable_service(self):
+        h,source,data,calls=self.setup_installation()
+        policy=data/h.POLICY;target=self.root/'outside';target.write_text('{"enabled":true}')
+        policy.symlink_to(target)
+        with self.assertRaises(ValueError):h.read_policy(data)
+        self.assertEqual(h.ensure_web_update(source,data,'synthetic'),0)
+        self.assertEqual(calls,[])
+        policy.unlink();policy.write_text('{"enabled":"false"}')
+        with self.assertRaises(ValueError):h.read_policy(data)
+
+    def test_untrusted_source_cannot_install_root_service(self):
+        h,source,data,calls=self.setup_installation()
+        def trust(path,*args):
+            if Path(path)==source:raise ValueError('untrusted source')
+        with patch.object(h,'trusted',side_effect=trust):h.ensure_web_update(source,data,'synthetic')
+        self.assertEqual(list(h.UNIT_ROOT.iterdir()),[])
+        self.assertFalse(any('enable' in x for x in calls))
+
+    def test_disable_on_host_without_systemd_preserves_opt_out(self):
+        h,source,data,calls=self.setup_installation()
+        with patch.object(h,'systemd_available',return_value=False):h.install('disable-web-update',source,data,'synthetic')
+        self.assertFalse(h.read_policy(data));self.assertEqual(calls,[])
+
+    def test_legacy_explicitly_disabled_unit_is_not_automatically_reenabled(self):
+        h,source,data,calls=self.setup_installation()
+        unit='codex-agent-platform-updater-'+h.identity(data)+'.service'
+        (h.UNIT_ROOT/unit).write_text('synthetic legacy unit')
+        def command(args,**kwargs):
+            calls.append(args)
+            return SimpleNamespace(returncode=1,stdout='disabled\n')
+        with patch.object(h.subprocess,'run',side_effect=command):h.ensure_web_update(source,data,'synthetic')
+        self.assertFalse(h.read_policy(data))
+        self.assertFalse(any('enable' in x for x in calls))
+
+    def test_partial_auto_install_failure_is_retried_instead_of_becoming_opt_out(self):
+        h,source,data,calls=self.setup_installation()
+        fail=[True]
+        def command(args,**kwargs):
+            calls.append(args)
+            if args[1]=='daemon-reload' and fail[0]:
+                fail[0]=False;raise subprocess.CalledProcessError(1,args)
+            return SimpleNamespace(returncode=1 if args[1] in ('is-active','is-enabled') else 0,stdout='disabled\n')
+        with patch.object(h.subprocess,'run',side_effect=command):
+            h.ensure_web_update(source,data,'synthetic')
+            h.ensure_web_update(source,data,'synthetic')
+        self.assertTrue(h.read_policy(data))
+        self.assertEqual(sum(x[1]=='daemon-reload' for x in calls),2)
+        self.assertTrue(any('enable' in x for x in calls))
+
+    def test_failed_explicit_enable_preserves_enable_intent_for_retry(self):
+        h,source,data,calls=self.setup_installation()
+        h.install('disable-web-update',source,data,'synthetic')
+        with patch.object(h.subprocess,'run',side_effect=subprocess.CalledProcessError(1,['systemctl'])):
+            with self.assertRaises(subprocess.CalledProcessError):h.install('enable-web-update',source,data,'synthetic')
+        self.assertTrue(h.read_policy(data))
+
+    def test_setup_warning_uses_existing_source_entry_for_fresh_install(self):
+        h,source,data,calls=self.setup_installation()
+        output=io.StringIO()
+        with patch.object(h,'systemd_available',return_value=False),redirect_stderr(output):h.ensure_web_update(source,data,'synthetic')
+        self.assertIn(shlex.join(['sudo','bash',str(source/'deploy.sh'),'web-update-status',str(data)]),output.getvalue())
+        self.assertIn(shlex.join(['sudo','bash',str(source/'deploy.sh'),'enable-web-update',str(data)]),output.getvalue())
+        self.assertFalse((data/'deploy.sh').exists())
 
     def test_duplicate_admission_is_serialized_and_persisted_before_launch(self):
         h=self.host()

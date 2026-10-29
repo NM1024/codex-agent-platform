@@ -4,7 +4,7 @@ const initialized = new WeakSet();
 export async function initialize(client) {
   if (initialized.has(client)) return;
   await client.request("initialize", {
-    clientInfo: { name: "codex_agent_platform", version: "1.0.1" },
+    clientInfo: { name: "codex_agent_platform", version: "1.0.2" },
     capabilities: { experimentalApi: true },
   });
   client.notify("initialized", {});
