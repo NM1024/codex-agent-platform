@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Status: preview.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Stable release: v1.0.0.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -85,7 +85,7 @@ Run the server commands from the same cloned source directory. Keep runtime data
 ### 1. Get the source and initialize private configuration
 
 ```bash
-git clone https://github.com/NM1024/codex-agent-platform.git
+git clone --branch v1.0.0 --depth 1 https://github.com/NM1024/codex-agent-platform.git
 cd codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -246,17 +246,36 @@ Attach JPEG, PNG or WebP images by choosing files, pasting or dropping them into
 - **Use pause for maintenance.** Pausing stops new dispatches while accepted requests queue up and current work continues. Inspect active tasks before a restart. Restore service access and saved files so incomplete conversations can resume.
 - **Change ordinary settings in Admin or management MCP.** Saved values override initial `.env` defaults. Active execution keeps its launch settings; later work uses updated model/timeouts. Ports, mounts, runtime paths and internal credentials need deployment changes.
 - **Treat retries as new work.** An explicit retry creates a related new task and preserves the old record. It may repeat model calls or external effects. An `unknown` delivery outcome needs investigation before another attempt.
-- **Back up and watch storage.** Databases, conversation files and artifacts persist unless optional history cleanup is enabled. This preview has no hard global spending cap. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
+- **Back up and watch storage.** Databases, conversation files and artifacts persist unless optional history cleanup is enabled. This release has no hard global spending cap. Stop services for a consistent backup of the full runtime directory; protect the backup like the live data.
 
 Basic commands, run from the source directory:
 
 ```bash
 sudo ./deploy.sh status /data/codex-agent-platform
-sudo docker compose --env-file /data/codex-agent-platform/.env logs --tail=100 gateway runner manager
+sudo ./deploy.sh logs /data/codex-agent-platform
 sudo ./deploy.sh stop /data/codex-agent-platform
 ```
 
-For upgrades, back up first, fetch the intended release, build it, then start it. Do not delete runtime directories to upgrade. See [deployment and recovery](docs/DEPLOYMENT.md).
+### Update to the latest stable release
+
+On an existing installation, bootstrap the updater once (Linux, Python 3.10+, curl and Docker Compose v2):
+
+```bash
+curl -fL https://github.com/NM1024/codex-agent-platform/releases/latest/download/update.sh -o /tmp/codex-platform-update.sh
+sudo bash /tmp/codex-platform-update.sh update
+```
+
+The script discovers the existing standard Compose installation, including its project name and runtime directory. With multiple installations, append the existing runtime directory. Git clones and extracted source installations are supported; custom Compose overrides require a manual upgrade.
+
+After the first successful update:
+
+```bash
+sudo bash /data/codex-agent-platform/deploy.sh update
+sudo bash /data/codex-agent-platform/deploy.sh status
+sudo bash /data/codex-agent-platform/deploy.sh logs
+```
+
+Use your actual runtime path. Update selects GitHub's latest published stable Release and verifies its versioned source asset with SHA-256; it never follows `main`, drafts or prereleases. It stages source and builds before a short maintenance interruption, backs up runtime state, then restarts with health checks. `.env`, account authorization and history remain. Backups include secrets: retain them privately and plan space for both backup and image builds. A failed health check reports the backup and does not automatically downgrade a migrated database. See [update and recovery details](docs/DEPLOYMENT.md#stable-release-updates).
 
 ### Automatically delete expired history
 

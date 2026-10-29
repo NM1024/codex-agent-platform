@@ -15,11 +15,32 @@ jobs:
       - run: npm test
       - run: npm run check:types
       - run: npm run check:release
+      - name: Validate stable release packaging
+        run: |
+          bash -n deploy.sh
+          python3 -B scripts/package-release.py --output .tmp/release
+          (cd .tmp/release && sha256sum -c SHA256SUMS)
+          bash -n .tmp/release/update.sh
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('updater', 'scripts/update-release.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          directory = Path('.tmp/distributable')
+          directory.mkdir()
+          archive = next(Path('.tmp/release').glob('*.tar.gz'))
+          tag = archive.name.removeprefix('codex-agent-platform-').removesuffix('.tar.gz')
+          module.extract(archive, directory, tag)
+          PY
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - name: Build all release targets
         run: |
+          version=$(node -p "require('./package.json').version")
           for target in gateway runner manager test; do
-            docker build --target "$target" -t "codex-agent-platform-$target" .
+            docker build --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
           done
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
+      - name: Verify real Compose self-update with synthetic data
+        run: python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz

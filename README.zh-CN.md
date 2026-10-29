@@ -8,7 +8,7 @@
 
 这个自托管平台面向开发者和受信任的小团队：你可以把内容审核、结构化报告、图文创作、定时处理等工作接入现有系统。平台负责排队、执行记录、文件保存和日常管理，你主要定义“输入什么、要完成什么、最后返回什么”。
 
-**当前为预览版本。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
+**当前正式版本：v1.0.0。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
 
 ## 目录
 
@@ -87,7 +87,7 @@ Docker 镜像已经包含 Node.js、SQLite 支持和固定版本的 Codex CLI，
 ### 1. 获取代码并初始化私有配置
 
 ```bash
-git clone https://github.com/NM1024/codex-agent-platform.git
+git clone --branch v1.0.0 --depth 1 https://github.com/NM1024/codex-agent-platform.git
 cd codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -240,17 +240,38 @@ unset PLUGIN_ENTRY_KEY TASK_ID
 - **维护前先暂停领取。** 暂停后，新接收的请求进入队列，正在运行的任务继续。重启前查看活跃任务，保留执行文件和登录状态，恢复依赖后让未完成对话继续。
 - **普通参数在控制台或管理 MCP 修改。** 保存值优先于首次启动的 `.env` 默认值。正在执行的任务保留启动时的参数；后续执行使用新的模型和超时。端口、挂载、运行路径及内部凭证需要调整部署。
 - **把重试看成一次新工作。** 显式重试会创建有关联的新任务，保留旧记录；模型调用和外部副作用可能再次发生。交付结果为 `unknown` 时，先调查，再决定是否重试。
-- **做备份，也看磁盘。** 数据库、对话文件和图片默认持续保存，可按需开启历史数据清理。本预览版没有全局费用硬上限。可在服务停止时一致地备份整个运行目录，并像保护在线数据一样保护备份。
+- **做备份，也看磁盘。** 数据库、对话文件和图片默认持续保存，可按需开启历史数据清理。本版本没有全局费用硬上限。可在服务停止时一致地备份整个运行目录，并像保护在线数据一样保护备份。
 
 以下命令在源码目录执行：
 
 ```bash
 sudo ./deploy.sh status /data/codex-agent-platform
-sudo docker compose --env-file /data/codex-agent-platform/.env logs --tail=100 gateway runner manager
+sudo ./deploy.sh logs /data/codex-agent-platform
 sudo ./deploy.sh stop /data/codex-agent-platform
 ```
 
-升级时先备份，再获取准备使用的版本、构建并启动，不要通过删除运行目录来升级。详见[部署与恢复](docs/DEPLOYMENT.md)。
+### 更新到最新正式版本
+
+已有安装首次接入更新器（Linux，需 Python 3.10+、curl 和 Docker Compose v2）：
+
+```bash
+curl -fL https://github.com/NM1024/codex-agent-platform/releases/latest/download/update.sh -o /tmp/codex-platform-update.sh
+sudo bash /tmp/codex-platform-update.sh update
+```
+
+脚本会识别现有标准 Compose 安装的项目名和运行目录，支持 Git 克隆和源码包安装。有多个实例时，在 `update` 后追加原运行目录。自定义 Compose 覆盖文件需要手动升级；无法可靠识别时会停止并提示。
+
+首次成功后，日常执行：
+
+```bash
+sudo bash /data/codex-agent-platform/deploy.sh update
+sudo bash /data/codex-agent-platform/deploy.sh status
+sudo bash /data/codex-agent-platform/deploy.sh logs
+```
+
+将路径换成你的实际运行目录。只选择 GitHub 最新已发布的正式 Release，校验版本包的 SHA-256，不跟随 `main`、草稿或预发布版本。先下载并构建镜像，再短暂停服，一致备份运行数据，重启并检查健康状态。保留 `.env`、账户授权和历史数据，不改原来的 Git 工作区。
+
+备份含有密钥与授权文件，必须私密保存；磁盘需为备份和镜像构建预留空间。健康检查失败会报告备份位置，不会自动降级已迁移的数据库。详见[更新与恢复说明](docs/DEPLOYMENT.md#stable-release-updates)。
 
 ### 自动清理到期历史数据
 

@@ -1,0 +1,11 @@
+# Stable release updates
+
+The operator requested a formal v1.0.0 release and `deploy.sh update` that updates an existing installation to the latest usable release, never main. The implementation choice is staged source releases built with the existing Docker Compose deployment, rather than git reset (would overwrite local edits) or registry images (none are published).
+
+The updater uses GitHub's latest published, non-draft, non-prerelease semantic version release, a versioned source asset and SHA256SUMS. It verifies the download and package version before executing it. Python 3 standard library handles discovery, locking, archive validation and state; curl provides HTTPS. No host Node installation is required.
+
+Discover the data directory and Compose project from an explicit directory, persistent update state, existing standard Compose containers, or the standard initialized directory. Ambiguous installations and unsupported custom Compose overrides must fail with actionable instructions. Both git and extracted-source installations are supported; the checkout is never overwritten. Preserve .env, persistent data and account authorization. Verify resulting mounts before restart.
+
+Stage the source under the existing runtime directory, build all images while services still run, validate configuration, stop services for a private consistent pre-update backup, then recreate with health waiting. Back up runtime state excluding release sources/backups, which includes account secrets and must remain private. There is a maintenance interruption and full backup needs disk space. Keep failed-release diagnostics. Do not automatically downgrade a migrated database. On failed health check, report the backup and recovery commands; do not claim success or select the failed release. Persist active source only after health passes. A launcher in the runtime directory and the original new-version script resolve the active source for future commands.
+
+Release source archives contain only git-tracked distributable inputs, not runtime state, node_modules or local logs. CI validates the same artifact, runs backend/browser/container checks, and publication occurs only after green CI on the exact release commit. v1.0.0 updates package/lock/Compose image tags and bilingual operation instructions.
