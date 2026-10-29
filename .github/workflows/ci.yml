@@ -43,4 +43,4 @@ jobs:
           done
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
       - name: Verify real Compose self-update with synthetic data
-        run: python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz
+        run: sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz

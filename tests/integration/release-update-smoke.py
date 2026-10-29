@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--source',required=True,type=Path)
     parser.add_argument('--archive',required=True,type=Path)
     args=parser.parse_args()
+    if os.geteuid()!=0:
+        parser.error("Run this isolated container test as root so init assigns mounted directories to container UID 1000.")
     source=args.source.resolve()
     archive=args.archive.resolve()
     version=json.loads((source/'package.json').read_text())['version']
