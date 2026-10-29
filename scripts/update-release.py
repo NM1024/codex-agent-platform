@@ -265,7 +265,40 @@ def backup(install,path):
     path.chmod(0o600)
 
 
-def update(install):
+def expected_images(config,tag):
+    expected={}
+    for service in MOUNTS:
+        image=config.get('services',{}).get(service,{}).get('image')
+        if image!=f'codex-agent-platform-{service}:{tag[1:]}':
+            raise UpdateError('Release image tag does not match selected version.')
+        identity=run(['docker','image','inspect','--format','{{.Id}}',image],capture=True).strip()
+        if not re.fullmatch(r'sha256:[a-f0-9]{64}',identity):
+            raise UpdateError('Cannot resolve expected release image identity.')
+        expected[service]=(image,identity)
+    return expected
+
+
+def verify_images(install,source,expected,tag):
+    for service,(image,identity) in expected.items():
+        ids=run(compose(install,source)+['ps','--all','-q',service],capture=True).split()
+        if len(ids)!=1:raise UpdateError('Expected exactly one deployed container per service.')
+        details=json.loads(run(['docker','inspect',ids[0]],capture=True))
+        if len(details)!=1:raise UpdateError('Cannot inspect deployed service.')
+        item=details[0]
+        labels=item.get('Config',{}).get('Labels',{})
+        state=item.get('State',{})
+        if (item.get('Image')!=identity or item.get('Config',{}).get('Image')!=image
+                or labels.get('com.docker.compose.project')!=install.project
+                or labels.get('com.docker.compose.service')!=service or state.get('Running') is not True
+                or state.get('Health',{}).get('Status')!='healthy'):
+            raise UpdateError('Deployed service image identity or health does not match selected release.')
+        package=run(['docker','exec',ids[0],'node','-p',"require('/app/package.json').version"],capture=True).strip()
+        if package!=tag[1:]:raise UpdateError('Deployed package version does not match selected release.')
+
+
+def update(install,event=None):
+    event=event or (lambda phase,**fields:None)
+    event('checking')
     compose_version=run(['docker','compose','version','--short'],capture=True).strip()
     match=re.match(r'v?(\d+)\.(\d+)\.(\d+)',compose_version)
     if not match or tuple(map(int,match.groups()))<(2,20,0):
@@ -279,10 +312,16 @@ def update(install):
         except BlockingIOError:
             raise UpdateError('Another update is running.') from None
         with tempfile.TemporaryDirectory(prefix='platform-update-') as temp:
+            event('downloading')
             tag,archive,digest=release(Path(temp))
+            event('checking',target_version=tag[1:],release_sha256=digest)
             current=json.loads((install.source/'package.json').read_text())['version']
             state=saved(install.data)
             if state.get('version')==tag[1:] and current==tag[1:]:
+                event('verifying')
+                config=check_mounts(install,install.source)
+                verify_images(install,install.source,expected_images(config,tag),tag)
+                event('completed',installed_version=tag[1:])
                 print(f'Already running latest stable release {tag}.')
                 return
             if re.fullmatch(r'\d+\.\d+\.\d+',current) and version(current)>version(tag):
@@ -301,38 +340,47 @@ def update(install):
             staged=Path(tempfile.mkdtemp(prefix=tag+'-',dir=releases))
             extract(archive,staged,tag)
             print(f'Updating {install.project} at {install.data}: {current} → {tag}',flush=True)
-            check_mounts(install,staged)
+            config=check_mounts(install,staged)
             # Verify the original Compose resolves the same data before using it to stop services.
             check_mounts(install,install.source)
             env={**os.environ,'PLATFORM_PROJECT':install.project}
+            event('building')
             run(['bash',str(staged/'deploy.sh'),'build',str(install.data)],env={**env,'PLATFORM_UPDATE_STAGED':'1'})
+            expected=expected_images(config,tag)
             backup_path=backups/(time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+str(time.time_ns())+'.tar.gz')
             try:
+                event('stopping')
                 run(compose(install)+['stop'])
             except BaseException:
                 with contextlib.suppress(Exception):
                     run(compose(install)+['start'])
                 raise UpdateError('Could not stop all services; attempted to restart original containers; no migration was run.') from None
             try:
+                event('backing_up')
                 backup(install,backup_path)
             except BaseException:
                 with contextlib.suppress(Exception):
                     run(compose(install)+['start'])
-                raise UpdateError('Backup failed; old services were restarted; update not activated.') from None
+                raise UpdateError('Backup failed; attempted to restart old containers; verify service status. Update not activated.') from None
             try:
                 # Validation opens/migrates the database: it must run after the consistent backup.
+                event('validating')
                 run(['bash',str(staged/'deploy.sh'),'validate',str(install.data)],env={**env,'PLATFORM_UPDATE_STAGED':'1'})
+                event('restarting')
                 run(compose(install,staged)+['up','-d','--no-build','--wait','--wait-timeout','180'])
             except BaseException:
                 raise UpdateError(f'New release did not pass health checks. Not activated; backup: {backup_path}. '
                                   f'Inspect with docker compose --project-name {shlex.quote(install.project)} '
                                   f'--env-file {shlex.quote(str(install.data/".env"))} -f {shlex.quote(str(staged/"compose.yaml"))} logs. '
                                   'Do not downgrade migrated databases; see docs/DEPLOYMENT.md recovery instructions.') from None
+            event('verifying')
+            verify_images(install,staged,expected,tag)
             launcher='#!/usr/bin/env bash\n# Codex Agent Platform generated launcher\nset -euo pipefail\nexec bash '+shlex.quote(str(staged/'deploy.sh'))+' "${1:-status}" '+shlex.quote(str(install.data))+'\n'
             atomic(install.data/STATE,json.dumps({'source':str(staged),'project':install.project,
                    'version':tag[1:],'sha256':digest,'previous_source':str(install.source),
                    'backup':str(backup_path),'launcher':str(launcher_path)},indent=2)+'\n')
             atomic(launcher_path,launcher,0o700)
+            event('completed',installed_version=tag[1:])
             print(f'Updated successfully to {tag}. Backup: {backup_path}\nNext update: sudo bash {shlex.quote(str(launcher_path))} update')
 
 

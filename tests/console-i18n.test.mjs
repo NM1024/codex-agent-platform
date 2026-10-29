@@ -7,9 +7,11 @@ test("console interface copy has English translations; business data remains lit
   // Load the same page-specific dictionaries as the lazy page modules.
   await import('../frontend/src/retention-i18n.ts');
   await import('../frontend/src/plugin-execution-i18n.ts');
+  await import('../frontend/src/http-targets-i18n.ts');
+  await import('../frontend/src/chat-status-i18n.ts');
   const directory=new URL('../frontend/src/',import.meta.url);
   const files=(await readdir(directory,{recursive:true})).filter(file=>/\.tsx?$/.test(file));
-  const source=(await Promise.all(files.map(file=>readFile(new URL(file.replaceAll('\\','/'),directory),'utf8')))).join('\n');
+  const source=(await Promise.all(files.filter(file=>!/^Version(?:Entry|Dialog)\.tsx$/.test(file)).map(file=>readFile(new URL(file.replaceAll('\\','/'),directory),'utf8')))).join('\n');
   const html = await readFile(
     new URL("../frontend/index.html", import.meta.url),
     "utf8",
@@ -84,4 +86,13 @@ test("console interface copy has English translations; business data remains lit
   } finally {
     setLocale("zh-CN");
   }
+});
+
+
+test('lazy version interface has English translations in its scoped dictionary',async()=>{
+  const {versionText}=await import('../frontend/src/version-i18n.ts');
+  const source=(await Promise.all(['VersionEntry.tsx','VersionDialog.tsx'].map(file=>readFile(new URL('../frontend/src/'+file,import.meta.url),'utf8')))).join('\n');
+  const keys=[...source.matchAll(/\bt\(\s*(["'])(.*?)\1/g)].map(match=>match[2]);
+  for(const key of keys.filter(key=>/[\u4e00-\u9fff]/.test(key)))assert.doesNotMatch(versionText('en',key),/[\u4e00-\u9fff]/,`Missing version interface translation: ${key}`);
+  assert.equal(versionText('zh-CN','版本与更新'),'版本与更新');
 });

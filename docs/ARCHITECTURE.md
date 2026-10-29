@@ -75,7 +75,7 @@ Uploaded and generated image URLs support private browser storage with `private,
 
 `callback_once` records the attempt before sending. A transport failure can leave delivery `unknown`; the platform does not promise exactly-once remote effects or automatically replay an ambiguous callback. An HTTP acceptance response does not prove downstream storage succeeded.
 
-Per-plugin model settings use the existing catalog-driven AgentPicker in a separate Admin modal. `plugin_execution_update` takes only type, execution overrides and the latest plugin revision; Gateway performs the revision check and update in its owning transaction. It preserves business definitions and human connection settings, and accepted tasks keep their saved plugin snapshots. Concurrent edits require an explicit reload rather than overwriting a stale full definition.
+Per-plugin model settings use the existing catalog-driven AgentPicker in the third tab of the Admin connection modal, with independent loading, error and revision-checked save state. Entry, callback and model drafts survive tab changes; saving model overrides leaves connection drafts untouched. `plugin_execution_update` takes only type, execution overrides and the latest plugin revision; Gateway performs the revision check and update in its owning transaction. It preserves business definitions and human connection settings, and accepted tasks keep their saved plugin snapshots. Concurrent edits require an explicit reload rather than overwriting a stale full definition.
 
 ## Platform prompts
 
@@ -114,3 +114,8 @@ Management concurrency is separate from business concurrency: persisted `manager
 Normal native thread resumption requests metadata only. Selected interrupted turns and user-input markers are reconciled with paginated `thread/turns/list` and `thread/items/list`; malformed/uncertain reads pause recovery. A bounded action context prioritizes every unconfirmed operation and explicitly identifies omitted confirmed records. Too much unconfirmed context stops recovery rather than authorizing replay. Original records and model compaction policy remain unchanged.
 
 Prepared SQL statements use a bounded cache excluding large parameter bindings. Queue revisions suppress unchanged SSE queue projections; backpressure limits further projections/changed IDs and closes stalled responses. Sidebars retain summaries. Image decoding shares a bounded process-level admission gate and lazily loaded native library/cache. These are application memory controls, not a fixed-RAM guarantee for native model context, file cache or arbitrarily large legal replies. See [memory behavior and measurement](MEMORY.md).
+
+
+## Host-owned browser upgrades
+
+Version display and stable-release checks are authenticated human Admin projections. Current version comes from the running Manager package; fixed-upstream bounded checks independently describe the available release. An optional root-owned systemd service controls one fixed installation via a Manager-only Unix socket directory. Human start/status routes accept no execution parameters, and the management Agent has no corresponding operation. Durable private host jobs outlive Manager recreation, coalesce duplicate starts, report uncertain interruption without replay, and record verified healthy image/version identity before success. Root config/state/logs remain outside container mounts. Standard deployments initialize the empty channel and do not require the service.

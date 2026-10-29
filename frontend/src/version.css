@@ -1,0 +1,23 @@
+.console-header #version-entry.ant-btn { max-width: 104px; height: 32px; padding-inline: 7px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.console-header #version-entry > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.version-modal { max-width: calc(100vw - 24px); }
+.version-modal .ant-modal-title { padding-right: 24px; }
+.version-modal .ant-modal-body { padding-top: 4px; }
+.version-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 0 0 14px; }
+.version-summary > div { min-width: 0; }
+.version-summary dt { color: var(--ui-muted); font-size: 12px; margin-bottom: 3px; }
+.version-summary dd { margin: 0; overflow-wrap: anywhere; font-weight: 600; font-variant-numeric: tabular-nums; }
+.version-check-row,.version-copy-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.version-check-row .ant-typography { margin: 0; font-size: 12px; }
+.version-modal .ant-alert { margin-bottom: 12px; }
+.version-modal .version-details { display: grid; gap: 3px; margin-top: 8px; font-size: 12px; }
+.version-modal .version-section { margin-top: 18px; }
+.version-modal .version-section h3 { font-size: 14px; margin: 0 0 7px; }
+.version-modal .version-section p { font-size: 12px; color: var(--ui-muted); margin-bottom: 8px; }
+.version-command { margin: 0 0 9px; padding: 10px; border: 1px solid var(--ui-border); border-radius: 6px; background: #f6f8f7; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; user-select: text; }
+.version-modal .ant-modal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.version-modal .ant-modal-footer .ant-btn { margin: 0; height: auto; min-height: 32px; white-space: normal; }
+@media (max-width: 600px) {
+  .console-header #version-entry.ant-btn { max-width: 65px; padding-inline: 4px; font-size: 11px; }
+  .version-modal .ant-modal-container { padding: 18px 16px; }
+}

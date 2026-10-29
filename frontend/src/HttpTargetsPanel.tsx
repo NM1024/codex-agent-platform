@@ -1,3 +1,4 @@
+import './http-targets-i18n';
 import {useRef,useState} from 'react';
 import {Alert,Button,Checkbox,Form,Input,InputNumber,Modal,Table,Typography} from 'antd';
 import {DeleteAction,Panel,Status} from './components';

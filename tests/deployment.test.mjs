@@ -107,7 +107,7 @@ test('init adds an initial Admin password to an existing installation without ch
 test('release validates dynamic plugin JSON and manager web resources',async t=>{
   const {cp,unlink,writeFile,mkdir}=await import('node:fs/promises');
   const dir=await mkdtemp(join(tmpdir(),'aw-platform-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));
-  await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});await cp(join(root,'prompts'),join(dir,'prompts'),{recursive:true});
+  await cp(join(root,'src'),join(dir,'src'),{recursive:true});await cp(join(root,'scripts'),join(dir,'scripts'),{recursive:true});await cp(join(root,'prompts'),join(dir,'prompts'),{recursive:true});await cp(join(root,'package.json'),join(dir,'package.json'));
   const run=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs')],{cwd:dir,encoding:'utf8'});
   assert.equal(run().status,0);
   const definition=join(dir,'src/plugins/examples/novel.illustrated.json');const original=await readFile(definition);
@@ -136,8 +136,8 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
   await cp(join(root,'README.md'),join(dir,'README.md'));
   const managerSource=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs'),'--manager-source'],{cwd:dir,encoding:'utf8'});
   assert.equal(managerSource().status,0,managerSource().stderr);
-  await unlink(join(dir,'frontend/src/PluginExecutionModal.tsx'));
-  const missingSource=managerSource();assert.notEqual(missingSource.status,0);assert.match(missingSource.stderr,/PluginExecutionModal/);
+  await unlink(join(dir,'frontend/src/PluginExecutionSettings.tsx'));
+  const missingSource=managerSource();assert.notEqual(missingSource.status,0);assert.match(missingSource.stderr,/PluginExecutionSettings/);
   await mkdir(join(dir,'src/manager/web'));
   await writeFile(join(dir,'src/manager/web','leftover.css'),'body { color: red; }');
   const obsolete=run();assert.notEqual(obsolete.status,0);assert.match(obsolete.stderr,/Obsolete Admin source directory/);

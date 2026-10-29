@@ -1,0 +1,22 @@
+# Running version and optional browser upgrades
+
+User approved adding a real optional host updater service, alongside topbar running-version information, latest stable checks and web-triggered upgrade. Preserve Manager's unprivileged/read-only deployment and Agent restrictions. No Docker socket, arbitrary command/path/URL/environment input, or management MCP upgrade operation.
+
+## Interfaces (shared implementation contract)
+- Authenticated Admin GET `/admin/api/version` -> `{current:string}` from the running Manager package.json. No external request.
+- Authenticated Admin GET `/admin/api/version/latest` -> `{current:string,latest:string,update_available:boolean,release_url:string,checked_at:number}`. Fixed upstream GitHub latest published stable release, valid expected source/checksum/bootstrap assets, bounded timeout/body, single-flight/cache. Failure is a localized 503; current version remains visible.
+- Authenticated Admin GET `/admin/api/upgrade` -> `{available:boolean,job:UpgradeJob|null,error_code?:string}`. Optional host helper missing/unreachable returns available:false, never a false success.
+- Authenticated same-origin Admin POST `/admin/api/upgrade` with `{}` -> HTTP 202 with same envelope and a durable job. Duplicate starts reuse existing active job. No accepted command/version/path/URL options.
+- Host Unix HTTP socket: GET `/status` and POST `/upgrade` (body `{}` only) return above envelope. Socket directory fixed in Manager at `/run/platform-updater`, socket `updater.sock`. Only Manager receives read-only directory mount; helper daemon outside Compose owns socket and status.
+- `UpgradeJob`: `{id:string,state:'queued'|'running'|'succeeded'|'failed'|'interrupted',phase:string,started_at:number,updated_at:number,target_version?:string,installed_version?:string,error_code?:string}`. Public data sanitized, no raw logs/credentials. Phases: queued, checking, downloading, building, stopping, backing_up, validating, restarting, verifying, completed, failed, interrupted.
+
+## Host ownership
+Root-owned systemd daemon pinned to one existing data directory, Compose project and fixed upstream repository. Channel directory `<runtime>/updater` mode0750 root:1000, socket0660 root:1000; reject foreign peer UIDs. Private config/jobs/bounded logs outside the mounted channel. Init creates a harmless channel directory even if daemon absent, so standard deployments still start. Bind directory, not socket inode, to survive service restart. Setup via `deploy.sh enable-web-update [runtime]`, root/manual opt-in; disable/status operations documented. Service survives Manager recreation.
+
+Use the existing verified updater, add structured durable phase events, keep locking/backup/archive checks. A job is admitted and persisted before launch; worker process is detached from HTTP/Manager lifetime. Pin selected tag/digest once resolved. Never automatically downgrade or replay an uncertain interrupted migration. On helper restart reconcile process/job state and report interrupted when uncertain. Success requires Compose health plus expected deployed image identity/version verification; a saved state file alone is insufficient. Preserve backup access through host CLI if Manager cannot restart.
+
+## Frontend
+Small clickable version badge immediately before repository link; current value comes from the authenticated API. Version/upgrade dialog loaded lazily after sign-in, translated and responsive at320px. Show current/latest/status, check update, release notes, copy command and optional Upgrade action. If helper unavailable, explain one-time setup rather than pretending a release link is an upgrade. Confirm maintenance interruption before starting. Track durable job and poll/reconnect through expected Manager downtime; clear timers/state on logout/unmount and distinguish expired auth from transient restart. Never submit real model work.
+
+## Validation
+Host unit/process tests with synthetic commands for duplicate requests, restart/interruption, bounded IPC, unsupported options, failure phases and success verification; Manager route auth/origin/IPC and latest metadata tests; browser synthetic progress/disconnection, unavailable helper, translations and desktop/phone. Existing backend/release/browser checks, packaged-source validation and deployment config checks remain required. Production service installation/deployment is outside this development session.

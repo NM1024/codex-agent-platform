@@ -3,6 +3,7 @@ import {Alert,Button,Checkbox,Form,Input,Modal,Switch,Tabs,Tooltip,Typography} f
 import {ApiError} from './api';
 import {Icon} from './Icon';
 import {LoadingState} from './components';
+import {PluginExecutionSettings,usePluginExecutionSettings} from './PluginExecutionSettings';
 import PluginIntegrationDrawer from './PluginIntegrationDrawer';
 import {useConsole} from './context';
 import type {Plugin,PluginConnection} from './types';
@@ -17,8 +18,10 @@ function callAddress(address:string) {
   } catch {return '';}
 }
 
-export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}:{plugin:Plugin;onClose:()=>void;onSaved:(connection:PluginConnection)=>void;onClaimed?:(connection:PluginConnection)=>void}) {
+export default function PluginConnectionModal({plugin,onClose,onSaved,onModelSaved,onClaimed}:{plugin:Plugin;onClose:()=>void;onSaved:(connection:PluginConnection)=>void;onModelSaved:(plugin:Plugin)=>void;onClaimed?:(connection:PluginConnection)=>void}) {
   const {api,t}=useConsole();
+  const [modelsOpened,setModelsOpened]=useState(false);
+  const models=usePluginExecutionSettings(plugin,onModelSaved,modelsOpened);
   const [connection,setConnection]=useState<PluginConnection>();
   const [entryAddress,setEntryAddress]=useState(''),[entryKey,setEntryKey]=useState('');
   const [claimedEntryKey,setClaimedEntryKey]=useState(''),[claiming,setClaiming]=useState(false);
@@ -97,17 +100,18 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}
       setConflict(changed);setError(changed?'接入配置已被修改，请重新读取后再保存。':duplicate?'入口地址或密钥已被其他插件使用，请修改后重试。':'接入配置保存失败，请检查字段后重试。');
     }finally{if(alive.current&&started===generation.current){saveLock.current=false;setSaving(false);}}
   };
-  const locked=loading||saving||claiming;
+  const locked=loading||saving||claiming||models.saving;
+  const busy=saving||claiming||models.saving;
   const displayedKey=entryKey||claimedEntryKey;
   const claimedVisible=!!claimedEntryKey&&!entryKey;
   const copyAction=(key:string,value:string,label:string)=> <Tooltip title={t(label)}><Button icon={<Icon name="copy"/>} aria-label={t(label)} loading={copying[key]} disabled={locked||!value} onClick={()=>{void copy(key,value);}}/></Tooltip>;
   return <>
-    <Modal className="plugin-connection-modal" title={<><span>{t('配置接入：{name}',{name:plugin.name})}</span><Typography.Text className="connection-subtitle" type="secondary">{plugin.type} · {t(connection?.ready?'接入已就绪':connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></>} open width={800} onCancel={close} footer={<div className="connection-footer"><Button type="link" onClick={()=>setShowDocs(true)}>{t('对接文档')}</Button><div><Button onClick={close}>{t('取消')}</Button><Button type="primary" disabled={!connection||loading||claiming||conflict} loading={saving} onClick={()=>{void save();}}>{t('保存接入配置')}</Button></div></div>}>
-      {loading&&<LoadingState className="integration-loading" label="正在读取…"/>}
-      {error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
-      {connection&&<Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}>
-        <Tabs activeKey={tab} onChange={setTab} items={[
-          {key:'entry',label:t('入口配置'),forceRender:true,children:<>
+    <Modal className={'plugin-connection-modal'+(loading&&tab!=='models'?' connection-loading':'')} title={<><span>{t('配置接入：{name}',{name:plugin.name})}</span><Typography.Text className="connection-subtitle" type="secondary">{plugin.type} · {t(connection?.ready?'接入已就绪':connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></>} open width={800} onCancel={close} footer={<div className="connection-footer"><Button type="link" onClick={()=>setShowDocs(true)}>{t('对接文档')}</Button><div><Button onClick={close}>{t('取消')}</Button><Button type="primary" disabled={tab==='models'?!models.current||models.loading||models.conflict||busy:!connection||loading||conflict||busy} loading={tab==='models'?models.saving:saving} onClick={()=>{void (tab==='models'?models.save():save());}}>{t(tab==='models'?'保存模型设置':'保存接入配置')}</Button></div></div>}>
+      {tab!=='models'&&loading&&<LoadingState className="integration-loading" label="正在读取…"/>}
+      {tab!=='models'&&error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
+      <Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void (tab==='models'?models.save():save());}}>
+        <Tabs activeKey={tab} onChange={key=>{if(busy)return;if(key==='models')setModelsOpened(true);setTab(key);}} items={[
+          {key:'entry',label:t('入口配置'),forceRender:true,disabled:busy,children:connection&&<>
             <Typography.Paragraph type="secondary" className="connection-intro">{t('用于业务系统提交任务。密钥仅由管理员领取或修改，请勿发送到管理对话。')}</Typography.Paragraph>
             <Form.Item label={t('入口地址')} htmlFor="plugin-entry-address" required>
               <div className="connection-input-row"><Input id="plugin-entry-address" value={entryAddress} maxLength={4096} autoComplete="off" disabled={locked} aria-describedby="plugin-entry-address-help" onChange={event=>setEntryAddress(event.target.value)}/>{copyAction('address',requestAddress,'复制调用地址')}</div>
@@ -131,7 +135,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}
               <p>{t('领取的密钥仅在关闭此窗口前可见，请立即复制并保存在调用方的私密配置中。关闭后无法再次读取；如遗失，请生成并保存新的入口密钥；保存后旧密钥立即失效，请同步更新调用方。')}</p>
             </details>
           </>},
-          {key:'callback',label:<>{t('结果回调')} <Typography.Text type="secondary">{t('可选')}</Typography.Text></>,forceRender:true,children:<>
+          {key:'callback',label:<>{t('结果回调')} <Typography.Text type="secondary">{t('可选')}</Typography.Text></>,forceRender:true,disabled:busy,children:connection&&<>
             <div className="connection-callback-toggle"><div><Typography.Text strong>{t('启用结果回调')}</Typography.Text><Typography.Paragraph type="secondary">{t('将最终结果发送到你指定的接收地址。')}</Typography.Paragraph></div><Switch aria-label={t('启用结果回调')} checked={callbackEnabled} disabled={locked} onChange={setCallbackEnabled}/></div>
             <Form.Item label={t('回调 URL')} htmlFor="plugin-callback-url" required={callbackEnabled}>
               <Input id="plugin-callback-url" value={callbackUrl} maxLength={4096} autoComplete="off" disabled={locked||!callbackEnabled} aria-describedby="plugin-callback-url-help" placeholder="https://example.com/callback" onChange={event=>setCallbackUrl(event.target.value)}/>
@@ -145,9 +149,10 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onClaimed}
             {!callbackEnabled&&connection.callbackUrl&&<Typography.Paragraph type="warning">{t('关闭回调并保存，将清除已保存的回调地址和凭证。')}</Typography.Paragraph>}
             <details className="connection-help"><summary>{t('回调如何工作')}</summary><p>{t('选填。本平台向您的业务系统发送最终结果的接收地址，使用 HTTP POST JSON。留空则仅执行任务并支持查询，不发送回调；清空地址也会清除已保存的回调凭证。')}</p><p>{t('选填，按接收方要求填写。回调请求使用 Authorization: Bearer 携带此凭证；它与入口密钥独立。留空保留已保存值，未配置则不发送认证头。')}</p></details>
           </>},
+          {key:'models',label:t('模型设置'),forceRender:true,disabled:busy,children:<PluginExecutionSettings settings={models}/>},
         ]}/>
         {copyNotice&&<Typography.Paragraph className="connection-copy-notice" role="status">{t(copyNotice)}</Typography.Paragraph>}
-      </Form>}
+      </Form>
     </Modal>
     {showDocs&&<PluginIntegrationDrawer plugin={plugin} onClose={()=>setShowDocs(false)} onConfigure={()=>setShowDocs(false)}/>}
   </>;
