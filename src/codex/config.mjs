@@ -12,6 +12,7 @@ export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TO
     "features.connectors": false,
     "features.browser_use": false,
     "features.multi_agent": true,
+    "features.fast_mode": true,
     "features.hooks": true,
     "features.image_generation": agentPackage.native.imageGeneration === true,
     "multi_agent_v2.tool_namespace": "task_agents",

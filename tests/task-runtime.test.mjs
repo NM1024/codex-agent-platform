@@ -107,6 +107,15 @@ test('explicit model reasoning is forwarded to the task turn',async t=>{
   assert.equal(turn.effort,'high');
   assert.equal(turn.model,'fixture-model');
 });
+test('business runtime sends explicit standard and fast tiers to threads and turns',async t=>{
+  for(const serviceTier of ['default','priority'])await t.test(serviceTier,async t=>{
+    const {runtime,run,rpc}=await setup(t),request=rpc.request.bind(rpc);
+    rpc.request=async(method,params)=>method==='model/list'?{data:[{model:'gpt-6.1-sol',serviceTiers:[{id:'priority',name:'Fast'}]}]}:request(method,params);
+    await runtime.launch({...run,execution:{serviceTier}});
+    assert.equal(rpc.calls.find(call=>call.method==='thread/start').params.serviceTier,serviceTier);
+    assert.equal(rpc.calls.find(call=>call.method==='turn/start').params.serviceTier,serviceTier);
+  });
+});
 test("root exit without MCP completion reports missing result; child exit does not finish root", async (t) => {
   const { runtime, run, rpc, events, exited } = await setup(t);
   await runtime.launch(run);
