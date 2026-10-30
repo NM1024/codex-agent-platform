@@ -19,6 +19,7 @@ export function usePluginExecutionSettings(plugin:Plugin,onSaved:(plugin:Plugin)
       if(!active)return;
       setCurrent(latest);setValue(latest.execution??{});
       setDefaults({...(typeof global.values.model==='string'?{model:global.values.model}:{}),
+        serviceTier:global.values.serviceTier==='priority'?'priority':'default',
         ...(typeof global.values.reasoningEffort==='string'||global.values.reasoningEffort===null?{reasoningEffort:global.values.reasoningEffort}:{})});
     }).catch(()=>{if(active)setError('模型设置暂时无法读取，请重试。');}).finally(()=>{if(active)setLoading(false);});
     return()=>{active=false;};

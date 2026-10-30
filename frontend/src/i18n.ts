@@ -2,6 +2,13 @@
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
 
+  '响应速度':'Response speed',
+  '普通模式':'Standard mode',
+  '快速模式':'Fast mode',
+  '恢复默认响应速度':'Reset response speed to default',
+  '快速模式会增加额度消耗。':'Fast mode increases usage consumption.',
+  '当前模型暂不支持快速模式；可选择普通模式。':'Fast mode is unavailable for this model. Standard mode is available.',
+
   '搜索模型':'Search models',
   '关闭':'Off',
   '最低':'Minimal',

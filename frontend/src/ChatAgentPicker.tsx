@@ -1,5 +1,5 @@
 import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties} from 'react';
-import {Button,Drawer,Grid,Input,Popover} from 'antd';
+import {Button,Drawer,Grid,Input,Popover,Switch} from 'antd';
 import {useConsole} from './context';
 import {Icon} from './Icon';
 import type {AgentSettings} from './types';
@@ -19,6 +19,8 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
   const globalModel=catalog.models.find(item=>item.model===defaults.model);
   const modelName=model?.displayName??chosen??t('模型默认');
   const differentModel=!!value.model&&value.model!==defaults.model;
+  const serviceTier=value.serviceTier??defaults.serviceTier??'default';
+  const fastSupported=model?.serviceTiers?.some(item=>item.id==='priority')===true;
   const inherited=(!differentModel?defaults.reasoningEffort:undefined)??model?.defaultReasoningEffort;
   const overridden=Object.hasOwn(value,'reasoningEffort');
   const effective=overridden?(value.reasoningEffort??model?.defaultReasoningEffort):inherited;
@@ -52,7 +54,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
     if(next!==undefined&&previewRef.current!==effectiveIndex)setEffort(next);
   };
   const reset=()=>{if(overridden){const next={...value};delete next.reasoningEffort;onChange(next);}};
-  const selectModel=(id:string|undefined)=>{if(value.model!==id){setSearch('');onChange(id?{model:id}:{});}};
+  const selectModel=(id:string|undefined)=>{if(value.model!==id){setSearch('');onChange({...(id?{model:id}:{}),...(value.serviceTier!==undefined?{serviceTier:value.serviceTier}:{})});}};
   const chooseByKey=(event:React.KeyboardEvent<HTMLDivElement>)=>{
     if(!['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
     const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
@@ -77,11 +79,11 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
       {catalog.models.length>6&&<Input type="search" className="chat-agent-search" aria-label={t('搜索模型')} placeholder={t('搜索模型')} value={search} onChange={event=>setSearch(event.target.value)}/>}
       <div className="chat-agent-models" role="radiogroup" aria-label={t('模型')} onKeyDown={chooseByKey}>
         <button type="button" className="chat-agent-option" role="radio" aria-label={t('继承全局设置')} aria-checked={!value.model} tabIndex={modelTabStop===undefined?0:-1} disabled={disabled} onClick={()=>selectModel(undefined)}>
-          <span className="chat-agent-option-icon" aria-hidden="true"><Icon name="inherit"/></span><span className="chat-agent-option-copy"><span>{t('继承全局设置')}</span><small>{globalModel?.displayName??defaults.model??t('模型默认')} · {label(defaults.reasoningEffort??globalModel?.defaultReasoningEffort)}</small></span>{!value.model&&<Icon name="check"/>}
+          <span className="chat-agent-option-copy"><span>{t('继承全局设置')}</span><small title={`${globalModel?.displayName??defaults.model??t('模型默认')} · ${label(defaults.reasoningEffort??globalModel?.defaultReasoningEffort)}`}>{globalModel?.displayName??defaults.model??t('模型默认')} · {label(defaults.reasoningEffort??globalModel?.defaultReasoningEffort)}</small></span>{!value.model&&<Icon name="check"/>}
         </button>
         {value.model&&!model&&<div className="chat-agent-unavailable">{t('当前保存值：{value}',{value:value.model})}</div>}
         {filtered.map(item=><button type="button" key={item.model} className="chat-agent-option" role="radio" aria-label={item.displayName} aria-checked={value.model===item.model} tabIndex={modelTabStop===item.model?0:-1} disabled={disabled} title={item.model} onClick={()=>selectModel(item.model)}>
-          <span className="chat-agent-option-copy"><span>{item.displayName}</span>{item.defaultReasoningEffort&&<small>{t('默认思考：{value}',{value:label(item.defaultReasoningEffort)})}</small>}</span>{value.model===item.model&&<Icon name="check"/>}
+          <span className="chat-agent-option-copy"><span>{item.displayName}</span>{item.defaultReasoningEffort&&<small>{item.defaultReasoningEffort}</small>}</span>{value.model===item.model&&<Icon name="check"/>}
         </button>)}
         {!filtered.length&&<p className="chat-agent-empty">{t(catalog.models.length?'没有匹配的模型':'模型列表暂不可用，保留当前配置。')}</p>}
       </div>
@@ -100,16 +102,18 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         {!!efforts.length&&effectiveIndex<0&&<p className="chat-agent-empty">{t('当前保存值：{value}',{value:label(effective)})} · {t('请选择可用档位。')}</p>}
         {efforts.length===1&&<p className="chat-agent-empty">{t('仅支持此档位')}</p>}
         <div className="chat-effort-defaults"><span>{overridden?label(effective):t('跟随默认')}</span>{!differentModel&&<button type="button" disabled={disabled||value.reasoningEffort===null} aria-pressed={value.reasoningEffort===null} onClick={()=>onChange({...value,reasoningEffort:null})}>{t('使用模型默认')}</button>}</div>
+        <div className="chat-speed-row"><span>{t('快速模式')}</span><div>{value.serviceTier!==undefined&&<Button size="small" type="text" aria-label={t('恢复默认响应速度')} title={t('恢复默认响应速度')} disabled={disabled} onClick={()=>{const next={...value};delete next.serviceTier;onChange(next);}}><Icon name="reset"/></Button>}<Switch size="small" aria-label={t('快速模式')} checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onChange={enabled=>onChange({...value,serviceTier:enabled?'priority':'default'})}/></div></div>
+        <p className="chat-speed-note">{t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}</p>
       </section>
       {saveError&&<div className="chat-agent-save-error" role="alert"><span title={saveError}>{t('保存失败，已保留当前选择。')}</span><Button type="link" size="small" disabled={disabled} onClick={onRetry}>{t('重试保存')}</Button></div>}
     </div>
     <div className="chat-agent-footnote" role={saving?'status':undefined}>{t(saving?'正在保存…':'下一轮对话生效')}</div>
   </div>;
-  const button=<Button ref={trigger} id="chat-model" type="text" className="chat-agent-trigger" aria-label={t('模型与思考设置')} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} title={`${modelName} · ${label(effective)} · ${source}`} onClick={()=>{if(mobile)setOpen(!open);}}>
+  const button=<Button ref={trigger} id="chat-model" type="text" className="chat-agent-trigger" aria-label={t('模型与思考设置')} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} title={`${modelName} · ${label(effective)} · ${t(serviceTier==='priority'?'快速模式':'普通模式')} · ${source}`} onClick={()=>{if(mobile)setOpen(!open);}}>
     {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><span className="chat-agent-trigger-effort"> - {label(effective)}</span><Icon name="chevron"/>
   </Button>;
   // Keep only one live panel/slider in the DOM as the viewport changes.
-  return <div className="chat-agent-picker" data-model={value.model??''} data-effort={value.reasoningEffort===null?'__model_default__':value.reasoningEffort??'__inherit__'} data-effective-effort={effective??''}>
+  return <div className="chat-agent-picker" data-model={value.model??''} data-effort={value.reasoningEffort===null?'__model_default__':value.reasoningEffort??'__inherit__'} data-effective-effort={effective??''} data-service-tier={serviceTier}>
     {mobile?<>{button}<Drawer title={t('模型与思考设置')} placement="bottom" open={open} height="auto" classNames={{root:'chat-agent-sheet'}} closable={{placement:'end','aria-label':t('关闭模型设置')}} onClose={()=>close(true)} styles={{body:{padding:0}}}>{content}</Drawer></>:
       <Popover content={content} open={open} onOpenChange={next=>{setOpen(next);if(!next)setSearch('');}} trigger="click" placement={placement} arrow={false} destroyOnHidden classNames={{root:'chat-agent-popover'}} styles={{container:{padding:0}}} afterOpenChange={next=>{if(next&&!panel.current?.contains(document.activeElement))panel.current?.focus();}}>{button}</Popover>}
   </div>;

@@ -33,6 +33,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   const savedAgent: AgentSettings = {
     ...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
     ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {}),
+    serviceTier:group.values.serviceTier==='priority'?'priority':'default',
   };
   const update = (key:string, value:FieldDraft) => setDrafts(current => ({...current, [key]:value}));
   const save = async () => {
@@ -43,10 +44,11 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       if (agent) {
         if (agent.model !== savedAgent.model) patch.model = agent.model;
         if (agent.reasoningEffort !== savedAgent.reasoningEffort) patch.reasoningEffort = agent.reasoningEffort ?? null;
+        if (agent.serviceTier !== savedAgent.serviceTier) patch.serviceTier = agent.serviceTier ?? 'default';
       }
       for (const [key, schema] of Object.entries(properties)) {
         if (complex(key,schema)) continue;
-        if (properties.model && (key === 'model' || key === 'reasoningEffort')) continue;
+        if (properties.model && ['model','reasoningEffort','serviceTier'].includes(key)) continue;
         if (schema.writeOnly) {
           if (clears[key]) patch[key] = '';
           else if (typeof drafts[key] === 'string' && drafts[key]) patch[key] = drafts[key];
@@ -72,7 +74,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       {group.error && <Alert type="error" showIcon title={t(group.error.message)}/>}
       {properties.model && <><CatalogNote/><AgentPicker id={'setting-' + group.scope} value={agent ?? savedAgent} onChange={value => {if (!saving) setAgent(value);}}/></>}
       <div className="form-grid">
-        {simpleFields.filter(([key]) => !properties.model || (key !== 'model' && key !== 'reasoningEffort')).map(([key, schema]) => {
+        {simpleFields.filter(([key]) => !properties.model || !['model','reasoningEffort','serviceTier'].includes(key)).map(([key, schema]) => {
           const id = 'setting-' + group.scope + '-' + key;
           const value = Object.hasOwn(drafts, key) ? drafts[key] : fieldValue(schema, group.values[key]);
           const label = t(schema.title ?? key);

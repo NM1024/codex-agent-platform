@@ -144,6 +144,7 @@ export default function ChatPage() {
         const available=items.filter(item=>!deletedIds.current.has(item.id)).map(conversationSummary);
         setConversations(current => [...available, ...current.filter(row => !deletedIds.current.has(row.id)&&!items.some(item => item.id === row.id))]);
         setDefaults({...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
+          serviceTier:group.values.serviceTier==='priority'?'priority':'default',
           ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {})});
         if (!initialSelectionDone.current) {
           initialSelectionDone.current = true;

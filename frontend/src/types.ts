@@ -1,7 +1,7 @@
 export type Json = null | boolean | number | string | Json[] | {[key:string]:Json};
 export type Values = Record<string, Json | undefined>;
-export interface AgentSettings {model?:string;reasoningEffort?:string|null}
-export interface Model {model:string;displayName:string;defaultReasoningEffort?:string|null;supportedReasoningEfforts:{reasoningEffort:string;description?:string}[]}
+export interface AgentSettings {model?:string;reasoningEffort?:string|null;serviceTier?:'default'|'priority'}
+export interface Model {model:string;displayName:string;defaultReasoningEffort?:string|null;supportedReasoningEfforts:{reasoningEffort:string;description?:string}[];serviceTiers?:{id:string;name:string;description?:string}[]}
 export interface Catalog {models:Model[];unavailable?:boolean}
 export interface Schema {type?:string|string[];title?:string;writeOnly?:boolean;minLength?:number;minimum?:number;maximum?:number;properties?:Record<string,Schema>}
 export interface ConfigGroup {scope:string;title:string;description:string;schema:Schema;values:Values;configured_secrets:string[];revision:number;updated_at:number;error?:{message:string}}
