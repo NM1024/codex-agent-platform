@@ -51,14 +51,28 @@ class Runtime:
   self.calls.append(args)
   if args[0]=='destroy':raise Failure()
   return {'available':True}
+# HTTP parsing tests must not depend on the CI runner's actual host UID. Keep
+# production peer validation intact and exercise it with explicit kernel data.
+class ProtocolServer(m.Server):
+ peer_uid=1000
+ def verify_request(self,request,address):
+  peer=Mock();peer.getsockopt.return_value=struct.pack('3i',99,self.peer_uid,1000)
+  return super().verify_request(peer,address)
 with tempfile.TemporaryDirectory() as directory:
- path=directory+'/sandbox.sock';server=m.Server(path,m.Handler);server.runtime=Runtime();server.sandbox_error=Failure
+ path=directory+'/sandbox.sock';server=ProtocolServer(path,m.Handler);server.runtime=Runtime();server.sandbox_error=Failure
  thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
  def request(body,path='/sandbox',method='POST',headers=None):
   conn=http.client.HTTPConnection('localhost');conn.sock=socket.socket(socket.AF_UNIX);conn.sock.connect(server.server_address)
-  conn.request(method,path,body,headers or {'Content-Type':'application/json'})
-  response=conn.getresponse();value=json.loads(response.read());conn.close();return response.status,value
+  try:
+   conn.request(method,path,body,headers or {'Content-Type':'application/json'})
+   response=conn.getresponse();value=json.loads(response.read());return response.status,value
+  finally:conn.close()
  try:
+  server.peer_uid=1001
+  try:request(json.dumps(valid));raise AssertionError('UID1001 accepted')
+  except (ConnectionResetError,BrokenPipeError,http.client.RemoteDisconnected):pass
+  assert not server.runtime.calls
+  server.peer_uid=1000
   assert request(json.dumps(valid))[0]==200
   assert len(server.runtime.calls)==1
   assert request(json.dumps({**valid,'args':{'mount':'/etc'}}))[0]==400

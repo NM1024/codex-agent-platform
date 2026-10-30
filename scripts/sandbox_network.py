@@ -179,6 +179,7 @@ class GuardedProxy:
     def _serve(self, client, peer):
         target = None
         grant = None
+        response_started = False
         try:
             with self._lock:
                 grant = self._grants.get(peer)
@@ -240,6 +241,9 @@ class GuardedProxy:
             target = self.dial(addresses[0], port, register_target)
             self._register(peer, grant, target)
             if method == 'CONNECT':
+                # Even a partially sent CONNECT response commits this socket to
+                # tunnel bytes; subsequent errors must only close the tunnel.
+                response_started = True
                 client.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
                 self._relay(client, target, grant, bidirectional=True)
             else:
@@ -267,12 +271,16 @@ class GuardedProxy:
                     target.sendall(chunk)
                     remaining -= len(chunk)
                 target.shutdown(socket.SHUT_WR)
+                # The upstream now owns response framing; a relay failure may
+                # follow partial response bytes and must only close the socket.
+                response_started = True
                 self._relay(client, target, grant, bidirectional=False)
         except (NetworkDenied, OSError, ValueError, UnicodeError, subprocess.SubprocessError):
-            try:
-                client.sendall(b'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
-            except OSError:
-                pass
+            if not response_started:
+                try:
+                    client.sendall(b'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+                except OSError:
+                    pass
         finally:
             with self._lock:
                 if grant and grant[0] in self._sockets:

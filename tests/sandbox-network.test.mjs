@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 
 const python = String.raw`
 import sys, os, socket, threading, time, unittest, json, subprocess, tempfile
+from unittest.mock import patch
 sys.path.insert(0, 'scripts')
 from sandbox_network import SandboxNetwork, NetworkDenied, canonical_domain, public_addresses, GuardedProxy
 
@@ -67,10 +68,46 @@ class NetworkTests(unittest.TestCase):
         proxy.revoke('pending'); self.assertEqual(sockets[0].fileno(),-1); released.set()
         self.assertEqual(conn.recv(4096),b'')
 
-    def test_deadline_closes_existing_tunnel(self):
-        proxy,_,_=self.fixture(150)
+    def test_relay_error_after_connect_cannot_append_a_second_http_response(self):
+        proxy,_,_=self.fixture()
+        def expired_socket(*args,**kwargs): raise OSError('tunnel socket closed during expiry')
+        proxy._relay=expired_socket
         conn=self.request(proxy,b'CONNECT example.com:443 HTTP/1.1\r\n\r\n'); self.addCleanup(conn.close)
-        self.assertIn(b'200 ',conn.recv(4096)); self.assertEqual(conn.recv(4096),b'')
+        received=b''
+        while True:
+            chunk=conn.recv(4096)
+            if not chunk: break
+            received+=chunk
+        self.assertEqual(received,b'HTTP/1.1 200 Connection Established\r\n\r\n')
+
+    def test_relay_error_after_plain_http_response_cannot_append_proxy_error(self):
+        proxy,_,_=self.fixture()
+        upstream_response=b'HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\npartial'
+        def failed_upstream(client,*args,**kwargs):
+            client.sendall(upstream_response)
+            raise OSError('upstream closed after a partial response')
+        proxy._relay=failed_upstream
+        conn=self.request(proxy,b'GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n'); self.addCleanup(conn.close)
+        received=b''
+        while True:
+            chunk=conn.recv(4096)
+            if not chunk: break
+            received+=chunk
+        self.assertEqual(received,upstream_response)
+
+    def test_deadline_closes_existing_tunnel(self):
+        # Establish first, then advance the wall clock: a short admission window
+        # can expire before the handshake on a loaded CI worker.
+        proxy,_,_=self.fixture(30000)
+        conn=self.request(proxy,b'CONNECT example.com:443 HTTP/1.1\r\n\r\n'); self.addCleanup(conn.close)
+        response=b''
+        while not response.endswith(b'\r\n\r\n'):
+            chunk=conn.recv(4096)
+            self.assertTrue(chunk,'CONNECT handshake must finish before expiry is triggered')
+            response+=chunk
+        self.assertEqual(response,b'HTTP/1.1 200 Connection Established\r\n\r\n')
+        with patch('sandbox_network.time.time',return_value=time.time()+31):
+            self.assertEqual(conn.recv(4096),b'')
 
     def test_new_domains_private_rebinding_ports_and_host_mismatch_denied(self):
         proxy,resolutions,dials=self.fixture()
