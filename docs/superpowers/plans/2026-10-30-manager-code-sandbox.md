@@ -71,6 +71,10 @@
 - [x] Integrate optional host helper installation/status/disable and Manager socket channel; never start real production service from tests.
 
 ### Task 7: Verification, review and publication
-- [ ] Run focused tests, npm test, release validation, actual Docker isolation and approved network checks, then serial relevant browser suites.
-- [ ] Independently review module changes and whole feature; fix material findings with regression coverage.
-- [ ] Document actual installation/limits, update design implementation status, commit all changes and open a new PR as requested earlier; no merge/deploy.
+- [x] Run focused tests, npm test, release validation, actual Docker isolation and approved network checks, then serial relevant browser suites.
+- [x] Independently review module changes and whole feature; fix material findings with regression coverage.
+- [x] Document actual installation/limits, update design implementation status, commit all changes and open a new PR as requested earlier; no merge/deploy.
+
+Validation: 635 Node tests (627 passed, eight optional Docker/network skips), 13 actual Docker runtime cases, one actual Admin/Unix-helper/Docker CSV-to-report-and-image case, and 35 related browser cases passed. The required actual container/network CI step also passed on a capable host, including the firewall path that is unavailable in this managed workspace. The fixed sandbox image, exact-commit release archive/checksums and Manager source validation passed. CI runs the complete browser suite, all four release-image builds, container tests and synthetic Compose update checks; the managed workspace's 32 GiB VFS Docker storage cannot fit the final platform-image builds.
+
+Independent reviews found no remaining Critical/Important issues after fixes for deadline locking, late instance cleanup, scoped approvals, attachment cleanup, lost responses and proxy teardown. [PR #16](https://github.com/NM1024/codex-agent-platform/pull/16) is stacked on the existing Webhook/model-controls PR #15. No production deployment or merge was performed.
