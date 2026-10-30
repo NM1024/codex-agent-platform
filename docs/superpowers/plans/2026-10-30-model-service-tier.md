@@ -1,6 +1,6 @@
 # Model Service Tier Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add Standard/Fast mode to existing model settings, defaulting to Standard everywhere.
 
@@ -31,11 +31,11 @@
 
 **Interfaces:** configuration property `serviceTier`; model metadata `serviceTiers`; `validateModelExecution(client,settings)` returns `{effort,serviceTier}`. Existing `validateModelEffort` remains compatible.
 
-- [ ] Add tests asserting defaults, schema rejection, independent persistence, inheritance, plugin snapshots, Runner configuration transport, model capability checks and standard routing on old snapshots.
-- [ ] Run tests and verify feature-related failures.
-- [ ] Implement shared schema, explicit effective defaults, capability preservation and combined validation. Persist speed with execution metadata. Pass speed on thread start/resume and turn start in Manager and Runner.
-- [ ] Run focused tests and local pinned-Codex transport test; verify Fast sends `priority` and Standard omits priority while reasoning stays unchanged, including resumes.
-- [ ] Commit the verified backend behavior.
+- [x] Add tests asserting defaults, schema rejection, independent persistence, inheritance, plugin snapshots, Runner configuration transport, model capability checks and standard routing on old snapshots.
+- [x] Run tests and verify feature-related failures.
+- [x] Implement shared schema, explicit effective defaults, capability preservation and combined validation. Persist speed with execution metadata. Pass speed on thread start/resume and turn start in Manager and Runner.
+- [x] Run focused tests and local pinned-Codex transport test; verify Fast sends `priority` and Standard omits priority while reasoning stays unchanged, including resumes.
+- [x] Commit the verified backend behavior.
 
 ### Task 2: Existing model selectors
 
@@ -43,17 +43,17 @@
 
 **Interfaces:** existing AgentSettings gains optional `serviceTier`; Model gains optional service-tier metadata. Existing onChange callbacks persist the complete selected settings.
 
-- [ ] Add browser tests for Standard default, saving Fast then Standard, capability-disabled Fast, inheritance, preserving mode on model change, global/plugin persistence and mobile visibility.
-- [ ] Build current frontend and run new tests to observe missing controls.
-- [ ] Add speed controls and bilingual copy to existing selectors; keep model/reasoning reset behavior while preserving explicit speed. Carry global speed through all frontend default projections and save payloads.
-- [ ] Run type checking and targeted existing/new Playwright tests; fix regressions against the spec.
-- [ ] Commit the verified selector behavior.
+- [x] Add browser tests for Standard default, saving Fast then Standard, capability-disabled Fast, inheritance, preserving mode on model change, global/plugin persistence and mobile visibility.
+- [x] Build current frontend and run new tests to observe missing controls.
+- [x] Add speed controls and bilingual copy to existing selectors; keep model/reasoning reset behavior while preserving explicit speed. Carry global speed through all frontend default projections and save payloads.
+- [x] Run type checking and targeted existing/new Playwright tests; fix regressions against the spec.
+- [x] Commit the verified selector behavior.
 
 ### Task 3: Documentation and whole-change verification
 
 **Files:** bilingual README, `docs/DEPLOYMENT.md`, `docs/PLUGINS.md`, `docs/ARCHITECTURE.md`, `prompts/manager-project.md`, management descriptions as necessary.
 
-- [ ] Explain default Standard, optional Fast and increased usage, inheritance, account/model limits, start/resume behavior and `execution.serviceTier` values.
-- [ ] Inspect installed protocol and current official docs for useful unexposed options; distinguish unsupported/deprecated parameters and existing functionality.
-- [ ] Run `npm test`, `npm run check:release` and relevant Playwright suites; inspect every result.
-- [ ] Request one fresh review of the complete change, resolve material findings with regression tests, then commit final docs/fixes and report evidence and limits.
+- [x] Explain default Standard, optional Fast and increased usage, inheritance, account/model limits, start/resume behavior and `execution.serviceTier` values.
+- [x] Inspect installed protocol and current official docs for useful unexposed options; distinguish unsupported/deprecated parameters and existing functionality.
+- [x] Run `npm test`, `npm run check:release` and relevant Playwright suites; inspect every result.
+- [x] Request one fresh review of the complete change, resolve material findings with regression tests, then commit final docs/fixes and report evidence and limits.

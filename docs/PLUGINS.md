@@ -80,10 +80,13 @@ A plugin may include an optional execution configuration:
 ```json
 "execution": {
   "model": "your-account-model-id",
-  "reasoningEffort": "high"
+    "reasoningEffort": "high",
+    "serviceTier": "default"
 }
 ```
 
 Select actual model IDs and supported reasoning efforts from Admin's selectors or the preset `models` management operation. Omit `execution` to inherit the global business settings. Omit an individual field to inherit it; when selecting a different model without an effort override, its own default applies. Set `reasoningEffort` to `null` to explicitly request the model default. No model or reasoning field is added to business input schemas.
+
+`execution.serviceTier` independently selects response speed: `"default"` is Standard and `"priority"` is Fast. Omission inherits global business speed, whose default is Standard. Explicit Standard overrides global Fast. Fast requires the selected model's advertised `priority` capability and increases usage consumption; account limits still apply. Invalid or unsupported values are rejected, and accepted tasks retain their plugin override snapshot.
 
 Overrides are stored in each accepted plugin contract and resolved with global settings when that task starts or resumes. Active execution retains its recorded configuration. A catalog read starts no model turn, while an actual trial consumes account allowance.
