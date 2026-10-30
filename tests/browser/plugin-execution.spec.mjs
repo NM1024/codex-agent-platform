@@ -128,11 +128,11 @@ test('row actions are compact named icons with focus tooltips in both languages 
       await page.locator('#app-language').click();
       await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();
     }
-    const labels=locale==='en'?['Configure connection','Integration docs','View details','Delete plugin: 内容审核']:['配置接入','对接文档','查看详情','删除业务插件：内容审核'];
+    const labels=locale==='en'?['Configure connection','Integration docs','Edit business plugin','View details','Delete plugin: 内容审核']:['配置接入','对接文档','编辑业务插件','查看详情','删除业务插件：内容审核'];
     for(const width of [1440,390,320]){
       await page.setViewportSize({width,height:900});
       const row=page.getByRole('row').filter({hasText:'content.review'}),actions=row.locator('.plugin-row-actions');
-      await expect(actions.getByRole('button')).toHaveCount(4);
+      await expect(actions.getByRole('button')).toHaveCount(5);
       for(const label of labels){
         const button=actions.getByRole('button',{name:label,exact:true});
         await expect(button).toBeVisible();await expect(button).toHaveText('');await expect(button.locator('svg')).toHaveCount(1);

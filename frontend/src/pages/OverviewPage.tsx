@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Grid,InputNumber,Modal,Table,Typography} from 'antd';
+import {Alert,Button,Form,Grid,InputNumber,Modal,Table,Typography} from 'antd';
+import {AdminDrawer,AdminModal} from '../AdminOverlays';
 import {useConsole} from '../context';
 import {AsyncButton,DataLoading,Panel,TableField,TableIdentifier,time} from '../components';
 import {Icon} from '../Icon';
@@ -12,7 +13,7 @@ export default function OverviewPage(){
   const {api,operation,t,locale,notify,navigate,setChatId}=useConsole(),screens=Grid.useBreakpoint();
   const {data,loading,error,refresh}=useOverview();
   const [filter,setFilter]=useState('all'),[editing,setEditing]=useState(false),[concurrency,setConcurrency]=useState<number|null>(null);
-  const [savingConcurrency,setSavingConcurrency]=useState(false);
+  const [savingConcurrency,setSavingConcurrency]=useState(false),[concurrencyError,setConcurrencyError]=useState('');
   const [expanded,setExpanded]=useState<string|null>(null),[restartOpen,setRestartOpen]=useState(false),[restarting,setRestarting]=useState(false),[restartError,setRestartError]=useState('');
   const alive=useRef(true),restartLock=useRef(false),concurrencyLock=useRef(false);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -33,8 +34,9 @@ export default function OverviewPage(){
   const investigate=async(task_id:string)=>{const conversation=await api<Conversation>('/conversations',{title:t('调查 ')+task_id.slice(0,8),task_id,investigate:true});if(alive.current){setChatId(conversation.id);navigate('chat');}};
   const saveConcurrency=async()=>{
     if(concurrencyLock.current||!Number.isSafeInteger(concurrency)||concurrency!<1||!runtimeKnown)return;
-    concurrencyLock.current=true;setSavingConcurrency(true);
+    concurrencyLock.current=true;setSavingConcurrency(true);setConcurrencyError('');
     try{await operation('runtime_update',{concurrency});if(alive.current){notify(t('并发设置已保存。'));await refresh();if(alive.current)setEditing(false);}}
+    catch(cause){if(alive.current)setConcurrencyError(cause instanceof Error?cause.message:String(cause));}
     finally{concurrencyLock.current=false;if(alive.current)setSavingConcurrency(false);}
   };
   const restart=async()=>{
@@ -48,6 +50,7 @@ export default function OverviewPage(){
     {id:'gateway',name:'Gateway',status:gateway===true?'程序可用':gateway===false?'服务不可达':'状态未获取',tone:gateway===true?'success':gateway===false?'error':'neutral',description:'业务接口与任务队列',detail:gateway===true?t('业务接口可达，运行设置与任务队列可读取。'):platform.error?.message??t('等待获取服务状态。')},
     {id:'runner',name:'Codex Runner',status:runner===true?'已就绪':runner===false?'未就绪':'状态未获取',tone:runner===true?'success':runner===false?'warning':'neutral',description:'业务任务执行服务',detail:runner===true?t('执行服务已就绪，可按领取设置接收任务。'):runner===false?(reason?t(reason):t('执行服务尚未就绪。')):t('等待获取服务状态。')},
   ];
+  const selectedService=services.find(service=>service.id===expanded);
   return <div className="ops-overview">
     <div className="ops-intro"><p>{t('资源、任务与服务状态，一处掌握。')}</p><Typography.Text id="updated" type="secondary">{t('采样于 {time}',{time:time(data.resources.sampled_at??data.sampled_at)})}</Typography.Text></div>
     {error&&<Alert className="ops-alert" type="warning" showIcon title={t('数据更新失败，当前显示上次采样。')} description={error} action={<AsyncButton onClick={refresh}>{t('重试')}</AsyncButton>}/>}
@@ -60,10 +63,9 @@ export default function OverviewPage(){
       <div className="ops-section-heading"><h2 id="ops-tasks-title">{t('任务运行')}</h2></div>
       <div className={'ops-card ops-dispatch ops-dispatch--'+state}>
         <div className="ops-dispatch-main"><span className="ops-state-icon"><Icon name={state==='active'?'play':state==='paused'?'pause':'alert'}/></span><div><h3 id="dispatch-title">{t(stateLabel)}</h3><p>{stateNote}</p></div></div>
-        <div className="ops-dispatch-actions"><span className="ops-capacity">{t('并发上限')} <strong>{limit??'—'}</strong></span><Button disabled={savingConcurrency||!runtimeKnown||limit===null} aria-expanded={editing} aria-controls="concurrency-editor" onClick={()=>{if(concurrencyLock.current)return;setConcurrency(limit);setEditing(value=>!value);}}>{t(editing?'收起设置':'调整并发')}</Button>
-          {state==='blocked'?<Button onClick={()=>{setExpanded('runner');document.getElementById('ops-services-title')?.scrollIntoView({block:'start'});}}>{t('查看原因')}</Button>:null}<AsyncButton type={state==='paused'?'primary':'default'} disabled={state==='unknown'} onClick={async()=>{await operation('runtime_update',{paused:!runtime?.paused});if(alive.current)await refresh();}}>{t(runtime?.paused?'恢复领取':'暂停领取')}</AsyncButton>
+        <div className="ops-dispatch-actions"><span className="ops-capacity">{t('并发上限')} <strong>{limit??'—'}</strong></span><Button disabled={savingConcurrency||!runtimeKnown||limit===null} aria-expanded={editing} aria-controls="concurrency-editor" onClick={()=>{if(concurrencyLock.current)return;setConcurrency(limit);setConcurrencyError('');setEditing(value=>!value);}}>{t(editing?'收起设置':'调整并发')}</Button>
+          {state==='blocked'?<Button onClick={()=>setExpanded('runner')}>{t('查看原因')}</Button>:null}<AsyncButton type={state==='paused'?'primary':'default'} disabled={state==='unknown'} onClick={async()=>{await operation('runtime_update',{paused:!runtime?.paused});if(alive.current)await refresh();}}>{t(runtime?.paused?'恢复领取':'暂停领取')}</AsyncButton>
         </div>
-        {editing&&<div id="concurrency-editor" className="ops-concurrency"><label htmlFor="concurrency">{t('业务并发')}</label><InputNumber id="concurrency" aria-label={t('业务并发')} min={1} max={Number.MAX_SAFE_INTEGER} step={1} value={concurrency} onChange={setConcurrency} disabled={savingConcurrency||!runtimeKnown}/><AsyncButton aria-label={t('保存')} type="primary" disabled={savingConcurrency||!runtimeKnown||!Number.isSafeInteger(concurrency)||concurrency!<1} onClick={saveConcurrency}>{t('保存')}</AsyncButton><span>{t('降低上限不终止已执行任务。')}</span></div>}
       </div>
       <div className="ops-task-grid">{[
         {id:'running',label:'正在执行',value:taskCount(['running','dispatching','completing'])},
@@ -77,7 +79,6 @@ export default function OverviewPage(){
         <div className="ops-service-heading"><h3><Icon name="server"/>{service.name}</h3><OverviewBadge tone={service.tone}>{t(service.status)}</OverviewBadge></div>
         <p className="ops-service-description">{t(service.description)}</p>
         <div className="ops-service-actions"><Button type="text" size="small" aria-label={t('{service}：查看状态',{service:service.name})} aria-expanded={expanded===service.id} aria-controls={'service-details-'+service.id} onClick={()=>setExpanded(value=>value===service.id?null:service.id)}>{t(expanded===service.id?'收起详情':'查看状态')}</Button>{service.id==='runner'&&<Button size="small" disabled={gateway!==true||restarting} onClick={()=>{setRestartError('');setRestartOpen(true);}}>{t('重启 Runner')}</Button>}</div>
-        {expanded===service.id&&<div id={'service-details-'+service.id} className="ops-service-details">{service.detail}</div>}
       </article>)}</div>
     </section>
     <Panel title={t('最近执行异常')}>{gateway!==true?<Alert type="info" showIcon title={t('最近执行异常暂不可用')}/>:<Table<Task> loading={loading} rowKey="task_id" dataSource={platform.recent_errors??[]} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
@@ -87,6 +88,16 @@ export default function OverviewPage(){
       {title:t('时间（北京时间）'),key:'updated',width:160,className:'table-meta-cell',render:(_,row)=><TableField label={t('时间（北京时间）')}>{time(row.updated_at)}</TableField>},
       {title:t('操作'),key:'actions',width:locale==='en'?240:160,className:'table-actions-cell',render:(_,row)=><AsyncButton title={t('让 Agent 调查')} onClick={()=>investigate(row.task_id)}>{t(!screens.md?'调查':(data.investigations??[]).some(item=>item.task_id===row.task_id)?'查看调查':'让 Agent 调查')}</AsyncButton>},
     ]}/>}</Panel>
+    <AdminDrawer title={selectedService?.name??t('服务健康')} subtitle={selectedService?t(selectedService.description):undefined} open={!!selectedService} onClose={()=>setExpanded(null)} width={640}>
+      {selectedService&&<div id={'service-details-'+selectedService.id} className="ops-service-details"><Alert showIcon type={selectedService.tone==='error'?'error':selectedService.tone==='warning'?'warning':selectedService.tone==='success'?'success':'info'} title={t(selectedService.status)} description={selectedService.detail}/><Typography.Paragraph type="secondary">{t('采样于 {time}',{time:time(data.resources.sampled_at??data.sampled_at)})}</Typography.Paragraph></div>}
+    </AdminDrawer>
+    <AdminModal title={t('调整并发')} open={editing} onCancel={()=>{if(!concurrencyLock.current)setEditing(false);}} busy={savingConcurrency} width={560} footer={<><Button disabled={savingConcurrency} onClick={()=>{if(!concurrencyLock.current)setEditing(false);}}>{t('取消')}</Button><AsyncButton aria-label={t('保存')} type="primary" disabled={savingConcurrency||!runtimeKnown||!Number.isSafeInteger(concurrency)||concurrency!<1} onClick={saveConcurrency}>{t('保存')}</AsyncButton></>}>
+      <Form id="concurrency-editor" className="admin-editor-form ops-concurrency" layout="horizontal" colon={false} onFinish={()=>void saveConcurrency()}>
+        <Form.Item label={t('业务并发')} htmlFor="concurrency" extra={t('降低上限不终止已执行任务。')}><InputNumber id="concurrency" aria-label={t('业务并发')} min={1} max={Number.MAX_SAFE_INTEGER} step={1} value={concurrency} onChange={setConcurrency} disabled={savingConcurrency||!runtimeKnown}/></Form.Item>
+        {!runtimeKnown&&<Alert showIcon type="warning" title={t('等待获取运行设置与服务就绪状态。')}/>}
+        {concurrencyError&&<Alert showIcon type="error" title={concurrencyError}/>}
+      </Form>
+    </AdminModal>
     <Modal title={t('重启 Runner')} open={restartOpen} okText={t('确认重启')} cancelText={t('取消')} onOk={()=>void restart()} onCancel={()=>{if(!restartLock.current)setRestartOpen(false);}} okButtonProps={{danger:true,loading:restarting,disabled:gateway!==true,'aria-busy':restarting}} cancelButtonProps={{disabled:restarting}} closable={!restarting} maskClosable={!restarting} keyboard={!restarting}>
       <Typography.Paragraph>{t('重启会中断 Runner 当前连接，正在执行的任务可能进入恢复流程。确定继续吗？')}</Typography.Paragraph>
       {restartError&&<Alert type="error" showIcon title={restartError}/>}

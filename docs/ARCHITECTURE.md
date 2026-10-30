@@ -137,3 +137,14 @@ Gateway stores plugin default bindings independently from plugin definitions and
 Authenticated sandbox attachment metadata controls preview eligibility. Text and source files open in a right drawer; Markdown uses the existing safe GFM renderer and supports switching to raw source. Preview content remains bounded and untrusted. Sandbox approval activity is attached to an Agent reply or a dedicated Agent fallback bubble, never a human message; authenticated decisions and execution ownership are unchanged.
 
 The chat composer model picker exposes only model, reasoning effort and speed. Advanced model parameters are edited in global Manager/execution settings or plugin model settings; persisted conversation overrides and management tool support remain compatible and are preserved when changing the basic controls.
+
+
+## Admin overlay workflows
+
+Lists retain summary columns and compact named icon actions. Task/plugin/schedule records and individual execution notifications open in right drawers; creation and editing use centered tabbed modals with horizontal label/control rows and responsive two-column short fields. Overview service status and concurrency editing also use overlays. Existing settings category tabs retain independent saves and expose grouped compact fields. Forms keep validation/errors and unsaved drafts inside their overlay; pending writes lock dismissal, and read continuations cannot resurrect closed owners.
+
+Notification binding and retry controls retrieve safe concrete channel metadata on mount and dropdown open. Selected unavailable instances remain explicit and removable, including a single unavailable item without clearing other selections. Provider names do not identify bindings. The long channel editor separates basic, connection/authentication and message-format tabs, preserving write-only secrets and explicit test confirmation.
+
+Workflow translations stay with their page-level consumers rather than the shared overlay shell. Public hashed assets use build-time Brotli quality9 compression; nonce HTML remains private and uncompressed. Cold-login and initial-overview transfer budgets continue to be enforced by browser tests.
+
+Direct plugin and schedule definition editors default new work to disabled. `plugin_save` and `schedule_save` accept an optional top-level revision:0 requires absence; positive values compare the current version atomically before writing. Plugin revisions reuse their existing counter. Schedules migrate a separate durable configuration revision initialized to1 and advance it on edits and enable/disable; scheduler progress updates do not rewrite the configuration revision. Conflicts preserve client drafts and require explicit reread. Notification bindings retain separate revisions and do not overwrite schedule timing or definition fields.

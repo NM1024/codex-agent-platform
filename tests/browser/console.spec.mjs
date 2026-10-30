@@ -360,14 +360,14 @@ test('production React console loads local Ant Design assets without CSP errors'
   await navigate(page,'settings');await expect(page.locator('#configuration-manager')).toBeVisible();
   await page.screenshot({path:'.tmp/react-admin/screenshots/settings-desktop.png',fullPage:true,animations:'disabled'});
   await page.setViewportSize({width:390,height:844});
-  await navigate(page,'plugins');await expect(page.getByText('新增、编辑业务逻辑和试运行请通过管理 Agent 操作。Agent 可初始化缺失的入口密钥；请点击「配置接入」由管理员领取一次、修改凭证或设置回调，勿将凭证发送到聊天。完成必填接入配置后才能启用、提交任务、试运行或执行定时计划。',{exact:true})).toBeVisible();
+  await navigate(page,'plugins');await expect(page.getByText('可直接新增、编辑 JSON 业务定义，也可通过管理 Agent 操作和试运行。入口凭证与回调请在「配置接入」中设置，勿将凭证发送到聊天。完成必填接入配置后才能单独启用业务。',{exact:true})).toBeVisible();
   await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
   await page.screenshot({path:'.tmp/react-admin/screenshots/plugins-mobile.png',fullPage:true,animations:'disabled'});
   expect(errors,JSON.stringify(await page.locator('style').evaluateAll(nodes=>nodes.filter(node=>!node.nonce).map(node=>node.textContent?.slice(0,500))))).toEqual([]);
 });
 
 const pluginDefinition={type:'browser.summary',name:'用户自己的中文业务',instructions:'业务提示词原样保留',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'},execution:{model:'fixture-fast',reasoningEffort:'low'}};
-test('business plugin configuration is read-only and displays persisted model settings',async({page})=>{
+test('business plugin detail inspection is read-only and displays persisted model settings',async({page})=>{
   await operation(page,'plugin_save',{definition:pluginDefinition});
   const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push(r.postDataJSON()?.action);});
   await navigate(page,'plugins');
@@ -378,7 +378,7 @@ test('business plugin configuration is read-only and displays persisted model se
   await expect(page.locator('#plugin-detail')).toContainText(pluginDefinition.instructions);
   await expect(page.locator('#view input, #view textarea, #view .ant-select')).toHaveCount(0);
   for(const name of ['新建插件','编辑','启用','停用','校验并保存','提交试运行'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
-  expect(writes.every(action=>['configuration_get','models'].includes(action))).toBe(true);
+  expect(writes.every(action=>['configuration_get','models','plugin_get'].includes(action))).toBe(true);
 });
 
 test('management conversations save independent model settings and defaults are selectable',async({page})=>{
@@ -440,14 +440,14 @@ test('business plugin details reload after an Agent operation and navigation',as
   await navigate(page,'plugins');
   await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
   await operation(page,'plugin_save',{definition:{...pluginDefinition,instructions:'管理 Agent 更新后的说明'}});
-  await navigate(page,'overview');await navigate(page,'plugins');
+  await page.keyboard.press('Escape');await navigate(page,'overview');await navigate(page,'plugins');
   await page.getByRole('row').filter({hasText:pluginDefinition.name}).getByRole('button',{name:'查看详情',exact:true}).click();
   await expect(page.locator('#plugin-detail')).toContainText('管理 Agent 更新后的说明');
 });
-test('schedules are read-only and inspection details preserve disabled state',async({page})=>{
+test('schedule detail inspection is read-only and inspection details preserve disabled state',async({page})=>{
   const mutations=[];page.on('request',request=>{if(request.method()==='POST'&&/^schedule_(save|enable)$/.test(request.postDataJSON()?.action))mutations.push(request.postDataJSON());});
   await navigate(page,'schedules');
-  await expect(page.getByText('可在此启用、停用或逻辑删除。新增和编辑定时任务，请通过管理 Agent 操作。',{exact:true})).toBeVisible();
+  await expect(page.getByText('可直接新增、编辑、启用或停用定时计划，也可通过管理 Agent 操作。',{exact:true})).toBeVisible();
   const row=page.getByRole('row').filter({hasText:'每日运行巡检'});
   await expect(row.getByRole('switch')).toHaveAttribute('aria-checked','false');
   await row.getByRole('button',{name:'查看详情',exact:true}).click();
@@ -555,12 +555,13 @@ test("language switching preserves plugin data and settings drafts without write
     if (request.method() === "POST")
       mutations.push(request.postDataJSON()?.action ?? request.url());
   });
-  await choose(page,"#app-language","en");
+  await page.keyboard.press("Escape");await choose(page,"#app-language","en");
+  await page.getByRole("row").filter({hasText:pluginDefinition.name}).getByRole("button",{name:"View details",exact:true}).click();
   await expect(
     page.getByRole("heading", { name: "Business plugins", exact: true }),
   ).toBeVisible();
   await expect(page.locator('#plugin-detail pre')).toHaveText(json);
-  await navigate(page, "settings");
+  await page.keyboard.press("Escape");await navigate(page, "settings");
   await page.locator("#setting-manager-timeoutMs").fill("1234568");
   await choose(page,"#app-language","zh-CN");
   await expect(
@@ -569,7 +570,7 @@ test("language switching preserves plugin data and settings drafts without write
   await expect(page.locator("#setting-manager-timeoutMs")).toHaveValue(
     "1234568",
   );
-  expect(mutations.every((action) => ['configuration_list','configuration_get','models'].includes(action))).toBe(
+  expect(mutations.every((action) => ['configuration_list','configuration_get','models','plugin_get'].includes(action))).toBe(
     true,
   );
   await choose(page,"#app-language","en");
@@ -592,8 +593,8 @@ test('schedule details preserve business data across language changes without wr
   await navigate(page,'schedules');
   await page.getByRole('row').filter({hasText:plan.name}).getByRole('button',{name:'查看详情',exact:true}).click();
   const mutations=[];page.on('request',request=>{if(request.method()==='POST'&&/^schedule_(save|enable)$/.test(request.postDataJSON()?.action))mutations.push(request.postDataJSON());});
-  await choose(page,'#app-language','en');
-  await expect(page.getByRole('heading',{name:'Schedule details',exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');await choose(page,'#app-language','en');
+  await page.getByRole('row').filter({hasText:plan.name}).getByRole('button',{name:'View details',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('Schedule details');
   await expect(page.locator('#schedule-detail')).toContainText('用户自己的中文内容');
   await expect(page.locator('#schedule-detail')).toContainText('Asia/Tokyo');
   await expect(page.locator('#schedule-detail')).toContainText('Disabled');
@@ -611,6 +612,7 @@ test("completed task artifacts are viewable and downloadable", async ({
     .filter({ hasText: task.task_id })
     .getByRole("button", { name: "详情", exact: true })
     .click();
+  await page.locator("#task-details").getByRole("tab",{name:"产物",exact:true}).click();
   await expect(page.locator(".previews img")).toBeVisible();
   expect(
     await page
@@ -685,7 +687,7 @@ test('a missing sibling artifact does not hide available downloads',async({page}
   await page.route(`**/admin/api/artifacts/${task.task_id}/${image.artifact_id}`,route=>route.fulfill({status:404,body:'Missing fixture'}));
   await navigate(page,'tasks');
   await page.locator('tr').filter({hasText:task.task_id}).getByRole('button',{name:'详情',exact:true}).click();
-  await expect(page.getByRole('link',{name:'review.txt'})).toBeVisible();
+  await page.locator('#task-details').getByRole('tab',{name:'产物',exact:true}).click();await expect(page.getByRole('link',{name:'review.txt'})).toBeVisible();
 });
 
 test('a pending retry cannot create multiple replacement tasks through repeated clicks',async({page})=>{

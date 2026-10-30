@@ -35,7 +35,7 @@ const english: Record<string, string> = {
   '当前模型暂不支持快速模式；可选择普通模式。':'Fast mode is unavailable for this model. Standard mode is available.',
 
   '搜索模型':'Search models',
-  '关闭':'Off',
+  '关闭':'Close',
   '最低':'Minimal',
   '低':'Low',
   '中等':'Medium',

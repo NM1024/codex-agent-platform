@@ -1,0 +1,25 @@
+.configuration-form.settings-form {
+  --settings-label-width: 136px;
+  --settings-label-gap: 14px;
+  --admin-label-width: var(--settings-label-width);
+  min-width: 0;
+}
+.settings-stack .configuration-form { max-width: none; }
+.configuration-form.settings-form .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 24px; }
+.configuration-section { min-width: 0; margin: 0 0 24px; padding: 0; border: 0; }
+.configuration-section > legend { width: 100%; margin-bottom: 18px; padding: 0 0 10px; border-bottom: 1px solid var(--ui-border-soft); color: #263c31; font-size: 14px; font-weight: 600; }
+.configuration-form .ant-form-item { min-width: 0; margin-bottom: 18px; }
+.configuration-form .ant-form-item-label > label { overflow-wrap: anywhere; }
+.configuration-form .ant-input-number, .configuration-form .ant-select { width: 100%; }
+.configuration-form .model-options-collapse { margin-top: 0; }
+.configuration-form .complex-settings .ant-collapse { margin-bottom: 16px; }
+.configuration-actions { padding-top: 16px; border-top: 1px solid var(--ui-border-soft); }
+@media (max-width: 1100px) {
+  .configuration-form.settings-form .form-grid { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 599px) {
+  .settings-tabs .ant-card-body { padding: 16px; }
+  .configuration-form.settings-form { --settings-label-width: 96px; --settings-label-gap: 10px; }
+  .configuration-form.settings-form .model-options-fields { grid-template-columns: minmax(0,1fr); }
+  .configuration-section > legend { margin-bottom: 14px; }
+}

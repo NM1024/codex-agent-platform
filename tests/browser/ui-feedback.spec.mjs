@@ -21,8 +21,6 @@ test('fenced code copies literal text with its trailing newline and local feedba
 });
 
 test('runtime actions prevent duplicate requests while another action can finish',async({page})=>{
-  await page.getByRole('button',{name:'调整并发',exact:true}).click();
-  await expect(page.locator('#concurrency')).toBeVisible();
   let release;const gate=new Promise(resolve=>{release=resolve;});let pauses=0;
   await page.route('**/admin/api/operations',async route=>{
     const body=route.request().postDataJSON();
@@ -32,6 +30,8 @@ test('runtime actions prevent duplicate requests while another action can finish
   const pause=page.getByRole('button',{name:/恢复领取|暂停领取/});
   await pause.click();await expect(pause).toHaveClass(/ant-btn-loading/);
   await pause.dispatchEvent('click');
+  await page.getByRole('button',{name:'调整并发',exact:true}).click();
+  await expect(page.locator('#concurrency')).toBeVisible();
   const save=page.getByRole('button',{name:'保存',exact:true});
   await save.click();await expect(page.locator('#notice')).toContainText('并发设置已保存');
   await expect(pause).toHaveClass(/ant-btn-loading/);expect(pauses).toBe(1);
@@ -72,19 +72,24 @@ test('task row details are independent and a late earlier selection cannot repla
   const secondId=await rows.nth(1).locator('.table-identifier-cell code').first().textContent();
   let release;const gate=new Promise(resolve=>{release=resolve;});let requests=0;
   await page.route('**/admin/api/tasks/'+firstId,async route=>{requests++;await gate;await route.continue();});
-  const first=rows.nth(0).getByRole('button',{name:/详情/});
-  await first.click();await expect(first).toHaveClass(/ant-btn-loading/);
-  await first.dispatchEvent('click');expect(requests).toBe(1);
-  await rows.nth(1).getByRole('button',{name:/详情/}).click();
-  await expect(page.locator('#task-details')).toContainText(secondId);
-  await expect(first).toHaveClass(/ant-btn-loading/);
-  release();await expect(first).not.toHaveClass(/ant-btn-loading/);
-  await expect(page.locator('#task-details')).toContainText(secondId);
+  const first=rows.nth(0).getByRole('button',{name:'详情',exact:true,includeHidden:true});
+  try {
+    await first.click();await expect(first).toHaveClass(/ant-btn-loading/);
+    await expect.poll(()=>requests).toBe(1);await first.dispatchEvent('click');expect(requests).toBe(1);
+    const drawer=page.getByRole('dialog',{name:'任务详情'});
+    await expect(drawer).toBeVisible();await expect(drawer.getByRole('status')).toBeVisible();
+    await drawer.getByRole('button',{name:/^(关闭|Close)$/}).click();await expect(drawer).not.toBeVisible();
+    await expect(first).toHaveClass(/ant-btn-loading/);
+    await rows.nth(1).getByRole('button',{name:'详情',exact:true}).click();
+    await expect(drawer.locator('#task-details')).toContainText(secondId);
+    await expect(first).toHaveClass(/ant-btn-loading/);
+    release();await expect(first).not.toHaveClass(/ant-btn-loading/);
+    await expect(drawer.locator('#task-details')).toContainText(secondId);
+    await expect(drawer.locator('#task-details')).not.toContainText(firstId);expect(requests).toBe(1);
+  } finally {release();}
 });
 
 test('logout is independent of a blocked page load and prevents duplicate submissions',async({page})=>{
-  await page.getByRole('button',{name:'调整并发',exact:true}).click();
-  await expect(page.locator('#concurrency')).toBeVisible();
   let releaseRefresh,releaseLogout;const refreshGate=new Promise(resolve=>{releaseRefresh=resolve;}),logoutGate=new Promise(resolve=>{releaseLogout=resolve;});let logouts=0;
   await page.route('**/admin/api/overview',async route=>{await refreshGate;await route.continue();});
   await page.route('**/admin/api/logout',async route=>{logouts++;await logoutGate;await route.continue();});
