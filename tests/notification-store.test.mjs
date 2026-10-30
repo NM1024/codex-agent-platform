@@ -164,7 +164,7 @@ test('redaction uses one replacement pass even when a credential matches the mar
 });
 
 test('fresh database connection recovers uncertain sends and resumes only never-started targets',async t=>{
-  const {mkdtempSync,mkdirSync,rmSync}=await import('node:fs');const {join}=await import('node:path');mkdirSync('.tmp',{recursive:true});const dir=mkdtempSync('.tmp/notification-store-');let db=new DatabaseSync(join(dir,'notifications.sqlite'));t.after(()=>{db.close();rmSync(dir,{recursive:true,force:true});});
+  const {mkdtempSync,rmSync}=await import('node:fs');const {join}=await import('node:path');const {tmpdir}=await import('node:os');const dir=mkdtempSync(join(tmpdir(),'notification-store-'));let db=new DatabaseSync(join(dir,'notifications.sqlite'));t.after(()=>{db.close();rmSync(dir,{recursive:true,force:true});});
   let authorized=true,calls=0,store=new NotificationStore({db,fetchImpl:async()=>{calls++;authorized=false;return new Response('ok');}});
   const a=store.saveChannel({name:'A',provider:'custom',url:'https://example.invalid/a'}),b=store.saveChannel({name:'B',provider:'custom',url:'https://example.invalid/b'});store.setBinding(owner,[a.id,b.id]);
   const validate=()=>{if(!authorized)throw new Error('Stopped');};await assert.rejects(store.send(owner,payload([a,b]),{validate}));db.prepare("UPDATE notification_attempts SET status='sending' WHERE channel_id=?").run(a.id);db.close();
