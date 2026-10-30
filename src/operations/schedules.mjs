@@ -130,7 +130,7 @@ export class ScheduleStore {
       try {this.store.transaction(()=>{
         const plan=this.get(id);if (!plan.enabled || plan.next_run_at>now) return;
         const event=randomUUID();let task_id;
-        if (plan.kind==='task') task_id=this.store.accept(this.clientId,{type:plan.type,request_id:`schedule:${id}:${plan.next_run_at}`,input:plan.input,...(plan.notification_channels?.length?{notification_channels:plan.notification_channels}:{})},{notificationInherited:true}).task_id;
+        if (plan.kind==='task') task_id=this.store.accept(this.clientId,{type:plan.type,request_id:`schedule:${id}:${plan.next_run_at}`,input:plan.input,notification_channels:plan.notification_channels??[]},{notificationInherited:true}).task_id;
         else {
           task_id=randomUUID();this.db.prepare('INSERT INTO platform_inspections(id,schedule_id,message,status,conversation_id,created_at) VALUES(?,?,?,\'queued\',NULL,?)').run(task_id,id,plan.message,now);
           if(plan.notification_channels?.length)this.store.notifications.setBinding({kind:'inspection',id:task_id},plan.notification_channels,{allowUnavailable:true});

@@ -1,4 +1,5 @@
 export const sandboxEnglish:Record<string,string>={
+  '下载文件':'Download file','预览':'Preview','原文':'Source',
   '添加文件':'Add files',
   '文件消息':'File message',
   '每条消息最多添加 5 个文件。':'Add up to 5 files per message.',

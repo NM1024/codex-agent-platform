@@ -2,7 +2,6 @@ import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties} from 'reac
 import {Button,Drawer,Grid,Input,Popover,Switch} from 'antd';
 import {useConsole} from './context';
 import {Icon} from './Icon';
-import {ModelOptionsFields} from './ModelOptionsFields';
 import {changeAgentModel} from './modelOptions';
 import type {AgentSettings} from './types';
 
@@ -107,7 +106,6 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         <div className="chat-speed-row"><span>{t('快速模式')}</span><div>{value.serviceTier!==undefined&&<Button size="small" type="text" aria-label={t('恢复默认响应速度')} title={t('恢复默认响应速度')} disabled={disabled} onClick={()=>{const next={...value};delete next.serviceTier;onChange(next);}}><Icon name="reset"/></Button>}<Switch size="small" aria-label={t('快速模式')} checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onChange={enabled=>onChange({...value,serviceTier:enabled?'priority':'default'})}/></div></div>
         <p className="chat-speed-note">{t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}</p>
       </section>
-      <ModelOptionsFields id="chat-options" value={value} defaults={defaults} inherit disabled={disabled} onChange={onChange}/>
       {saveError&&<div className="chat-agent-save-error" role="alert"><span title={saveError}>{t('保存失败，已保留当前选择。')}</span><Button type="link" size="small" disabled={disabled} onClick={onRetry}>{t('重试保存')}</Button></div>}
     </div>
     <div className="chat-agent-footnote" role={saving?'status':undefined}>{t(saving?'正在保存…':'下一轮对话生效')}</div>

@@ -2,13 +2,20 @@ import {HttpError} from '../errors.mjs';
 import {assertNotificationCapability} from './catalog.mjs';
 const fail=(status,code)=>{throw new HttpError(status,code,code);};
 const uuid=value=>typeof value==='string'&&/^[a-f0-9-]{36}$/.test(value);
-export const notificationManagementActions=new Set(['notification_channels','task_notifications_get','task_notifications_update','schedule_notifications_get','schedule_notifications_update','inspection_notifications_get','inspection_notifications_update']);
+export const notificationManagementActions=new Set(['notification_channels','notification_channel_save','notification_channel_delete','plugin_notifications_get','plugin_notifications_update','task_notifications_get','task_notifications_update','schedule_notifications_get','schedule_notifications_update','inspection_notifications_get','inspection_notifications_update']);
 export const notificationPrivateActions=new Set(['inspection_execution_update','inspection_notification','inspection_notification_cleanup']);
 export class NotificationOperations {
   constructor({store,schedules}){Object.assign(this,{store,schedules});}
   get notifications(){return this.store.notifications??fail(503,'NOTIFICATIONS_UNAVAILABLE');}
   view(owner,{available=true,...history}={}){return {...this.notifications.context(owner,history),...(available?{available_channels:this.notifications.listChannels()}:{})};}
   task(taskId,options){if(!this.store.raw(taskId))fail(404,'NOT_FOUND');return this.view({kind:'task',id:taskId},options);}
+  plugin(type){this.store.plugins.get(type);return this.view({kind:'plugin',id:type});}
+  updatePlugin(type,ids,revision){
+    this.store.plugins.get(type);
+    if(!Array.isArray(ids)||!Number.isSafeInteger(revision)||revision<0)fail(400,'INVALID_NOTIFICATION_BINDING');
+    assertNotificationCapability(this.store.registry.get(type),ids);
+    this.notifications.setBinding({kind:'plugin',id:type},ids,{revision});return this.plugin(type);
+  }
   updateTask(taskId,ids,revision,options){
     const row=this.store.raw(taskId);if(!row)fail(404,'NOT_FOUND');if(['completed','failed'].includes(row.status))fail(409,'TASK_NOT_EDITABLE');
     if(!Array.isArray(ids)||!Number.isSafeInteger(revision)||revision<0)fail(400,'INVALID_NOTIFICATION_BINDING');
@@ -59,6 +66,10 @@ export class NotificationOperations {
   }
   execute(action,args){
     if(action==='notification_channels')return {items:this.notifications.listChannels()};
+    if(action==='notification_channel_save')return this.channelOperation('save',args);
+    if(action==='notification_channel_delete')return this.channelOperation('delete',args);
+    if(action==='plugin_notifications_get')return this.plugin(args.type);
+    if(action==='plugin_notifications_update')return this.updatePlugin(args.type,args.notification_channels,args.notification_revision);
     if(action==='task_notifications_get')return this.task(args.task_id,{limit:args.limit,before:args.before});
     if(action==='task_notifications_update')return this.updateTask(args.task_id,args.notification_channels,args.notification_revision);
     if(action==='schedule_notifications_get')return this.schedule(args.id);

@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {Fragment,useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
 import {CatalogNote, LoadingState, Status} from '../components';
@@ -511,7 +511,7 @@ export default function ChatPage() {
           const phase=source?runPresentation(source).label:'正在处理',warning=source&&isPending(source.status)?connectionWarning(messageConnection):'';
           const hasAssistant=message.role==='user'&&transcript.some(part=>part.message.role==='assistant'&&part.message.reply_to===message.id);
           const replyLabel=source?.questions?.some(question=>question.status==='pending')?'等待回答':source?.status==='interrupted'?'等待继续':source?.status==='recovering'?'恢复中':warning?'状态待确认':'回复中';
-          return <article key={key} data-message-id={key} className={'message ' + message.role}>
+          return <Fragment key={key}><article data-message-id={key} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
             <div className="message-label">{message.role!=='user'&&<span>{t('管理 AGENT')}</span>}<MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t(replyLabel)}</span>}</div>
@@ -521,13 +521,12 @@ export default function ChatPage() {
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {tail&&!!source?.generated_images?.length&&<MessageImages images={source.generated_images} generated/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
-            {message.role==='user'&&!hasAssistant&&<SandboxActivity messageId={message.id} existingFileIds={message.files?.map(file=>file.file_id)}/>}
             {message.role==='assistant' && <div className="message-footer">
               {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
               {source && tail && <><SandboxActivity messageId={source.id} existingFileIds={[...(source.files??[]),...(message.files??[])].map(file=>file.file_id)}/>{source.questions?.map(request=><QuestionCard key={request.id} request={request} conversationId={chatId!}/>)}<MessageProgress message={source} connection={messageConnection} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/></>}
             </div>}
           </div>
-        </article>;})}
+        </article>{message.role==='user'&&!hasAssistant&&<SandboxActivity messageId={message.id} existingFileIds={message.files?.map(file=>file.file_id)} asAgentReply/>}</Fragment>;})}
         {!messages.length && !loadError && !listLoading && (!loadingId||loadingId!==chatId) && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}

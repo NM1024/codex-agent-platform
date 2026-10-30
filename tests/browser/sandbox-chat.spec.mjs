@@ -144,3 +144,19 @@ test('permission continuations cannot steer while ordinary file-only requests ca
   await expect(page.locator(`[data-queue-message-id="${messageId}"]`).getByRole('button',{name:'立即引导',exact:true})).toBeDisabled();
   await expect(page.locator(`[data-queue-message-id="${ordinary.id}"]`).getByRole('button',{name:'立即引导',exact:true})).toBeEnabled();
 });
+
+for(const mime of ['text/plain; charset=utf-8','text/markdown'])test(`Markdown ${mime} opens in a side drawer with parsed content and raw-source switching`,async({page})=>{
+ const markdown={...attachment,name:'report.md',mime,message_id:messageId};
+ const conversation=await setup(page);conversation.messages.push({id:messageId,role:'user',status:'completed',text:'Review report',files:[markdown],created_at:Date.now()});
+ await page.route(`**/files/${fileId}?preview=1`,route=>route.fulfill({contentType:'text/plain',body:'# Synthetic report\n\n| Result | Count |\n| --- | --- |\n| Passed | 6 |\n\n<script>window.unsafe=true</script>\n\n![External](https://example.invalid/tracker.png)\n\n[Bad](javascript:alert(1))'}));
+ await navigate(page,'overview');await navigate(page,'chat');await page.getByRole('button',{name:'预览文件：report.md',exact:true}).click();
+ const drawer=page.locator('.ant-drawer');await expect(drawer).toBeVisible();await expect(drawer.getByRole('heading',{name:'Synthetic report',exact:true})).toBeVisible();await expect(drawer.getByRole('table')).toContainText('Passed');await expect(drawer.locator('script,img')).toHaveCount(0);expect(await page.evaluate(()=>window.unsafe)).toBeUndefined();
+ await drawer.getByText('原文',{exact:true}).click();await expect(drawer.locator('.sandbox-text-preview')).toContainText('# Synthetic report');await drawer.getByText('预览',{exact:true}).click();await expect(drawer.getByRole('heading',{name:'Synthetic report',exact:true})).toBeVisible();
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);await expect(drawer.getByRole('link',{name:'下载文件：report.md',exact:true})).toBeVisible();
+});
+
+for(const status of ['running','completed'])test(`sandbox permission belongs to the Agent bubble when its source request is ${status}`,async({page})=>{
+ const permission={id:permissionId,message_id:messageId,request_key:'install-example',status:'pending',reason:'Install a synthetic dependency',command:'npm install example-package',cwd:'.',domains:['registry.example.com'],timeout_seconds:180,memory_mb:1024,created_at:Date.now(),expires_at:Date.now()+600000};
+ const conversation=await setup(page,{context:{permissions:[permission]}});conversation.messages.push({id:messageId,role:'user',status,text:'Prepare a report',created_at:Date.now()});
+ await navigate(page,'overview');await navigate(page,'chat');const card=page.locator(`[data-permission-id="${permissionId}"]`);await expect(card).toBeVisible();await expect(page.locator('.message.user').locator('[data-permission-id]')).toHaveCount(0);await expect(page.locator('.message.assistant').locator(`[data-permission-id="${permissionId}"]`)).toHaveCount(1);
+});

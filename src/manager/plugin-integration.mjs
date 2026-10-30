@@ -52,7 +52,7 @@ export function buildPluginIntegration(definition,connection,{locale='zh-CN'}={}
       table([
         ['request_id','string',text('必填；调用方关联编号，非空且最多 128 字符，不去重。','Required; nonempty caller correlation ID up to 128 characters; no deduplication.')],
         ['input','JSON',text('按下方插件输入 Schema 提供。','Supply the plugin input defined by the schema below.')],
-        ['notification_channels','string[] (UUID)',text('可选，0–32 个不同的既有渠道编号；省略或 [] 不绑定。非空选择要求插件显式授权 notification_context 和 send_notification。字段位于 input 外。','Optional, 0–32 distinct existing channel IDs; omitted or [] binds none. Nonempty selections require explicit plugin grants for both notification_context and send_notification. Keep this field outside input.')],
+        ['notification_channels','string[] (UUID)',text('可选，0–32 个不同的既有通道编号；省略时继承插件的默认通道，显式 [] 不绑定。同一类型的不同配置按各自 UUID 独立选择。非空选择要求插件显式授权 notification_context 和 send_notification。字段位于 input 外。','Optional, 0–32 distinct existing channel IDs; omission inherits the plugin’s default channels, while explicit [] binds none. Select each configuration by its own UUID, including multiple configurations of the same provider. Nonempty selections require explicit plugin grants for both notification_context and send_notification. Keep this field outside input.')],
         ['type','string',text('仅统一入口 /v2/tasks 必填，必须等于 '+definition.type+'；插件入口不接受此字段。','Required only for /v2/tasks; must equal '+definition.type+'. The plugin-specific entry does not accept it.')],
       ]),
       text('## input 字段','## input fields'),fields(input),exampleNote,

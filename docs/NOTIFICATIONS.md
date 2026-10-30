@@ -2,7 +2,7 @@
 
 Tasks and scheduled inspections can send messages through existing channels while they run. The Agent decides whether an event matches its instructions, when to send, which bound channels to use and how to compose each provider's native JSON. A binding authorizes destinations; it does not trigger a message or create an automatic completion notification. Notification outcomes, business task status and the optional final-result callback are recorded independently.
 
-中文使用要点：先由人在“系统配置 → 通知渠道”保存接入信息，再为任务或定时计划选择 0–32 个不同渠道 UUID。业务插件必须同时授权 `notification_context` 和 `send_notification`；通知条件与原生消息格式写在提示词中，由 Agent 判断时机、次数和渠道子集。计划和已创建执行各自保存独立绑定，修改时读取最新版本。`unknown` 表示结果不确定，应先核查，不能自动重发。以下示例均为合成数据，不会自动执行。
+中文使用要点：在“系统配置 → 通知渠道”或通过独立管理对话维护通道配置，再为业务插件、任务或定时计划选择 0–32 个不同渠道 UUID。业务插件必须同时授权 `notification_context` 和 `send_notification`；通知条件与原生消息格式写在提示词中，由 Agent 判断时机、次数和渠道子集。计划和已创建执行各自保存独立绑定，修改时读取最新版本。`unknown` 表示结果不确定，应先核查，不能自动重发。以下示例均为合成数据，不会自动执行。
 
 ## Providers and native bodies
 
@@ -19,15 +19,15 @@ Native cards, rich text, blocks, embeds and other supported JSON fields may be u
 
 The platform POSTs JSON without following redirects. Native providers accept their official Webhook hosts and paths only. Custom targets use HTTPS, with HTTP allowed only for the existing exact loopback hosts `localhost`, `127.0.0.1` and `[::1]`. Feishu bodies are limited to 20 KiB; other bodies have a 256 KiB transport limit, and recipients may impose smaller limits. Requests and responses are bounded.
 
-The optional Feishu/Lark signature uses seconds and HMAC-SHA256 over empty data with `timestamp + "\n" + secret` as the key. DingTalk uses milliseconds, the secret as the HMAC key and `timestamp + "\n" + secret` as the data, then appends encoded `timestamp`/`sign` URL parameters. The Agent does not supply or retrieve secrets or control platform signing fields.
+The optional Feishu/Lark signature uses seconds and HMAC-SHA256 over empty data with `timestamp + "\n" + secret` as the key. DingTalk uses milliseconds, the secret as the HMAC key and `timestamp + "\n" + secret` as the data, then appends encoded `timestamp`/`sign` URL parameters. Execution Agents do not retrieve secrets or control platform signing fields.
 
-## Human-managed configuration
+## Channel configuration
 
-Open **Settings → Notification channels**. Each channel has a stable UUID, name, fixed provider, description, extra format instructions, enabled state, timeout and configuration revision. Disabling blocks future sends; logical deletion preserves its identity and history. A recreated name does not transfer old bindings to a new destination.
+Open **Settings → Notification channels**. The list contains one compact row per saved configuration, with no unconfigured provider placeholders. Choose the provider when adding a channel. Multiple channels can use the same provider, for example separate operations and engineering Feishu bots; selections always use each configuration’s UUID. Each channel has a stable UUID, name, fixed provider, description, extra format instructions, enabled state, timeout and configuration revision. Disabling blocks future sends; logical deletion preserves its identity and history. A recreated name does not transfer old bindings to a new destination.
 
 Humans enter the full Webhook URL, private headers, optional Bearer token and supported signing secret in the dedicated form. A URL may itself contain credentials. Saved secrets are write-only: omitted fields preserve stored values; explicit empty token/signing-secret values or an empty headers map clear those fields. The URL cannot be empty. Edits, enable/disable and deletion require the latest channel configuration revision; reread after a conflict.
 
-Agents see safe metadata and configured flags, without URL or authentication values. They cannot edit channel secrets, perform human test sends or override targets, TLS or transport headers. Header validation rejects line breaks and reserved transport fields. Keep credentials out of prompts, business inputs, shared examples and logs; runtime databases and backups contain private settings.
+Agents see safe metadata and configured flags, without saved URL or authentication values. Ordinary management conversations may create or patch channels with `notification_channel_save` and delete them with `notification_channel_delete`. Creation requires a name, provider and user-supplied URL; updates/deletion require the latest channel revision. Secrets remain write-only; prefer entering them in the private Admin form rather than sending them through chat. Scheduled inspection conversations cannot use either global write tool. Execution Agents cannot edit channels, perform human test sends or override targets, TLS or transport headers. Header validation rejects line breaks and reserved transport fields. Keep credentials out of prompts, business inputs, shared examples and logs; runtime databases and backups contain private settings.
 
 Saving a channel does not send. The explicitly labeled human **Test notification** action sends a fixed synthetic message to the saved destination and records separate test history. Invoke it only when a real test message is intended.
 
@@ -47,7 +47,7 @@ Read live `capabilities` before editing a plugin. Add both tools while retaining
 
 This is a plugin-definition fragment. Put event conditions and message requirements in `instructions`. For example: “If the supplied synthetic check needs attention, read notification_context, compose the destination's native JSON, and notify the selected bound channels. Use a stable key per logical event. Check previous records before acting on an unknown outcome.” The platform imposes no business trigger, review sequence or mandatory send count.
 
-Nonempty bindings require both tools in the task's saved plugin contract. A business input field or later plugin edit cannot grant an existing task capabilities it did not receive at admission. Old plugins, tasks and schedules start without bindings or automatic effects.
+Nonempty bindings require both tools in the task's saved plugin contract. A business input field or later plugin edit cannot grant an existing task capabilities it did not receive at admission. Old plugins, tasks and schedules start without bindings or automatic effects. Configure plugin defaults in **Business plugins → Configure connection → Notification channels**, or use `plugin_notifications_get` / `plugin_notifications_update` with `type`, concrete `notification_channels` and the latest `notification_revision`. Only new direct requests that omit their selection inherit these defaults. Existing tasks, explicit task selections, retry snapshots and schedule selections stay independent. Saving defaults does not modify the business definition, connection settings or model settings.
 
 ## Task creation and binding changes
 
@@ -62,7 +62,7 @@ Using the plugin's entry Bearer key, submit through `POST /v2/tasks`:
 }
 ```
 
-Replace the synthetic type/input with a configured plugin's contract and the UUID with an existing channel. The plugin's `/hooks/...` route accepts the same envelope without `type`. `notification_channels` belongs outside `input`; omission or `[]` binds none. It accepts 0–32 distinct existing IDs. Unavailable new selections and malformed bindings are rejected, without silently clearing them. Each task POST creates independent work; `request_id` is not an idempotency key.
+Replace the synthetic type/input with a configured plugin's contract and the UUID with an existing channel. The plugin's `/hooks/...` route accepts the same envelope without `type`. `notification_channels` belongs outside `input`; omission copies the plugin’s current default channel selection; `[]` explicitly binds none. It accepts 0–32 distinct existing IDs. Unavailable new selections and malformed bindings are rejected, without silently clearing them. Each task POST creates independent work; `request_id` is not an idempotency key.
 
 Administrators provide channel UUIDs to callers. The business API does not enumerate all channels or reveal other plugins' bindings. With the same plugin entry key:
 
@@ -114,7 +114,7 @@ Use binding-only operations to preserve cron and `next_run_at`:
 | `schedule_notifications_get` | `schedule_notifications_update` | `id` |
 | `inspection_notifications_get` | `inspection_notifications_update` | `id` |
 
-Updates take `notification_channels` and the latest `notification_revision`. Admin task/schedule detail provides corresponding editors; schedule execution history lets operators inspect a particular execution. Editing an unfinished inspection changes only its later sends.
+Updates take `notification_channels` and the latest `notification_revision`. Admin unfinished task/schedule detail provides corresponding editors; ended execution details show notification outcomes only, without a binding catalog; schedule execution history lets operators inspect a particular execution. Editing an unfinished inspection changes only its later sends.
 
 Scheduled inspections use the same notification tools as business tasks. The backend derives the trusted original inspection/message identity. Only that active original execution, including valid recovery, may send. Ordinary management conversations, later followups and completed executions cannot borrow its scope. Built-in inspections do not need a business plugin wrapper.
 
@@ -162,11 +162,12 @@ Human-authenticated, same-origin Admin writes use these routes:
 | POST | `/admin/api/notification-channels/{id}/enable` | `{enabled,revision}` |
 | DELETE | `/admin/api/notification-channels/{id}` | `{revision}` |
 | POST | `/admin/api/notification-channels/{id}/test` | `{}`; intentionally sends a fixed synthetic message |
+| GET / POST | `/admin/api/plugins/{type}/notifications` | POST: `{notification_channels,revision}`; plugin defaults |
 | GET / POST | `/admin/api/tasks/{id}/notifications` | POST: `{notification_channels,revision}` |
 | GET / POST | `/admin/api/schedules/{id}/notifications` | POST: `{notification_channels,revision}` |
 | GET / POST | `/admin/api/inspections/{id}/notifications` | POST: `{notification_channels,revision}` |
 
-Management `notification_channels` lists safe metadata only. Private channel writes and test sends are not management Agent tools. Binding revisions are independent of channel configuration and plugin definition revisions.
+Management `notification_channels` lists safe metadata only. Ordinary management conversations can maintain channels with revision-checked `notification_channel_save` and `notification_channel_delete`. Channel test sends remain browser-only. Scheduled inspection conversations cannot use global channel writes. Binding revisions are independent of channel configuration and plugin definition revisions.
 
 Development checks use synthetic data, injected fake transports and local callback sinks. They do not read login credentials, submit real account tasks or send to real provider destinations. Focused checks include `node --test tests/notification-providers.test.mjs tests/notification-store.test.mjs`. Run full project/release checks before integration as described in [contribution guidance](../CONTRIBUTING.md).
 

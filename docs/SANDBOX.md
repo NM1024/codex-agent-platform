@@ -78,3 +78,9 @@ Inspect the helper's own unit with `systemctl status` or `journalctl -u` using t
 Helper startup and Manager recovery remove only containers labelled for that installation, expire unused grants and do not replay previous commands. Separate deployments derive different identities. Deleting a conversation queues scoped sandbox and attachment cleanup.
 
 This uses ordinary Docker containers sharing the host kernel. It does not provide a separate kernel or hostile-tenant isolation. Docker operators, the host helper and server administrators remain trusted. The sandbox helper does not automatically start during a platform update or ordinary `start`; enabling it is an explicit deployment action.
+
+### Attachment previews in chat
+
+Supported UTF-8 text and source files open in a right-side drawer with a download action. Markdown (`.md`/`.markdown` or a supported Markdown MIME) renders with GFM headings, tables and code blocks, with a source-view toggle. Legacy Markdown attachments stored as plain text are recognized by their filename. Rendering reuses chat sanitization: raw HTML stays escaped, unsafe URLs are rejected and external images become links. HTML/SVG and unknown binary formats remain download-only. Images retain bounded previews. Invalid UTF-8 and NUL-bearing files cannot gain text preview by claiming a text MIME.
+
+Sandbox permission requests belong under the management Agent bubble that initiated the work. If the corresponding reply has not been saved, chat renders a separate Agent activity bubble instead of placing the request beneath the human message. Permission identity, limits and authenticated allow/deny/revoke rules are unchanged.

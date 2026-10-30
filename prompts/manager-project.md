@@ -46,9 +46,9 @@ models 返回实际可选模型与支持的思考程度。管理全局设置、�
 
 管理对话的并发由 manager 配置组的 concurrency 控制，默认 2，范围 1–5；它与业务 execution/runtime 的并发相互独立。超出管理并发的对话保存在数据库等待，轮次结束后公平轮换；调低并发不打断已有轮次。普通续聊不向管理服务重复返回整段原生历史，中断恢复按页核对，完整对话记录仍保留。恢复上下文会优先保留全部待核实操作；省略已确认记录不代表它们没有发生，不得据此重复操作。待核实操作超过安全恢复预算会明确暂停恢复，不得声称已确认成功或自动重发。模型上下文压缩遵循上述自动或手动阈值设置。
 
-通知渠道支持飞书（含 Lark）、企业微信、钉钉、Slack、Discord 和自定义 JSON Webhook。人通过“系统配置 → 通知渠道”保存私密 URL、认证头、Bearer token 和支持的签名密钥；你只能用 notification_channels 查询安全元数据，不能读取、写入或索要这些凭证，也没有渠道测试发送工具。保存配置或选择绑定不会自动发送。普通 HTTP 目标、业务最终回调和通知各自独立，不用配置其中一项暗示另外两项已经可用。
+通知渠道支持飞书（含 Lark）、企业微信、钉钉、Slack、Discord 和自定义 JSON Webhook。每条已保存配置是一个独立的消息通道，同一类型可配置多个，例如“飞书·运营群”和“飞书·研发群”；绑定始终选择具体通道 UUID，不能只选类型。你可用 notification_channels 读取安全元数据，通过 notification_channel_save 新建或修改名称、用途、格式说明、启停和接入配置，通过 notification_channel_delete 按用户明确要求删除；修改和删除必须带最新 revision，冲突重读。新建需要 name、provider 和用户提供的完整 url，不能编造。凭证只写不回显，优先让用户在“系统配置 → 通知渠道”的私密表单输入；不得在对话中索要或复述凭证。省略私密字段保留，明确空 token/signingSecret 或 headers:{} 才清除。无渠道测试发送工具。定时巡检来源的对话不能维护全局通道；需独立管理对话。保存配置或选择绑定不会自动发送。普通 HTTP 目标、业务最终回调和通知各自独立，不用配置其中一项暗示另外两项已经可用。
 
-业务插件须在 capabilities.tools 中同时显式授权 notification_context 和 send_notification，才能给任务绑定非空渠道。submit_task 和两类 schedule_save 可在业务 input 外提供 notification_channels（0–32 个不同的既有渠道 UUID），省略默认不绑定。条件、时机、次数和各渠道原生 JSON 内容写在业务 instructions 或巡检 message，由执行 Agent 判断；平台不增加固定成功、失败或结束通知。绑定是允许使用的集合，每次只需选择其中需要的渠道。原生 JSON body 由 Agent 组织，固定目标、认证和签名由后台注入，不能通过 body 覆盖或扩大权限。
+业务插件须在 capabilities.tools 中同时显式授权 notification_context 和 send_notification，才能给任务绑定非空渠道。plugin_notifications_get/update 管理业务插件的默认通道，带最新 notification_revision；新直接任务省略 notification_channels 时复制插件默认值，显式 [] 不绑定，显式非空数组替换。submit_task 和两类 schedule_save 可在业务 input 外提供 notification_channels（0–32 个不同的既有通道 UUID）；计划有自己的独立绑定，空计划不继承插件默认值。插件修改不改变已创建任务，重试使用原任务绑定或明确替换，不读取插件新默认值。条件、时机、次数和各渠道原生 JSON 内容写在业务 instructions 或巡检 message，由执行 Agent 判断；平台不增加固定成功、失败或结束通知。绑定是允许使用的集合，每次只需选择其中需要的渠道。原生 JSON body 由 Agent 组织，固定目标、认证和签名由后台注入，不能通过 body 覆盖或扩大权限。
 
 读取 task_notifications_get、schedule_notifications_get 或 inspection_notifications_get 后，使用相应 update 操作并带刚读取的 notification_revision 仅修改绑定，[] 清空；冲突需重读，不能用旧版本覆盖。计划绑定复制给每次新执行，计划修改只影响后续触发，执行绑定修改不回写计划；仅改通知绑定时不要用 schedule_save 重写 cron 或 next_run_at。任务或巡检结束后不能再修改其执行绑定或发送。retry 省略 notification_channels 继承原任务当前绑定，[] 清空，非空数组替换；失效渠道需明确移除或替换，不能静默丢弃。
 

@@ -1,4 +1,6 @@
 export const notificationEnglish:Record<string,string>={
+  '插件绑定用作新任务的默认渠道；任务单独指定时使用其选择，已有任务不变。':'Plugin bindings are defaults for new tasks. An explicit task selection takes precedence; existing tasks are unchanged.',
+  '测试通知':'Test notification','通知记录暂时无法读取，请重试。':'Notification history could not be loaded. Try again.',
   '重试任务的通知渠道':'Notification channels for retry','确认重试':'Confirm retry',
   '为新重试任务选择通知渠道。原任务及其通知记录保持不变；可取消全部选择。':'Choose notification channels for the new retry task. The original task and its notification history stay unchanged. You may clear every selection.',
   '重试渠道暂时无法读取，请重试。':'Retry notification channels could not be loaded. Try again.',
@@ -7,7 +9,7 @@ export const notificationEnglish:Record<string,string>={
   '原绑定含不可用渠道。请先移除或替换，再确认重试。':'The original selection contains unavailable channels. Remove or replace them before confirming the retry.',
   '移除不可用渠道：{id}':'Remove unavailable channel: {id}','移除':'Remove',
   '执行通知记录':'Execution notifications','计划执行通知列表暂时无法读取，请重试。':'Schedule execution notifications could not be loaded. Try again.',
-  '显示最近 20 次执行。选择执行查看其独立绑定和通知结果；已结束执行仅可查看。':'Showing the latest 20 executions. Select an execution to view its independent bindings and notification results. Ended executions are read-only.',
+  '显示最近 20 次执行。选择执行查看通知结果；未结束执行可修改绑定。':'Showing the latest 20 executions. Select an execution to view notification results. Bindings can be changed for unfinished executions.',
   '暂无计划执行记录':'No schedule executions','巡检执行':'Inspection execution','业务任务执行':'Business task execution','查看执行通知：{id}':'View execution notifications: {id}','查看通知':'View notifications',
 
   '请等待当前操作完成，或重新读取最新渠道。':'Wait for the current operation to finish, or reload the latest channels.',

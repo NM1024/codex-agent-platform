@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {Alert,Button,Checkbox,Empty,Form,Input,InputNumber,Modal,Select,Switch,Tag,Typography} from 'antd';
+import {Alert,Button,Checkbox,Empty,Form,Input,InputNumber,Modal,Select,Switch,Table,Tag,Typography} from 'antd';
 import {DeleteAction,LoadingState,Panel,Status} from './components';
 import {useConsole} from './context';
 import {ApiError} from './api';
@@ -25,7 +25,7 @@ export default function NotificationChannelsPanel() {
   useEffect(()=>{alive.current=true;void load();return()=>{alive.current=false;reads.current++;};},[load]);
   const open=(channel?:NotificationChannel)=>{
     form.resetFields();setClear({});setEditorError('');setEditorConflict(false);setEditor({channel});
-    form.setFieldsValue({name:channel?.name??'',provider:channel?.provider??'feishu',description:channel?.description??'',instructions:channel?.instructions??'',enabled:channel?.enabled??true,timeoutMs:channel?channel.timeoutMs:10000,url:'',token:'',headers:'',signingSecret:''});
+    form.setFieldsValue({name:channel?.name??'',provider:channel?.provider,description:channel?.description??'',instructions:channel?.instructions??'',enabled:channel?.enabled??true,timeoutMs:channel?channel.timeoutMs:10000,url:'',token:'',headers:'',signingSecret:''});
   };
   const close=()=>{if(lock.current)return;setEditor(null);form.resetFields();setClear({});};
   const replace=(channel:NotificationChannel)=>setChannels(current=>current.some(item=>item.id===channel.id)?current.map(item=>item.id===channel.id?channel:item):[...current,channel]);
@@ -65,18 +65,17 @@ export default function NotificationChannelsPanel() {
   return <div className="notification-panel"><Panel title={t('通知渠道')} extra={<div className="notification-actions"><Button disabled={loading||busy||!!editor} onClick={()=>void load()}>{t('重新读取')}</Button><Button type="primary" disabled={loading||busy||conflict} onClick={()=>open()}>{t('新增通知渠道')}</Button></div>}>
     <Typography.Paragraph>{t('独立管理 Agent 可使用的 Webhook 渠道。保存配置不发送消息；任务绑定后由 Agent 按要求决定发送时机。')}</Typography.Paragraph>
     {error&&<Alert showIcon type="error" title={t(error)}/>}
-    {loading?<LoadingState/>:!channels.length?<Empty description={t('暂无通知渠道')}/>:<div className="notification-channel-list">{channels.map(channel=><article className="notification-channel" key={channel.id}>
-      <div className="notification-row-title"><Typography.Title level={3}>{channel.name}</Typography.Title><div><Tag>{t(providerLabel[channel.provider])}</Tag><Status value={channel.enabled?'已启用':'已停用'}/></div></div>
-      <Typography.Paragraph>{channel.description}</Typography.Paragraph><Typography.Text code copyable={{text:channel.id}}>{channel.id}</Typography.Text>
-      <div className="notification-credentials">{(['url','token','headers','signingSecret'] as const).map(field=><span key={field}>{t(field==='url'?'Webhook 地址':secretLabels[field])}: {t(channel.configured[field]?'已配置':'未配置')}</span>)}</div>
-      <div className="notification-actions"><Button disabled={busy||conflict} aria-label={t('编辑通知渠道：{name}',{name:channel.name})} onClick={()=>open(channel)}>{t('编辑')}</Button><Button disabled={busy||conflict} onClick={()=>void changeEnabled(channel)} aria-label={t('切换渠道启停：{name}',{name:channel.name})}>{t(channel.enabled?'停用':'启用')}</Button><Button disabled={busy||!channel.enabled||conflict} aria-label={t('测试通知渠道：{name}',{name:channel.name})} onClick={()=>{setTesting(channel);setTestError('');}}>{t('测试通知（会发送消息）')}</Button>{<DeleteAction label={t('删除通知渠道：{name}',{name:channel.name})} name={channel.name} description={t('删除后不可发送；既有绑定和历史保留，原渠道 ID 不会被重用。')} onDelete={()=>remove(channel)}/>}</div>
-      <details><summary>{t('消息格式与安全示例')}</summary><Typography.Paragraph>{channel.format.instructions}</Typography.Paragraph>{channel.instructions&&<Typography.Paragraph>{channel.instructions}</Typography.Paragraph>}<pre className="notification-json">{JSON.stringify(channel.format.example,null,2)}</pre></details>
-    </article>)}</div>}
+    {loading?<LoadingState/>:!channels.length?<Empty description={t('暂无通知渠道')}/>:<Table<NotificationChannel> className="notification-channel-list" rowKey="id" rowClassName="notification-channel" size="small" pagination={false} scroll={{x:760}} dataSource={channels} columns={[
+      {title:t('渠道名称'),key:'name',width:240,render:(_,channel)=><div className="notification-channel-identity"><Typography.Text strong className="notification-channel-name" title={channel.name}>{channel.name}</Typography.Text>{channel.description&&<Typography.Text type="secondary" className="notification-channel-description" title={channel.description}>{channel.description}</Typography.Text>}</div>},
+      {title:t('渠道类型'),key:'provider',width:140,render:(_,channel)=><Tag>{t(providerLabel[channel.provider])}</Tag>},
+      {title:t('状态'),key:'status',width:100,render:(_,channel)=><Status value={channel.enabled?'已启用':'已停用'}/>},
+      {title:t('操作'),key:'actions',width:280,render:(_,channel)=><div className="notification-table-actions"><Button size="small" type="text" disabled={busy||conflict} aria-label={t('编辑通知渠道：{name}',{name:channel.name})} onClick={()=>open(channel)}>{t('编辑')}</Button><Button size="small" type="text" disabled={busy||conflict} onClick={()=>void changeEnabled(channel)} aria-label={t('切换渠道启停：{name}',{name:channel.name})}>{t(channel.enabled?'停用':'启用')}</Button><Button size="small" type="text" disabled={busy||!channel.enabled||conflict} aria-label={t('测试通知渠道：{name}',{name:channel.name})} onClick={()=>{setTesting(channel);setTestError('');}}>{t('测试通知')}</Button><DeleteAction label={t('删除通知渠道：{name}',{name:channel.name})} name={channel.name} description={t('删除后不可发送；既有绑定和历史保留，原渠道 ID 不会被重用。')} onDelete={()=>remove(channel)}/></div>},
+    ]}/>}
     {!!testHistory.length&&<NotificationHistory history={{items:testHistory,next_cursor:null}}/>}
     <Modal className="notification-editor" width={680} open={!!editor} title={t(editor?.channel?'编辑通知渠道':'新增通知渠道')} okText={t('保存渠道')} cancelText={t('取消')} onOk={()=>void save()} onCancel={close} okButtonProps={{loading:busy,disabled:editorConflict,'aria-busy':busy,'aria-label':t('保存渠道')}} cancelButtonProps={{disabled:busy,'aria-label':t('取消')}} closable={!busy} keyboard={!busy} mask={{closable:!busy}} forceRender>
       <Form name="notification-channel" form={form} layout="vertical" disabled={busy}>
-        <Form.Item name="name" label={t('渠道名称')} rules={[{required:true,whitespace:true,message:t('请输入渠道名称。')}]}><Input maxLength={200}/></Form.Item>
         <Form.Item name="provider" label={t('渠道类型')} rules={[{required:true}]}><Select virtual={false} disabled={busy||!!editor?.channel} options={notificationProviders.map(provider=>({value:provider,label:t(providerLabel[provider])}))}/></Form.Item>
+        <Form.Item name="name" label={t('渠道名称')} rules={[{required:true,whitespace:true,message:t('请输入渠道名称。')}]}><Input maxLength={200}/></Form.Item>
         <Form.Item name="description" label={t('用途说明')}><Input.TextArea rows={2} maxLength={8192}/></Form.Item>
         <Form.Item name="instructions" label={t('补充格式说明')}><Input.TextArea rows={3} maxLength={16384}/></Form.Item>
         <Form.Item name="url" label={t('Webhook 地址')} extra={t(editor?.channel?.configured.url?'已配置；留空保留原地址。地址包含私密信息，不会回显。':'地址只用于此渠道的消息发送。')} rules={[{required:!editor?.channel,message:t('请输入 Webhook 地址。')},{validator:async(_,value:string)=>{if(!value)return;let target;try{target=new URL(value);}catch{throw new Error(t('请填写完整的 HTTPS 地址，或本机 HTTP 地址。'));}if(value.trim()!==value||target.username||target.password||target.hash||!(target.protocol==='https:'||target.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(target.hostname)))throw new Error(t('请填写完整的 HTTPS 地址，或本机 HTTP 地址。'));}}]}><Input.Password autoComplete="new-password" maxLength={8192} placeholder="https://example.invalid/webhook"/></Form.Item>
@@ -86,6 +85,7 @@ export default function NotificationChannelsPanel() {
         <Form.Item name="timeoutMs" label={t('超时（毫秒）')} rules={[{required:!editor?.channel,message:t('请输入超时时间。')}]}><InputNumber min={100} max={120000} precision={0}/></Form.Item>
         <Form.Item name="enabled" label={t('启用渠道')} valuePropName="checked"><Switch/></Form.Item>
       </Form>
+      {editor?.channel&&<details className="notification-format-help"><summary>{t('消息格式与安全示例')}</summary><Typography.Paragraph>{editor.channel.format.instructions}</Typography.Paragraph><pre className="notification-json">{JSON.stringify(editor.channel.format.example,null,2)}</pre></details>}
       <Typography.Paragraph className="notification-save-note" type="secondary">{t('保存配置不会发送请求。测试通知使用已保存的配置，且会向接收端发送合成消息。')}</Typography.Paragraph>
       {editorError&&<Alert type="error" showIcon title={t(editorError)} action={editorConflict?<Button disabled={busy||loading} onClick={()=>void rereadEditor()}>{t('重新读取（丢弃草稿）')}</Button>:undefined}/>}
     </Modal>

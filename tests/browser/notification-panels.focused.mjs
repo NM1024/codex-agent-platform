@@ -35,8 +35,9 @@ for(const [kind,owner] of [['schedule','schedules'],['inspection','inspections']
  await page.goto(`/fixture.html?bindings&kind=${kind}`);await page.getByRole('checkbox',{name:/Operations/}).uncheck();await page.getByRole('checkbox',{name:/old-channel/}).uncheck();await page.getByRole('button',{name:'保存通知绑定',exact:true}).click();await expect.poll(()=>writes).toEqual([{path:`/${owner}/synthetic-task/notifications`,body:{notification_channels:[],revision:7}}]);
  if(kind==='schedule')await expect(page.getByText('通知记录',{exact:true})).toHaveCount(0);else await expect(page.getByText('通知记录',{exact:true})).toBeVisible();
 });
-test('read-only execution cannot modify bindings',async({page})=>{
- await fixture(page);await page.goto('/fixture.html?bindings&readonly');await expect(page.getByRole('checkbox',{name:/Operations/})).toBeDisabled();await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect(page.getByText('通知记录',{exact:true})).toBeVisible();
+test('ended execution shows notification outcomes without a binding editor or channel catalog',async({page})=>{
+ await fixture(page);await page.goto('/fixture.html?bindings&readonly');await expect(page.getByRole('checkbox')).toHaveCount(0);await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect(page.getByText('通知记录',{exact:true})).toBeVisible();
+ await page.getByText('synthetic-event',{exact:true}).click();await expect(page.getByText('Synthetic accepted')).toBeVisible();await expect(page.getByText('Synthetic unknown')).toBeVisible();
 });
 test('binding conflict retains selection until explicit reload',async({page})=>{
  let writes=0;await fixture(page,(path,request)=>{if(path.endsWith('/notifications')&&request.method()==='POST'){writes++;return {status:409,json:{error:{message:'synthetic-conflict'}}};}});
@@ -44,7 +45,7 @@ test('binding conflict retains selection until explicit reload',async({page})=>{
 });
 test('failed delete keeps confirmation visible; retry uses the channel revision',async({page})=>{
  const writes=[];await fixture(page,(path,request)=>{if(request.method()==='DELETE'){writes.push({path,body:request.postDataJSON()});return writes.length===1?{status:503,json:{error:{message:'synthetic-delete-failure'}}}:{json:{id:channel.id,deleted:true}};}});
- await page.goto('/fixture.html');await page.getByRole('button',{name:'删除通知渠道：Operations'}).click();const modal=page.getByRole('dialog');await modal.getByRole('button',{name:'删除',exact:true}).click();await expect(modal.getByRole('alert')).toContainText('删除渠道失败');await modal.getByRole('button',{name:'删除',exact:true}).click();await expect(modal).toHaveCount(0);await expect(page.getByRole('heading',{name:'Operations',exact:true})).toHaveCount(0);expect(writes).toEqual([{path:'/notification-channels/synthetic-channel',body:{revision:4}},{path:'/notification-channels/synthetic-channel',body:{revision:4}}]);
+ await page.goto('/fixture.html');await page.getByRole('button',{name:'删除通知渠道：Operations'}).click();const modal=page.getByRole('dialog');await modal.getByRole('button',{name:'删除',exact:true}).click();await expect(modal.getByRole('alert')).toContainText('删除渠道失败');await modal.getByRole('button',{name:'删除',exact:true}).click();await expect(modal).toHaveCount(0);await expect(page.getByText('Operations',{exact:true})).toHaveCount(0);expect(writes).toEqual([{path:'/notification-channels/synthetic-channel',body:{revision:4}},{path:'/notification-channels/synthetic-channel',body:{revision:4}}]);
 });
 test('retry requires removing unavailable channels and explicitly passes an empty selection',async({page})=>{
  let saved;await fixture(page,(path,request)=>{if(path==='/retry-submit'){saved=request.postDataJSON();return {json:{}};}});
@@ -56,5 +57,18 @@ test('retry preserves failed selection and locks duplicate submissions',async({p
 });
 test('schedule executions load owner bindings and terminal execution is read-only',async({page})=>{
  const reads=[];await fixture(page,(path,request)=>{if(request.method()==='GET')reads.push(path);if(path==='/schedules/synthetic-schedule/notifications')return {json:{executions:[{id:'synthetic-running',kind:'inspection',status:'running',created_at:1793320000000},{id:'synthetic-ended',kind:'task',status:'completed',created_at:1793320000000}]}};});
- await page.goto('/fixture.html?executions');await page.getByRole('button',{name:'查看执行通知：synthetic-running',exact:true}).click();await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toBeVisible();await expect.poll(()=>reads).toContain('/inspections/synthetic-running/notifications');await page.getByRole('button',{name:'查看执行通知：synthetic-ended',exact:true}).click();await expect(page.getByRole('checkbox',{name:/Operations/})).toBeDisabled();await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect.poll(()=>reads).toContain('/tasks/synthetic-ended/notifications');
+ await page.goto('/fixture.html?executions');await page.getByRole('button',{name:'查看执行通知：synthetic-running',exact:true}).click();await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toBeVisible();await expect.poll(()=>reads).toContain('/inspections/synthetic-running/notifications');await page.getByRole('button',{name:'查看执行通知：synthetic-ended',exact:true}).click();await expect(page.getByRole('checkbox')).toHaveCount(0);await expect(page.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect.poll(()=>reads).toContain('/tasks/synthetic-ended/notifications');
+});
+
+test('channel catalog has exactly one compact row per saved configuration and no provider placeholders',async({page})=>{
+ await fixture(page,()=>undefined);await page.goto('/fixture.html');
+ const rows=page.getByRole('row').filter({has:page.getByRole('button',{name:'编辑通知渠道：Operations',exact:true})});
+ await expect(rows).toHaveCount(1);await expect(rows).toContainText('Operations');await expect(rows).not.toContainText(channel.id);
+ const box=await rows.boundingBox();expect(box.height).toBeLessThan(100);
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+test('empty channel catalog stays empty until a selected provider configuration is saved',async({page})=>{
+ let saved;await fixture(page,(path,request)=>{if(path==='/notification-channels')return request.method()==='POST'?(saved=request.postDataJSON(),{json:{...channel,...saved.channel}}):{json:{items:[]}};});
+ await page.goto('/fixture.html');await expect(page.getByText('暂无通知渠道',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:/编辑通知渠道：/})).toHaveCount(0);
+ await page.getByRole('button',{name:'新增通知渠道',exact:true}).click();const modal=page.getByRole('dialog');await modal.getByLabel('渠道类型',{exact:true}).click();await page.getByRole('option',{name:'Slack',exact:true}).click();await modal.getByLabel('渠道名称',{exact:true}).fill('Synthetic Slack');await modal.getByLabel('Webhook 地址',{exact:true}).fill('https://hooks.slack.com/services/SYNTHETIC/EXAMPLE/token');await modal.getByRole('button',{name:'保存渠道',exact:true}).click();await expect(modal).toHaveCount(0);expect(saved.channel.provider).toBe('slack');await expect(page.getByRole('row').filter({hasText:'Synthetic Slack'})).toHaveCount(1);
 });

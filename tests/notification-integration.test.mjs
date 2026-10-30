@@ -109,3 +109,23 @@ test('schedule execution notification history preserves each execution kind afte
   await operations.schedules.tick(now+120000);
   assert.deepEqual(operations.notifications.schedule(plan.id).executions.map(row=>row.kind).sort(),['inspection','task']);
 });
+
+test('plugin defaults bind concrete same-provider channels only to new tasks and explicit selections override them',async t=>{
+ const {store,operations,channel}=await setup(t),type='content.review';
+ const a=store.notifications.saveChannel({name:'Synthetic Feishu operations',provider:'feishu',url:'https://open.feishu.cn/open-apis/bot/v2/hook/synthetic-operations'});
+ const b=store.notifications.saveChannel({name:'Synthetic Feishu developers',provider:'feishu',url:'https://open.feishu.cn/open-apis/bot/v2/hook/synthetic-developers'});
+ const get=()=>operations.execute('plugin_notifications_get',{type});const set=(ids,revision)=>operations.execute('plugin_notifications_update',{type,notification_channels:ids,notification_revision:revision});
+ const empty=await get();assert.deepEqual(empty.notification_channels,[]);const first=await set([a.id,b.id],empty.notification_revision);assert.deepEqual(first.notification_channels,[a.id,b.id]);
+ const inherited=store.accept('default',{type,request_id:'synthetic-inherited',input:{content:'Synthetic inherited'}});assert.deepEqual(inherited.notification_channels,[a.id,b.id]);
+ const none=store.accept('default',{type,request_id:'synthetic-none',input:{content:'Synthetic none'},notification_channels:[]});assert.deepEqual(none.notification_channels,[]);
+ const explicit=store.accept('default',{type,request_id:'synthetic-explicit',input:{content:'Synthetic explicit'},notification_channels:[channel.id]});assert.deepEqual(explicit.notification_channels,[channel.id]);
+ const edited=await set([b.id],first.notification_revision);assert.deepEqual(store.get(inherited.task_id).notification_channels,[a.id,b.id]);
+ assert.deepEqual(store.accept('default',{type,request_id:'synthetic-after-change',input:{content:'Synthetic after change'}}).notification_channels,[b.id]);await assert.rejects(set([a.id],first.notification_revision),{code:'NOTIFICATION_BINDING_REVISION_CONFLICT'});
+ const run=store.claim(none.task_id);store.fail(run.run_id,'SYNTHETIC');assert.deepEqual(store.retry(none.task_id).notification_channels,[],'retry preserves the original empty binding');
+ const now=Date.parse('2026-10-30T00:00:00Z'),plan=operations.schedules.save({name:'Synthetic empty plan',kind:'task',type,input:{content:'Synthetic scheduled'},cron:'* * * * *',notification_channels:[]},now);await operations.schedules.tick(now+60000);const [{id:taskId}]=operations.notifications.schedule(plan.id).executions;assert.deepEqual(store.get(taskId).notification_channels,[],'empty schedule binding never falls back to plugin defaults');
+ assert.equal(edited.notification_revision,first.notification_revision+1);
+});
+test('plugin defaults require notification capabilities and reject channel types as destination IDs',async t=>{
+ const {operations,channel}=await setup(t);await assert.rejects(operations.execute('plugin_notifications_update',{type:'novel.illustrated',notification_channels:[channel.id],notification_revision:0}),{code:'NOTIFICATION_CAPABILITY_REQUIRED'});
+ await assert.rejects(operations.execute('plugin_notifications_update',{type:'content.review',notification_channels:['feishu'],notification_revision:0}),{code:'INVALID_MANAGEMENT_INPUT'});
+});

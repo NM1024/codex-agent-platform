@@ -10,7 +10,7 @@ const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)
 const text=(value,max=4096)=>typeof value==='string'&&value.length<=max&&!/[\u0000]/.test(value);
 const own=(value,key)=>Object.hasOwn(value,key);
 function ownerIdentity(owner) {
-  if(!object(owner)||!['task','inspection','schedule','test'].includes(owner.kind)||!text(owner.id,512)||!owner.id.trim())fail(400,'INVALID_NOTIFICATION_OWNER');
+  if(!object(owner)||!['task','inspection','schedule','plugin','test'].includes(owner.kind)||!text(owner.id,512)||!owner.id.trim())fail(400,'INVALID_NOTIFICATION_OWNER');
   return [owner.kind,owner.id];
 }
 function transaction(db,fn) {

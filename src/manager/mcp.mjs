@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema,CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { managementTools } from '../contracts/management.mjs';
 import {sandboxToolNames} from '../sandbox/contracts.mjs';
+import {notificationChannelWriteTools} from '../notifications/contracts.mjs';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 
@@ -30,7 +31,8 @@ export function createManagementMcpHandler({store,operations,authorize,execution
           const conversation=store.metadata(conversationId),message=store.message(context.messageId);
           inspection=!!(conversation.inspection_admitted&&conversation.source_message_id===context.messageId&&/^[a-f0-9-]{36}$/.test(conversation.source_id)&&message?.conversation_id===conversationId&&message.status==='running');
         }catch{}
-        return managementTools.filter(tool=>inspection||!['notification_context','send_notification'].includes(tool.name));
+        const fromInspection=/^[a-f0-9-]{36}$/.test(store.metadata(conversationId).source_id??'');
+        return managementTools.filter(tool=>(inspection||!['notification_context','send_notification'].includes(tool.name))&&(!fromInspection||!notificationChannelWriteTools.has(tool.name)));
       };
       server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:availableTools()}));
       server.setRequestHandler(CallToolRequestSchema,async request=>{
@@ -39,8 +41,8 @@ export function createManagementMcpHandler({store,operations,authorize,execution
         const id=store.beginAction(conversationId,name,args);
         const operation=(async()=>{
           try {
-            const scoped=(['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name)||sandboxToolNames.has(name));
-            const context=currentContext()??(name==='conversation_execution'?{conversationId}:undefined);
+            const scoped=(['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name)||sandboxToolNames.has(name)||notificationChannelWriteTools.has(name));
+            const context=currentContext()??(name==='conversation_execution'||notificationChannelWriteTools.has(name)?{conversationId}:undefined);
             const value=await (scoped?operations.execute(name,args,context):operations.execute(name,args));store.finishAction(id,value);
             return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{result:value}};
           }catch(error){store.finishAction(id,null,error);return {isError:true,content:[{type:'text',text:JSON.stringify({error:{code:error.code ?? 'OPERATION_FAILED',message:error.message,operation_status:error.effectUnknown?'unknown':'failed',action:error.effectUnknown?'Inspect current records before deciding whether to retry.':'Correct the input or inspect service health.'}})}]};}

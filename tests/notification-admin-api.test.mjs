@@ -109,3 +109,15 @@ test('Admin schedule and inspection notification bindings are independent and en
   const scope={id:inspection.id,conversation_id:randomUUID(),message_id:randomUUID()};await gatewayOperations.execute('inspection_claim',{id:inspection.id});await gatewayOperations.execute('inspection_ack',{...scope,message_status:'queued'});await gatewayOperations.execute('inspection_execution_update',{...scope,state:'completed'});
   const denied=await request(inspectionPath,{method:'POST',body:{notification_channels:[channel.id],revision:changedInspection.value.notification_revision}});assert.equal(denied.status,409);assert.equal(denied.value.error.code,'INSPECTION_NOT_EDITABLE');assert.equal((await request(inspectionPath)).status,200);
 });
+
+test('Admin plugin notification bindings use concrete channels and preserve connection and plugin definitions',async t=>{
+ const {request,createChannel,store,received}=await setup(t),channel=await createChannel();const path='/plugins/content.review/notifications',before=store.plugins.get('content.review');
+ const empty=await request(path);assert.equal(empty.status,200);assert.deepEqual(empty.value.notification_channels,[]);
+ const saved=await request(path,{method:'POST',body:{notification_channels:[channel.id],revision:0}});assert.equal(saved.status,200);assert.deepEqual(saved.value.notification_channels,[channel.id]);
+ assert.deepEqual(store.plugins.get('content.review'),before);assert.equal(received.length,0);
+ assert.equal((await request(path,{method:'POST',body:{notification_channels:[],revision:0}})).status,409);
+ assert.equal((await request(path,{method:'POST',body:{notification_channels:[],revision:1},authenticated:false})).status,401);
+ assert.equal((await request(path,{method:'POST',body:{notification_channels:[],revision:1},origin:'https://foreign.example.test'})).status,403);
+ assert.equal((await request(path,{method:'POST',body:{notification_channels:['feishu'],revision:1}})).status,400);
+ assert.equal((await request('/plugins/missing.plugin/notifications')).status,404);
+});

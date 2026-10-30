@@ -55,8 +55,8 @@ test('settings notification tab edits a real private channel without sending and
   const channel=await createChannel(page,'settings');const sends=[];
   page.on('request',request=>{if(/\/notification-channels\/[^/]+\/test$/.test(new URL(request.url()).pathname))sends.push(request.url());});
   await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();
-  const card=page.locator('.notification-channel').filter({has:page.getByRole('heading',{name:channel.name,exact:true})});
-  await expect(card).toContainText('已配置');await expect(card).not.toContainText('synthetic-notification-browser-token');
+  const card=page.locator('.notification-channel').filter({has:page.getByText(channel.name,{exact:true})});
+  await expect(card).toContainText('已启用');await expect(card).not.toContainText('synthetic-notification-browser-token');
   await card.getByRole('button',{name:`编辑通知渠道：${channel.name}`,exact:true}).click();const modal=page.getByRole('dialog');
   await expect(modal.getByLabel('Webhook 地址',{exact:true})).toHaveValue('');await expect(modal.getByLabel('Bearer token',{exact:true})).toHaveValue('');
   const name=channel.name+' edited';await modal.getByLabel('渠道名称',{exact:true}).fill(name);await modal.getByLabel('用途说明',{exact:true}).fill('Synthetic revised description');
@@ -64,7 +64,7 @@ test('settings notification tab edits a real private channel without sending and
   const saved=(await json(await page.request.get('/admin/api/notification-channels'))).items.find(item=>item.id===channel.id);
   expect(saved).toMatchObject({name,description:'Synthetic revised description',revision:channel.revision+1,configured:{url:true,token:true}});
   expect(JSON.stringify(saved)).not.toContain('127.0.0.1');expect(JSON.stringify(saved)).not.toContain('synthetic-notification-browser-token');expect(sends).toEqual([]);
-  await page.reload();await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+  await page.reload();await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();await expect(page.getByText(name,{exact:true})).toBeVisible();
 });
 
 test('task detail saves and reloads independent notification bindings through the real API',async({page})=>{
@@ -103,7 +103,7 @@ test('terminal task shows real per-channel history and retry explicitly override
   const fixture=await json(await page.request.post('/admin/api/__fixture/notification-terminal',{data:{task_id:task.task_id,channel_id:channel.id}}));
   const original=await binding(page,'tasks',task.task_id);expect(original.notification_channels).toEqual([channel.id]);expect(original.history.items.length).toBeGreaterThan(0);
   expect(original.history.items.flatMap(batch=>batch.deliveries).every(delivery=>delivery.status==='unavailable')).toBe(true);
-  const detail=await openTask(page,task);await expect(detail.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect(detail.getByRole('checkbox',{name:new RegExp(channel.name)})).toBeDisabled();
+  const detail=await openTask(page,task);await expect(detail.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);await expect(detail.getByRole('checkbox')).toHaveCount(0);
   const batch=fixture.batch??original.history.items[0];await detail.getByText(batch.notification_key,{exact:true}).click();
   for(const delivery of batch.deliveries)await expect(detail.getByText(delivery.summary,{exact:true})).toBeVisible();
   await detail.getByRole('button',{name:'重新执行任务',exact:true}).click();const modal=page.getByRole('dialog');await expect(modal.getByRole('button',{name:'确认重试',exact:true})).toBeDisabled();
@@ -112,4 +112,16 @@ test('terminal task shows real per-channel history and retry explicitly override
   await modal.getByRole('button',{name:'确认重试',exact:true}).click();const response=await retried;
   expect(response.request().postDataJSON().args).toEqual({task_id:task.task_id,notification_channels:[]});const replacement=await json(response);expect(replacement.task_id).not.toBe(task.task_id);
   expect((await binding(page,'tasks',replacement.task_id)).notification_channels).toEqual([]);expect((await binding(page,'tasks',task.task_id)).notification_channels).toEqual([channel.id]);
+});
+
+test('plugin notification defaults select individual Feishu configurations and preserve separate task overrides',async({page})=>{
+ const type=await createPlugin(page,'defaults'),channels=[];
+ for(const suffix of ['Operations','Engineering'])channels.push(await json(await page.request.post('/admin/api/notification-channels',{data:{channel:{name:`Synthetic Feishu ${suffix}`,provider:'feishu',url:`https://open.feishu.cn/open-apis/bot/v2/hook/synthetic-${suffix.toLowerCase()}`}}})));
+ await navigate(page,'plugins');await page.getByRole('row').filter({hasText:type}).getByRole('button',{name:'配置接入',exact:true}).click();const modal=page.getByRole('dialog');await modal.getByRole('tab',{name:'通知渠道',exact:true}).click();
+ for(const channel of channels)await modal.getByRole('checkbox',{name:new RegExp(channel.name)}).check();await modal.getByRole('button',{name:'保存通知绑定',exact:true}).click();
+ await expect.poll(async()=>(await json(await page.request.get(`/admin/api/plugins/${type}/notifications`))).notification_channels).toEqual(channels.map(channel=>channel.id));
+ const created=await operation(page,'submit_task',{type,input:{text:'Synthetic plugin default task'}});expect(created.notification_channels).toEqual(channels.map(channel=>channel.id));
+ const empty=await operation(page,'submit_task',{type,input:{text:'Synthetic no notification task'},notification_channels:[]});expect(empty.notification_channels).toEqual([]);
+ await modal.getByRole('checkbox',{name:new RegExp(channels[0].name)}).uncheck();await modal.getByRole('button',{name:'保存通知绑定',exact:true}).click();await expect.poll(async()=>(await json(await page.request.get(`/admin/api/plugins/${type}/notifications`))).notification_channels).toEqual([channels[1].id]);expect((await operation(page,'task',{task_id:created.task_id})).notification_channels).toEqual(channels.map(channel=>channel.id));
+ await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

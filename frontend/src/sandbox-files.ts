@@ -16,10 +16,10 @@ export const sandboxFileUrl=(file:SandboxAttachment,conversationId:string,previe
     return url.pathname+url.search;
   }catch{return null;}
 };
-export const sandboxPreviewKind=(mime:string)=>{
+export const sandboxPreviewKind=(mime:string,name='')=>{
   mime=mime.split(';',1)[0].trim().toLowerCase();
   if(/^(image\/(png|jpeg|webp|gif))$/i.test(mime))return 'image';
-  if(/^(text\/(plain|csv|tab-separated-values)|application\/(json|x-ndjson))$/i.test(mime))return 'text';
+  if(/^(text\/(plain|markdown|x-markdown|csv|tab-separated-values)|application\/(json|x-ndjson))$/i.test(mime))return /\.(md|markdown)$/i.test(name)||/^text\/(?:x-)?markdown$/.test(mime)?'markdown':'text';
   return null;
 };
 export const sandboxFileSize=(size:number)=>size>=1024*1024?`${(size/1024/1024).toFixed(1)} MiB`:size>=1024?`${(size/1024).toFixed(1)} KiB`:`${size} B`;

@@ -3,6 +3,7 @@ import {Alert,Button,Checkbox,Form,Input,Modal,Switch,Tabs,Tooltip,Typography} f
 import {ApiError} from './api';
 import {Icon} from './Icon';
 import {LoadingState} from './components';
+import {NotificationBindingsPanel} from './NotificationBindingsPanel';
 import {PluginExecutionSettings,usePluginExecutionSettings} from './PluginExecutionSettings';
 import PluginIntegrationDrawer from './PluginIntegrationDrawer';
 import {useConsole} from './context';
@@ -106,9 +107,9 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onModelSav
   const claimedVisible=!!claimedEntryKey&&!entryKey;
   const copyAction=(key:string,value:string,label:string)=> <Tooltip title={t(label)}><Button icon={<Icon name="copy"/>} aria-label={t(label)} loading={copying[key]} disabled={locked||!value} onClick={()=>{void copy(key,value);}}/></Tooltip>;
   return <>
-    <Modal className={'plugin-connection-modal'+(loading&&tab!=='models'?' connection-loading':'')} title={<><span>{t('配置接入：{name}',{name:plugin.name})}</span><Typography.Text className="connection-subtitle" type="secondary">{plugin.type} · {t(connection?.ready?'接入已就绪':connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></>} open width={800} onCancel={close} footer={<div className="connection-footer"><Button type="link" onClick={()=>setShowDocs(true)}>{t('对接文档')}</Button><div><Button onClick={close}>{t('取消')}</Button><Button type="primary" disabled={tab==='models'?!models.current||models.loading||models.conflict||busy:!connection||loading||conflict||busy} loading={tab==='models'?models.saving:saving} onClick={()=>{void (tab==='models'?models.save():save());}}>{t(tab==='models'?'保存模型设置':'保存接入配置')}</Button></div></div>}>
-      {tab!=='models'&&loading&&<LoadingState className="integration-loading" label="正在读取…"/>}
-      {tab!=='models'&&error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
+    <Modal className={'plugin-connection-modal'+(loading&&['entry','callback'].includes(tab)?' connection-loading':'')} title={<><span>{t('配置接入：{name}',{name:plugin.name})}</span><Typography.Text className="connection-subtitle" type="secondary">{plugin.type} · {t(connection?.ready?'接入已就绪':connection?.entryKeyClaimable?'待领取入口密钥':'待配置接入')}</Typography.Text></>} open width={800} onCancel={close} footer={<div className="connection-footer"><Button type="link" onClick={()=>setShowDocs(true)}>{t('对接文档')}</Button><div><Button onClick={close}>{t('取消')}</Button>{tab!=='notifications'&&<Button type="primary" disabled={tab==='models'?!models.current||models.loading||models.conflict||busy:!connection||loading||conflict||busy} loading={tab==='models'?models.saving:saving} onClick={()=>{void (tab==='models'?models.save():save());}}>{t(tab==='models'?'保存模型设置':'保存接入配置')}</Button>}</div></div>}>
+      {['entry','callback'].includes(tab)&&loading&&<LoadingState className="integration-loading" label="正在读取…"/>}
+      {['entry','callback'].includes(tab)&&error&&<Alert type="error" showIcon title={t(error)} action={!connection||conflict?<Button disabled={saving||claiming} onClick={()=>setLoadVersion(value=>value+1)}>{t('重新读取')}</Button>:undefined}/>}
       <Form id="plugin-connection-form" className="settings-form connection-form" layout="horizontal" colon={false} onFinish={()=>{void (tab==='models'?models.save():save());}}>
         <Tabs activeKey={tab} onChange={key=>{if(busy)return;if(key==='models')setModelsOpened(true);setTab(key);}} items={[
           {key:'entry',label:t('入口配置'),forceRender:true,disabled:busy,children:connection&&<>
@@ -149,6 +150,7 @@ export default function PluginConnectionModal({plugin,onClose,onSaved,onModelSav
             {!callbackEnabled&&connection.callbackUrl&&<Typography.Paragraph type="warning">{t('关闭回调并保存，将清除已保存的回调地址和凭证。')}</Typography.Paragraph>}
             <details className="connection-help"><summary>{t('回调如何工作')}</summary><p>{t('选填。本平台向您的业务系统发送最终结果的接收地址，使用 HTTP POST JSON。留空则仅执行任务并支持查询，不发送回调；清空地址也会清除已保存的回调凭证。')}</p><p>{t('选填，按接收方要求填写。回调请求使用 Authorization: Bearer 携带此凭证；它与入口密钥独立。留空保留已保存值，未配置则不发送认证头。')}</p></details>
           </>},
+          {key:'notifications',label:t('通知渠道'),disabled:busy,children:<NotificationBindingsPanel key={plugin.type} kind="plugin" id={plugin.type}/>},
           {key:'models',label:t('模型设置'),forceRender:true,disabled:busy,children:<PluginExecutionSettings settings={models}/>},
         ]}/>
         {copyNotice&&<Typography.Paragraph className="connection-copy-notice" role="status">{t(copyNotice)}</Typography.Paragraph>}

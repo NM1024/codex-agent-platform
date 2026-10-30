@@ -10,7 +10,7 @@ import {ManagerStore} from '../src/manager/store.mjs';
 import {createManagerOperations} from '../src/manager/operations.mjs';
 import {createManagementMcpHandler} from '../src/manager/mcp.mjs';
 
-async function fixture(t,{ordinary=false}={}) {
+async function fixture(t,{ordinary=false,sourceId=null}={}) {
   const app=createApplication('gateway',{RUNNER_TOKEN:'synthetic-notification-binding-token'});
   const gatewayStore=new RequestStore(':memory:',{registry:app.registry});
   const gateway=new OperationsService({...app,store:gatewayStore,dispatcher:{drain:async()=>{}},runner:{ready:async()=>({ready:true})},configuration:app.configuration(gatewayStore)});
@@ -28,7 +28,7 @@ async function fixture(t,{ordinary=false}={}) {
   store.admitInspection(id,original.conversation.id,original.message.id);
   store.markRunning(original.message.id);
   await gateway.execute('inspection_execution_update',{...mapping,state:'running'});
-  const conversation=ordinary?store.createConversation('Synthetic ordinary management'):original.conversation;
+  const conversation=ordinary?store.createConversation('Synthetic ordinary management',sourceId):original.conversation;
   const message=ordinary?store.enqueue(conversation.id,'Change the inspection notification binding'):original.message;
   if(ordinary)store.markRunning(message.id);
   const forwards=[];
@@ -40,7 +40,7 @@ async function fixture(t,{ordinary=false}={}) {
   const client=new Client({name:'synthetic-notification-binding',version:'1'});
   t.after(async()=>{await client.close();await handler.settle();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));store.close();gatewayStore.close();});
   await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.address().port}/mcp`),{requestInit:{headers:{authorization:'Bearer synthetic-mcp-token'}}}));
-  return {client,operations,forwards,first,second,binding:()=>gatewayStore.notifications.getBinding({kind:'inspection',id}),args:{id,notification_channels:[second.id],notification_revision:1}};
+  return {client,operations,forwards,first,second,store,gatewayStore,context,binding:()=>gatewayStore.notifications.getBinding({kind:'inspection',id}),args:{id,notification_channels:[second.id],notification_revision:1}};
 }
 
 test('original running inspection cannot update its own binding through trusted management MCP context',async t=>{
@@ -73,4 +73,31 @@ test('Admin operation without Agent execution context can update an inspection b
   assert.deepEqual(result.notification_channels,[second.id]);
   assert.deepEqual(binding().notification_channels,[second.id]);
   assert.equal(binding().notification_revision,2);
+});
+
+test('ordinary management MCP maintains channels with write-only credentials, revisions and no sends',async t=>{
+ const {client,gatewayStore,store,context}=await fixture(t,{ordinary:true});
+ const tools=(await client.listTools()).tools.map(tool=>tool.name);assert.ok(tools.includes('notification_channel_save'));assert.ok(tools.includes('notification_channel_delete'));assert.ok(!tools.includes('notification_channel_test'));
+ const call=async(name,args)=>{const result=await client.callTool({name,arguments:args});assert.ok(!result.isError,JSON.stringify(result));return result.structuredContent;};
+ const saved=await call('notification_channel_save',{channel:{name:'Synthetic managed channel',provider:'custom',url:'https://example.invalid/synthetic-secret-url',token:'synthetic-managed-bearer',headers:{'X-Synthetic-Key':'synthetic-managed-header'}}});
+ const safe=value=>{for(const secret of ['synthetic-secret-url','synthetic-managed-bearer','synthetic-managed-header'])assert.ok(!JSON.stringify(value).includes(secret));};
+ safe(saved);assert.deepEqual(saved.configured,{url:true,token:true,headers:true,signingSecret:false});
+ const edited=await call('notification_channel_save',{channel:{id:saved.id,name:'Renamed managed channel',enabled:false},revision:saved.revision});assert.equal(edited.enabled,false);assert.deepEqual(edited.configured,saved.configured);safe(edited);
+ const stale=await client.callTool({name:'notification_channel_save',arguments:{channel:{id:saved.id,name:'Stale'},revision:saved.revision}});assert.equal(stale.isError,true);assert.match(stale.content[0].text,/NOTIFICATION_CHANNEL_REVISION_CONFLICT/);
+ const removed=await call('notification_channel_delete',{id:saved.id,revision:edited.revision});assert.equal(removed.deleted,true);assert.ok(!gatewayStore.notifications.listChannels().some(item=>item.id===saved.id));
+ assert.equal(gatewayStore.db.prepare('SELECT count(*) AS n FROM notification_batches').get().n,0);safe(store.actions(context.conversationId));
+});
+test('inspection cannot rewrite global notification targets through MCP or direct scoped operations',async t=>{
+ const {client,operations,context,first,gatewayStore}=await fixture(t);
+ const tools=(await client.listTools()).tools.map(tool=>tool.name);assert.ok(!tools.includes('notification_channel_save'));assert.ok(!tools.includes('notification_channel_delete'));
+ for(const [name,args] of [['notification_channel_save',{channel:{id:first.id,url:'https://example.invalid/replaced'},revision:first.revision}],['notification_channel_delete',{id:first.id,revision:first.revision}]]){
+  const result=await client.callTool({name,arguments:args});assert.equal(result.isError,true);await assert.rejects(operations.execute(name,args,context),{code:'INSPECTION_CHANNEL_UPDATE_DENIED'});
+ }
+ assert.equal(gatewayStore.notifications.channel(first.id).revision,first.revision);
+});
+
+test('task investigation management chat retains channel maintenance tools and can edit safe metadata',async t=>{
+ const {client,first}=await fixture(t,{ordinary:true,sourceId:'task:00000000-0000-4000-8000-000000000001'});
+ const tools=(await client.listTools()).tools.map(tool=>tool.name);assert.ok(tools.includes('notification_channel_save'));
+ const result=await client.callTool({name:'notification_channel_save',arguments:{channel:{id:first.id,description:'Synthetic investigated configuration'},revision:first.revision}});assert.ok(!result.isError,JSON.stringify(result));assert.equal(result.structuredContent.description,'Synthetic investigated configuration');
 });

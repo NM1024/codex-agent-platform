@@ -97,6 +97,13 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw new HttpError(400,'INVALID_NOTIFICATION_BINDING');
         return json(res,200,await operations.execute(name+'_notifications_update',{...identity,notification_channels:body.notification_channels,notification_revision:body.revision}));
       }
+      const pluginNotifications=path.match(/^\/admin\/api\/plugins\/([^/]+)\/notifications$/);
+      if(pluginNotifications&&['GET','POST'].includes(req.method)){
+        const type=decodeURIComponent(pluginNotifications[1]);
+        if(req.method==='GET')return json(res,200,await operations.execute('plugin_notifications_get',{type}));
+        const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw new HttpError(400,'INVALID_NOTIFICATION_BINDING');
+        return json(res,200,await operations.execute('plugin_notifications_update',{type,notification_channels:body.notification_channels,notification_revision:body.revision}));
+      }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);
       if(req.method==='POST'&&pluginKeyClaim)return json(res,200,await operations.claimPluginEntryKey(decodeURIComponent(pluginKeyClaim[1]),await readJson(req)));

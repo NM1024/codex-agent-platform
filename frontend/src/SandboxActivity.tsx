@@ -61,17 +61,18 @@ function PermissionCard({permission,activity}:{permission:SandboxPermission;acti
     {revocable&&<Button danger aria-label={t('撤销授权')} disabled={busy} loading={busy} onClick={()=>void activity.act('permission',permission.id,'revoke')}>{t('撤销授权')}</Button>}
   </section>;
 }
-export function SandboxActivity({messageId,existingFileIds=[]}:{messageId?:string;existingFileIds?:string[]}) {
+export function SandboxActivity({messageId,existingFileIds=[],asAgentReply=false}:{messageId?:string;existingFileIds?:string[];asAgentReply?:boolean}) {
   const {t}=useConsole(),activity=useContext(Context);
   if(!activity)return null;
   const permissions=activity.value?.permissions.filter(permission=>!messageId||permission.message_id===messageId)??[];
   const executions=activity.value?.executions.filter(job=>!messageId||job.message_id===messageId||!job.message_id&&permissions.some(permission=>permission.execution_id===job.execution_id))??[];
   const files=activity.value?.files.filter(file=>file.origin==='sandbox'&&(!messageId||file.message_id===messageId)&&!existingFileIds.includes(file.file_id))??[];
   if(!permissions.length&&!executions.length&&!files.length)return null;
-  return <div className="sandbox-activity" aria-label={t('沙箱活动')}>
+  const content=<div className="sandbox-activity" aria-label={t('沙箱活动')}>
     <SandboxAttachments conversationId={activity.conversationId} files={files}/>
     {permissions.map(permission=><PermissionCard key={permission.id} permission={permission} activity={activity}/>)}
     {executions.map(job=><section key={job.execution_id||job.request_key} className="sandbox-job" data-execution-id={job.execution_id} aria-label={t('沙箱执行')}><div className="sandbox-job-heading"><Typography.Text strong>{t(jobLabels[job.status])}</Typography.Text>{job.status==='running'&&<Button size="small" danger aria-label={t('停止执行')} disabled={activity.busy.has('cancel:'+job.execution_id)} loading={activity.busy.has('cancel:'+job.execution_id)} onClick={()=>void activity.act('cancel',job.execution_id)}>{t('停止执行')}</Button>}</div>{job.exit_code!==null&&<p>{t('退出码：{code}',{code:job.exit_code})}</p>}{job.reason&&<p>{job.reason}</p>}{(job.stdout||job.stderr)&&<Collapse size="small" items={[{key:'output',label:t('查看命令输出'),children:<>{(job.stdout_truncated||job.stderr_truncated)&&<p>{t('此处仅显示部分输出，可让 Agent 查询保留的完整输出。')}</p>}{job.stdout&&<pre className="sandbox-output">{job.stdout}</pre>}{job.stderr&&<pre className="sandbox-output sandbox-stderr">{job.stderr}</pre>}</>}]}/>}</section>)}
     {activity.error&&<Alert type="error" title={activity.error}/>}
   </div>;
+  return asAgentReply?<article className="message assistant" data-message-id={'sandbox:'+messageId}><div className="message-avatar" aria-hidden="true">A</div><div className="message-content"><div className="message-label"><span>{t('管理 AGENT')}</span></div><div className="message-bubble">{content}</div></div></article>:content;
 }

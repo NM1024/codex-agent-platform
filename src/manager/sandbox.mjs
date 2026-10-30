@@ -36,8 +36,8 @@ async function contentInfo(name,bytes){
   if(bytes.length>=8&&(bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||bytes.subarray(0,3).equals(Buffer.from([255,216,255]))||bytes.subarray(0,4).toString()==='RIFF')){
     try{return await withImageWork(async sharp=>{const metadata=await sharp(bytes,{limitInputPixels:16777216}).metadata();if(!['png','jpeg','webp'].includes(metadata.format)||!metadata.width||!metadata.height)throw new Error();await sharp(bytes,{limitInputPixels:16777216}).stats();return {mime:'image/'+metadata.format,preview:true};});}catch{return {mime:'application/octet-stream',preview:false};}
   }
-  if(['.txt','.csv','.tsv','.json','.log','.md','.py','.js','.mjs','.cjs','.yaml','.yml'].includes(ext)&&!bytes.includes(0)){
-    try{new TextDecoder('utf-8',{fatal:true}).decode(bytes);return {mime:'text/plain; charset=utf-8',preview:true};}catch{}
+  if(['.txt','.csv','.tsv','.json','.jsonl','.ndjson','.log','.md','.markdown','.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.yaml','.yml','.toml','.ini','.cfg','.conf','.sh','.bash','.sql','.xml','.css','.scss','.less','.r','.rb','.go','.rs','.java','.c','.h','.cpp','.hpp','.cs','.swift','.kt'].includes(ext)&&!bytes.includes(0)){
+    try{new TextDecoder('utf-8',{fatal:true}).decode(bytes);return {mime:['.md','.markdown'].includes(ext)?'text/markdown; charset=utf-8':'text/plain; charset=utf-8',preview:true};}catch{}
   }
   return {mime:'application/octet-stream',preview:false};
 }

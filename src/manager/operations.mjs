@@ -8,6 +8,7 @@ import {currentPlatformContext} from './project-context.mjs';
 import {createProjectSourceReader} from './project-source.mjs';
 import {conversationExecution} from './model-configuration.mjs';
 import {sandboxToolNames} from '../sandbox/contracts.mjs';
+import {notificationChannelWriteTools} from '../notifications/contracts.mjs';
 const ajv=new Ajv({strict:true}),checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
 export function createManagerOperations({client,store,metrics,configuration,auth,sandbox,models=createModelCatalog({env:{...filteredCodexEnv(),CODEX_HOME:process.env.CODEX_LOGIN_HOME ?? '/codex',HOME:process.env.CODEX_LOGIN_HOME ?? '/codex'}})}) {
   const projectSource=createProjectSourceReader();
@@ -20,6 +21,7 @@ export function createManagerOperations({client,store,metrics,configuration,auth
     async execute(action,args={},context={}) {
       const check=checks.get(action);
       if(!check||!check(args))throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','管理操作或参数不正确。');
+      if(notificationChannelWriteTools.has(action)&&context.conversationId&&/^[a-f0-9-]{36}$/.test(store.metadata(context.conversationId).source_id??''))throw new HttpError(403,'INSPECTION_CHANNEL_UPDATE_DENIED','定时巡检对话不能修改全局通知渠道；请在独立管理对话中维护。');
       if(sandboxToolNames.has(action)){if(!sandbox)throw new HttpError(503,'SANDBOX_UNAVAILABLE','代码沙箱暂不可用。');return sandbox.execute(action,args,context);}
       if(action==='models')return models();
       if(action==='conversation_execution')return conversationExecution({store,configuration,conversationId:context.conversationId},args);

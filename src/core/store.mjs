@@ -177,7 +177,7 @@ export class RequestStore {
       const module=this.moduleFor(row);let input=JSON.parse(row.input);
       if(itemIds){if(!module.retryInput)throw fault('ITEM_SELECTION_UNAVAILABLE',400);input=module.retryInput(input,itemIds);}
       const channels=notification_channels===undefined?(this.notifications?.getBinding({kind:'task',id:taskId}).notification_channels??[]):notification_channels;
-      const next=this.accept(row.client_id,{type:row.type,request_id:`retry:${row.task_id}:${randomUUID()}`,input,...(channels?.length||notification_channels!==undefined?{notification_channels:channels}:{})});
+      const next=this.accept(row.client_id,{type:row.type,request_id:`retry:${row.task_id}:${randomUUID()}`,input,notification_channels:channels});
       this.db.prepare('UPDATE agent_requests SET retry_of=? WHERE task_id=?').run(row.task_id,next.task_id);
       return {...next,retry_of:row.task_id};
     });
@@ -218,7 +218,7 @@ export class RequestStore {
     if(typeof body?.type==='string'&&this.db.prepare('SELECT deleted_at FROM platform_plugins WHERE type=?').get(body.type)?.deleted_at!=null)throw fault('PLUGIN_DELETED',409);
     if(body?.type&&this.registry.modules.get(body.type)?.definition)this.pluginConnections?.assertReady(body.type);
     const { module, input } = this.registry.normalize(body);
-    const notificationChannels=body.notification_channels===undefined?[]:body.notification_channels;
+    const notificationChannels=body.notification_channels===undefined?(this.notifications?.getBinding({kind:'plugin',id:body.type}).notification_channels??[]):body.notification_channels;
     if(!Array.isArray(notificationChannels)||notificationChannels.length>32||notificationChannels.some(value=>typeof value!=='string'||!/^[a-f0-9-]{36}$/.test(value))||new Set(notificationChannels).size!==notificationChannels.length)throw fault('INVALID_NOTIFICATION_BINDING',400);
     assertNotificationCapability(module,notificationChannels);
     if(notificationChannels.length&&!this.notifications)throw fault('NOTIFICATIONS_UNAVAILABLE',503);

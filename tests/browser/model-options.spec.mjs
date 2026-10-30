@@ -43,30 +43,23 @@ test('chat preserves four overrides across model switches and automatic budgets 
     const response=await page.request.post('/admin/api/conversations',{data:{title:'Synthetic advanced options',execution:{verbosity:'high',reasoningSummary:'none',autoCompactTokenLimit:null,toolOutputTokenLimit:null,serviceTier:'default',reasoningEffort:'low'}}});expect(response.ok()).toBeTruthy();const created=await response.json();
     const saved=async()=>(await(await page.request.get('/admin/api/conversations/'+created.id)).json()).execution;
     await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);await openChatPicker(page);
-    const panel=chatPicker(page);await expect(panel.getByRole('button',{name:'高级模型参数',exact:true})).toHaveAttribute('aria-expanded','false');
-    await expand(panel);await expect(panel.locator('.ant-select').filter({has:page.locator('#chat-options-autoCompactTokenLimit-mode')})).toContainText('自动');
+    const panel=chatPicker(page);await expect(panel.getByRole('button',{name:'高级模型参数',exact:true})).toHaveCount(0);await expect(panel.getByRole('switch',{name:'快速模式',exact:true})).toBeVisible();
     await panel.getByRole('radio',{name:'Fixture Fast',exact:true}).click();
     await expect.poll(saved).toEqual({model:'fixture-fast',serviceTier:'default',verbosity:'high',reasoningSummary:'none',autoCompactTokenLimit:null,toolOutputTokenLimit:null});
-    await choose(page,'chat-options-toolOutputTokenLimit-mode','继承全局设置：4096');
-    await expect.poll(async()=>Object.hasOwn(await saved(),'toolOutputTokenLimit')).toBe(false);
-    await choose(page,'chat-options-toolOutputTokenLimit-mode','自动');await expect.poll(async()=>(await saved()).toolOutputTokenLimit).toBeNull();
-    await page.keyboard.press('Escape');await openChatPicker(page);await expand(chatPicker(page));
-    await expect(chatPicker(page).locator('.ant-select').filter({has:page.locator('#chat-options-toolOutputTokenLimit-mode')})).toContainText('自动');
+    await page.keyboard.press('Escape');await openChatPicker(page);await expect(chatPicker(page).getByRole('button',{name:'高级模型参数',exact:true})).toHaveCount(0);
   }finally{await operation(page,'configuration_update',{scope:'manager',patch:{autoCompactTokenLimit:before.autoCompactTokenLimit??null,toolOutputTokenLimit:before.toolOutputTokenLimit??null}});}
 });
 
-test('phone chat opens without materializing inherited options and advanced controls fit a short viewport',async({page})=>{
+test('phone chat only offers model reasoning and speed without materializing inherited advanced options',async({page})=>{
   await page.setViewportSize({width:390,height:600});
   const created=await(await page.request.post('/admin/api/conversations',{data:{title:'Synthetic inherited advanced options',execution:{}}})).json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);await page.locator('#message-input').fill('Synthetic draft');await openChatPicker(page);
   let writes=0;page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/conversations/'+created.id))writes++;});
-  const panel=chatPicker(page);await expect(panel.getByRole('button',{name:'高级模型参数',exact:true})).toHaveAttribute('aria-expanded','false');await expand(panel);
-  await panel.locator('#chat-options-toolOutputTokenLimit-mode').scrollIntoViewIfNeeded();await expect(panel.locator('#chat-options-toolOutputTokenLimit-mode')).toBeInViewport();
+  const panel=chatPicker(page);await expect(panel.getByRole('button',{name:'高级模型参数',exact:true})).toHaveCount(0);await expect(panel.getByRole('switch',{name:'快速模式',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.keyboard.press('Escape');expect((await(await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual({});await expect(page.locator('#message-input')).toHaveValue('Synthetic draft');expect(writes).toBe(0);
   await page.locator('#app-language').click();await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText('English',{exact:true}).click();
-  await openChatPicker(page);const advanced=chatPicker(page).getByRole('button',{name:'Advanced model settings',exact:true});await expect(advanced).toBeVisible();if(await advanced.getAttribute('aria-expanded')==='false')await advanced.click();
-  await expect(chatPicker(page).getByLabel('Response verbosity',{exact:true})).toBeVisible();await expect(chatPicker(page).getByLabel('Tool output budget',{exact:true})).toBeVisible();
+  await openChatPicker(page);await expect(chatPicker(page).getByRole('button',{name:'Advanced model settings',exact:true})).toHaveCount(0);await expect(chatPicker(page).getByRole('switch',{name:'Fast mode',exact:true})).toBeVisible();
 });
 
 test('plugin advanced overrides preserve automatic budgets and clear each field back to inheritance',async({page})=>{
@@ -88,12 +81,12 @@ test('plugin advanced overrides preserve automatic budgets and clear each field 
 
 test('server-side current-conversation configuration updates survive the next browser send',async({page})=>{
   const created=await(await page.request.post('/admin/api/conversations',{data:{title:'Synthetic Agent autonomous settings',execution:{verbosity:'low'}}})).json();
-  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);await openChatPicker(page);await expand(chatPicker(page));
+  await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);await openChatPicker(page);await expect(chatPicker(page).getByRole('button',{name:'高级模型参数',exact:true})).toHaveCount(0);
   const next={verbosity:'high',reasoningSummary:'none',toolOutputTokenLimit:1024};
   // The management tool persists through this same Store and stream; its MCP
   // identity/revision contract is independently exercised in Node integration.
   expect((await page.request.post('/admin/api/conversations/'+created.id,{data:{execution:next}})).ok()).toBeTruthy();
-  await expect(chatPicker(page).locator('.ant-select').filter({has:page.locator('#chat-options-verbosity')})).toContainText('详细');
+  await expect.poll(async()=>(await(await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual(next);
   await page.keyboard.press('Escape');await page.locator('#message-input').fill('Synthetic next turn after autonomous setting update');
   await page.getByRole('button',{name:'发送',exact:true}).click();
   await expect.poll(async()=>(await(await page.request.get('/admin/api/conversations/'+created.id)).json()).messages.filter(item=>item.role==='user').length).toBe(1);
