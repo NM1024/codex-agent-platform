@@ -7,6 +7,7 @@ import {renderSystemPrompt} from '../prompts.mjs';
 import { managementTools } from '../contracts/management.mjs';
 import {staticEncoding} from './static-encoding.mjs';
 import {validateChatImages} from './chat-images.mjs';
+import {handleSandboxRoute} from './sandbox-routes.mjs';
 import {streamConversation} from './events.mjs';
 import {buildPluginIntegration} from './plugin-integration.mjs';
 import {createVersionService,createUpgradeClient} from './version.mjs';
@@ -15,7 +16,7 @@ const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
 const entityTag=bytes=>'"'+createHash('sha256').update(bytes).digest('base64url')+'"';
 const matchesTag=(header,etag)=>(header??'').split(',').some(value=>value.trim()==='*'||value.trim().replace(/^W\//,'')===etag);
-export function createManagerServer({store,agent,operations,auth,metrics,versionService=createVersionService(),upgradeClient=createUpgradeClient()}) {
+export function createManagerServer({store,agent,operations,auth,metrics,sandbox,versionService=createVersionService(),upgradeClient=createUpgradeClient()}) {
   const streams=new Set();let eventsClosed=false;
   const server=createServer(async(req,res)=>{
     try {
@@ -46,6 +47,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,version
         res.setHeader('set-cookie',auth.cookie(session.token,req,session.expires_at));return json(res,200,{authenticated:true,expires_at:session.expires_at});
       }
       if(!auth.authorize(req))throw new HttpError(401,'UNAUTHORIZED','请使用 Admin 密码登录。');
+      if(await handleSandboxRoute({req,res,url,store,sandbox}))return;
       if(req.method==='GET'&&path==='/admin/api/version')return json(res,200,{current:versionService.current});
       if(req.method==='GET'&&path==='/admin/api/version/latest')return json(res,200,await versionService.latest());
       if(req.method==='GET'&&path==='/admin/api/upgrade')return json(res,200,await upgradeClient.status());
@@ -81,6 +83,26 @@ export function createManagerServer({store,agent,operations,auth,metrics,version
         }
         res.writeHead(200,{...headers,'content-length':image.size});
         return res.end(req.method==='HEAD'?undefined:Buffer.from(image.bytes));
+      }
+      if(path==='/admin/api/notification-channels'&&['GET','POST'].includes(req.method))return json(res,200,await operations.notificationChannels(req.method==='GET'?'list':'save',req.method==='GET'?{}:await readJson(req)));
+      const notificationChannel=path.match(/^\/admin\/api\/notification-channels\/([a-f0-9-]{36})(?:\/(enable|test))?$/);
+      if(notificationChannel&&['POST','DELETE'].includes(req.method)){
+        const [,id,action]=notificationChannel;if(req.method==='POST'&&!action)throw new HttpError(404,'NOT_FOUND');
+        return json(res,200,await operations.notificationChannels(req.method==='DELETE'?'delete':action,{...(await readJson(req)),id}));
+      }
+      const notificationBinding=path.match(/^\/admin\/api\/(tasks|schedules|inspections)\/([a-f0-9-]{36})\/notifications$/);
+      if(notificationBinding&&['GET','POST'].includes(req.method)){
+        const [,kind,id]=notificationBinding,name=kind==='tasks'?'task':kind==='schedules'?'schedule':'inspection',identity=kind==='tasks'?{task_id:id}:{id};
+        if(req.method==='GET')return json(res,200,await operations.execute(name+'_notifications_get',{...identity,...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
+        const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw new HttpError(400,'INVALID_NOTIFICATION_BINDING');
+        return json(res,200,await operations.execute(name+'_notifications_update',{...identity,notification_channels:body.notification_channels,notification_revision:body.revision}));
+      }
+      const pluginNotifications=path.match(/^\/admin\/api\/plugins\/([^/]+)\/notifications$/);
+      if(pluginNotifications&&['GET','POST'].includes(req.method)){
+        const type=decodeURIComponent(pluginNotifications[1]);
+        if(req.method==='GET')return json(res,200,await operations.execute('plugin_notifications_get',{type}));
+        const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw new HttpError(400,'INVALID_NOTIFICATION_BINDING');
+        return json(res,200,await operations.execute('plugin_notifications_update',{type,notification_channels:body.notification_channels,notification_revision:body.revision}));
       }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);
@@ -118,7 +140,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,version
         if(req.method==='DELETE'&&!conversation[2])return json(res,200,await agent.deleteConversation(conversation[1]));
         if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversationPage(conversation[1],{...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
-        if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images));}
+        if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images,body.file_ids??[]));}
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {
         const body=await readJson(req);if(!managementTools.some(tool=>tool.name===body.action))throw new HttpError(400,'UNKNOWN_OPERATION','未知管理操作。');

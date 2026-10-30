@@ -10,6 +10,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
+import {readJson,json,errorResponse} from "../../src/http.mjs";
 const workspace = await mkdtemp(join(tmpdir(), "console-browser-"));
 const app = createApplication("gateway", {
   INGRESS_TOKEN: "local-fixture-ingress",
@@ -132,6 +133,7 @@ const settings = createManagerConfiguration({ store, agent, auth }),
 const operations = createManagerOperations({
   models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'medium'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
+    notificationChannels:(action,args)=>platform.notifications.channelOperation(action,args),
     claimPluginEntryKey(type,body){return business.pluginConnections.claimEntryKey(type,body);},
     pluginConnection(type,patch){return patch===undefined?business.pluginConnections.get(type):business.pluginConnections.update(type,patch);},
     execute: (...args) => platform.execute(...args),
@@ -152,6 +154,30 @@ const operations = createManagerOperations({
   auth,
 });
 const server = createManagerServer({ store, agent, auth, operations, metrics });
+// Local lifecycle controls for synthetic notification browser tests only.
+const managerRequest=server.listeners('request')[0];server.removeAllListeners('request');
+server.on('request',(req,res)=>{
+  const path=new URL(req.url,'http://local').pathname;
+  if(!path.startsWith('/admin/api/__fixture/'))return managerRequest(req,res);
+  void(async()=>{
+    if(req.method!=='POST'||!auth.authorize(req))return json(res,401,{error:{code:'UNAUTHORIZED'}});
+    const body=await readJson(req);
+    if(path==='/admin/api/__fixture/notification-terminal'){
+      const task=business.get(body.task_id);if(!task.type.startsWith('browser.notification.'))return json(res,400,{error:{code:'SYNTHETIC_TASK_REQUIRED'}});
+      const run=business.claim(task.task_id),channel=business.notifications.channel(body.channel_id);
+      business.notifications.setChannelEnabled(channel.id,false,{revision:channel.revision});
+      const batch=await business.notifications.send({kind:'task',id:task.task_id},{notification_key:'synthetic-browser-terminal-event',deliveries:[{channel_id:channel.id,body:{text:'Synthetic unavailable notification'}}]},{runId:run.run_id});
+      business.fail(run.run_id,'SYNTHETIC_NOTIFICATION_FAILURE');return json(res,200,{task_id:task.task_id,batch});
+    }
+    if(path==='/admin/api/__fixture/notification-inspection'){
+      const plan=platform.schedules.get(body.schedule_id);if(plan.kind!=='inspection'||!plan.name.startsWith('Synthetic notification'))return json(res,400,{error:{code:'SYNTHETIC_PLAN_REQUIRED'}});
+      const enabled=platform.schedules.setEnabled(plan.id,true);await platform.schedules.tick(enabled.next_run_at);platform.schedules.setEnabled(plan.id,false);
+      const row=business.db.prepare('SELECT task_id AS id FROM platform_schedule_runs WHERE schedule_id=? ORDER BY triggered_at DESC LIMIT 1').get(plan.id);return json(res,200,row);
+    }
+    return json(res,404,{error:{code:'NOT_FOUND'}});
+  })().catch(error=>errorResponse(res,error));
+});
+
 await new Promise((r) =>
   server.listen(Number(process.env.CONSOLE_TEST_PORT ?? 4317), "127.0.0.1", r),
 );

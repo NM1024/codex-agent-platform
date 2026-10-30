@@ -33,8 +33,11 @@ jobs:
           tag = archive.name.removeprefix('codex-agent-platform-').removesuffix('.tar.gz')
           module.extract(archive, directory, tag)
           PY
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      - name: Verify isolated code containers and approved network boundary
+        run: |
+          docker build -f Dockerfile.sandbox -t codex-agent-platform-sandbox:1.0.2 .tmp/distributable
+          node_bin=$(command -v node)
+          sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY,http_proxy,https_proxy,all_proxy,no_proxy env SANDBOX_DOCKER_TEST=1 SANDBOX_REQUIRE_NETWORK_TEST=1 "$node_bin" --test tests/sandbox-runtime.test.mjs tests/sandbox-docker-integration.test.mjs tests/sandbox-network.test.mjs
       - name: Build all release targets
         run: |
           version=$(node -p "require('./package.json').version")
@@ -44,3 +47,5 @@ jobs:
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
       - name: Verify real Compose self-update with synthetic data
         run: sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser

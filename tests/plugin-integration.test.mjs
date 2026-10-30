@@ -97,3 +97,10 @@ test('copyable shell examples expand only caller variables and safely quote lite
   const queryArgs=(await run(query)).stdout;assert.ok(queryArgs.includes('https://gateway.example.invalid/v2/tasks/synthetic-task-id'));assert.ok(!queryArgs.includes('${TASK_ID}'));
   const postArgs=(await run(post)).stdout;assert.ok(postArgs.includes(input.text));assert.ok(postArgs.includes('Authorization: Bearer synthetic-key'));
 });
+
+test('generated caller documentation distinguishes plugin defaults from an explicit empty notification selection in both locales',async()=>{
+ const {buildPluginIntegration}=await import('../src/manager/plugin-integration.mjs');
+ for(const [locale,pattern] of [['en',/omission inherits the plugin.*default/i],['zh-CN',/省略时继承插件.*默认/]]){
+  const doc=buildPluginIntegration(definition,humanConnection,{locale});assert.match(doc.markdown,pattern);assert.doesNotMatch(doc.markdown,/omitted or \[\] binds none|省略或 \[\] 不绑定/);
+ }
+});

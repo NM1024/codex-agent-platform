@@ -2,10 +2,13 @@ import {useEffect,useRef,useState} from 'react';
 import {Button,Image,Input,Select,Space,Table,Typography} from 'antd';
 import {useConsole} from '../context';
 import {AsyncButton,DataLoading,JsonView,Panel,Status,TableField,TableIdentifier,taskStatuses,time,useLoad} from '../components';
+import {NotificationBindingsPanel} from '../NotificationBindingsPanel';
+import {NotificationRetryDialog} from '../NotificationRetryDialog';
 import type {Conversation,Task} from '../types';
 export default function TasksPage(){
   const {api,operation,act,t,locale,notify,setChatId,navigate}=useConsole();
   const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
+  const [retryOpen,setRetryOpen]=useState(false);
   const retryLock=useRef(false),[retrying,setRetrying]=useState(false),detailsRef=useRef<HTMLDivElement>(null),detailRequest=useRef(0),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),offset:String(offset),limit:'50'});
@@ -24,10 +27,10 @@ export default function TasksPage(){
   const inspect=async(id:string)=>{const request=++detailRequest.current,value=await api<Task>('/tasks/'+id);if(alive.current&&request===detailRequest.current)setDetail(value);};
   const investigate=async(task_id:string)=>{const value=await api<Conversation>('/conversations',{title:t('调查 ')+task_id.slice(0,8),task_id,investigate:true});if(alive.current){setChatId(value.id);navigate('chat');}};
   const submit=()=>{detailRequest.current++;setOffset(0);setDetail(undefined);setFilter({search,status});};
-  const retry=async()=>{
+  const retry=async(notification_channels?:string[])=>{
     if(retryLock.current||!detail)return;
     retryLock.current=true;setRetrying(true);
-    try{await act(async()=>{const next=await operation<Task>('retry',{task_id:detail.task_id});notify(t('已创建新任务 ')+next.task_id+t('，原记录保留。'));setDetail(undefined);setTick(value=>value+1);});}
+    try{const next=await operation<Task>('retry',{task_id:detail.task_id,...(notification_channels!==undefined?{notification_channels}:{})});notify(t('已创建新任务 ')+next.task_id+t('，原记录保留。'));setDetail(undefined);setRetryOpen(false);setTick(value=>value+1);}
     finally{retryLock.current=false;setRetrying(false);}
   };
   if(loading&&loadedRows===undefined)return <DataLoading/>;
@@ -44,6 +47,7 @@ export default function TasksPage(){
       {title:t('操作'),key:'actions',width:locale==='en'?208:144,className:'table-actions-cell',render:(_,row)=><div className="task-row-actions"><AsyncButton type="text" onClick={()=>inspect(row.task_id)}>{t('详情')}</AsyncButton><AsyncButton onClick={()=>investigate(row.task_id)}>{t('调查')}</AsyncButton></div>},
     ]}/></Panel>
     <Space wrap><Button disabled={offset===0} onClick={()=>setOffset(value=>Math.max(0,value-50))}>{t('上一页')}</Button><Typography.Text>{t('从第 {start} 条开始 · 本页 {count} 条',{start:rows.length?offset+1:0,count:rows.length})}</Typography.Text><Button disabled={rows.length<50} onClick={()=>setOffset(value=>value+50)}>{t('下一页')}</Button></Space>
-    {detail&&<div id="task-details" tabIndex={-1} ref={detailsRef}><Panel title={t('任务详情')}><Space wrap><AsyncButton onClick={()=>investigate(detail.task_id)}>{t('让 Agent 查看')}</AsyncButton>{['completed','failed'].includes(detail.status)&&<Button type="primary" loading={retrying} onClick={()=>void retry()}>{t('重新执行任务')}</Button>}</Space><Typography.Paragraph>{t('HTTP accepted 表示接口接收；业务端异步保存是否成功，以业务端记录为准。')}</Typography.Paragraph><JsonView value={detail}/><div className="previews">{artifacts.map(item=>item.image?<Image key={item.url} src={item.url} alt={item.filename}/>:<Typography.Link key={item.url} href={item.url} download={item.filename}>{item.filename}</Typography.Link>)}</div></Panel></div>}
+    {detail&&<div id="task-details" tabIndex={-1} ref={detailsRef}><Panel title={t('任务详情')}><Space wrap><AsyncButton onClick={()=>investigate(detail.task_id)}>{t('让 Agent 查看')}</AsyncButton>{['completed','failed'].includes(detail.status)&&<Button type="primary" loading={retrying} onClick={()=>detail.notification_channels?.length?setRetryOpen(true):void act(()=>retry())}>{t('重新执行任务')}</Button>}</Space><Typography.Paragraph>{t('HTTP accepted 表示接口接收；业务端异步保存是否成功，以业务端记录为准。')}</Typography.Paragraph><NotificationBindingsPanel key={detail.task_id} kind="task" id={detail.task_id} readOnly={['completed','failed'].includes(detail.status)}/><JsonView value={detail}/><div className="previews">{artifacts.map(item=>item.image?<Image key={item.url} src={item.url} alt={item.filename}/>:<Typography.Link key={item.url} href={item.url} download={item.filename}>{item.filename}</Typography.Link>)}</div></Panel></div>}
+    {detail&&retryOpen&&<NotificationRetryDialog key={detail.task_id} task={detail} open={retryOpen} onCancel={()=>setRetryOpen(false)} onSubmit={ids=>retry(ids)}/> }
   </Space>;
 }

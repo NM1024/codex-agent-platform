@@ -98,6 +98,43 @@ test("one request starts exactly one root thread and one initial turn, subagents
   assert.equal(rpc.calls.filter((x) => x.method === "turn/start").length, 1);
 });
 
+test('business start and fresh-process resume apply model options and explicit turn summaries',async t=>{
+  const clients=[];
+  const {runtime,run,root}=await setup(t,{createClient:()=>{
+    const rpc=new Rpc();
+    const request=rpc.request.bind(rpc);
+    rpc.request=async(method,params)=>method==='thread/resume'?(rpc.calls.push({method,params}),{thread:{id:'root'}}):request(method,params);
+    clients.push(rpc);return rpc;
+  }});
+  const manual={verbosity:'high',reasoningSummary:'detailed',autoCompactTokenLimit:12000,toolOutputTokenLimit:4000};
+  await runtime.launch({...run,execution:manual});
+  const started=clients[0].calls.find(call=>call.method==='thread/start').params;
+  assert.equal(started.config.model_verbosity,'high');
+  assert.equal(started.config.model_reasoning_summary,'detailed');
+  assert.equal(started.config.model_auto_compact_token_limit,12000);
+  assert.equal(started.config.tool_output_token_limit,4000);
+  assert.equal(clients[0].calls.find(call=>call.method==='turn/start').params.summary,'detailed');
+  await runtime.end(run.run_id,'SUSPENDED');
+  const automatic={verbosity:'low',reasoningSummary:'none',autoCompactTokenLimit:null,toolOutputTokenLimit:null};
+  await runtime.launch({...run,generation:1,resume:true,execution:automatic});
+  assert.equal(clients.length,2);
+  const resumed=clients[1].calls.find(call=>call.method==='thread/resume').params;
+  assert.equal(resumed.config.model_verbosity,'low');
+  assert.equal(resumed.config.model_reasoning_summary,'none');
+  assert.equal(Object.hasOwn(resumed.config,'model_auto_compact_token_limit'),false);
+  assert.equal(Object.hasOwn(resumed.config,'tool_output_token_limit'),false);
+  assert.equal(clients[1].calls.find(call=>call.method==='turn/start').params.summary,'none');
+  const record=JSON.parse(await readFile(join(root,'workspace','.agent-runs',run.run_id,'launch.json'),'utf8'));
+  for(const [key,value] of Object.entries(automatic))assert.equal(record.execution[key],value);
+});
+
+test('legacy business launches explicitly request automatic summaries and default verbosity',async t=>{
+  const {runtime,run,rpc}=await setup(t);
+  await runtime.launch(run);
+  assert.equal(rpc.calls.find(call=>call.method==='thread/start').params.config.model_verbosity,'medium');
+  assert.equal(rpc.calls.find(call=>call.method==='turn/start').params.summary,'auto');
+});
+
 test('explicit model reasoning is forwarded to the task turn',async t=>{
   const {runtime,run,rpc}=await setup(t);
   const request=rpc.request.bind(rpc);
@@ -106,6 +143,15 @@ test('explicit model reasoning is forwarded to the task turn',async t=>{
   const turn=rpc.calls.find(call=>call.method==='turn/start').params;
   assert.equal(turn.effort,'high');
   assert.equal(turn.model,'fixture-model');
+});
+test('business runtime sends explicit standard and fast tiers to threads and turns',async t=>{
+  for(const serviceTier of ['default','priority'])await t.test(serviceTier,async t=>{
+    const {runtime,run,rpc}=await setup(t),request=rpc.request.bind(rpc);
+    rpc.request=async(method,params)=>method==='model/list'?{data:[{model:'gpt-6.1-sol',serviceTiers:[{id:'priority',name:'Fast'}]}]}:request(method,params);
+    await runtime.launch({...run,execution:{serviceTier}});
+    assert.equal(rpc.calls.find(call=>call.method==='thread/start').params.serviceTier,serviceTier);
+    assert.equal(rpc.calls.find(call=>call.method==='turn/start').params.serviceTier,serviceTier);
+  });
 });
 test("root exit without MCP completion reports missing result; child exit does not finish root", async (t) => {
   const { runtime, run, rpc, events, exited } = await setup(t);

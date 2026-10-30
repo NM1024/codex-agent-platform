@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Alert,Button,Typography} from 'antd';
 import {AgentPicker,CatalogNote,LoadingState} from './components';
 import {useConsole} from './context';
+import {agentSettingsFromValues} from './modelOptions';
 import type {AgentSettings,ConfigGroup,Plugin} from './types';
 
 export function usePluginExecutionSettings(plugin:Plugin,onSaved:(plugin:Plugin)=>void,enabled:boolean) {
@@ -18,8 +19,7 @@ export function usePluginExecutionSettings(plugin:Plugin,onSaved:(plugin:Plugin)
     void Promise.all([operation<Plugin>('plugin_get',{type:plugin.type}),operation<ConfigGroup>('configuration_get',{scope:'execution'})]).then(([latest,global])=>{
       if(!active)return;
       setCurrent(latest);setValue(latest.execution??{});
-      setDefaults({...(typeof global.values.model==='string'?{model:global.values.model}:{}),
-        ...(typeof global.values.reasoningEffort==='string'||global.values.reasoningEffort===null?{reasoningEffort:global.values.reasoningEffort}:{})});
+      setDefaults(agentSettingsFromValues(global.values));
     }).catch(()=>{if(active)setError('模型设置暂时无法读取，请重试。');}).finally(()=>{if(active)setLoading(false);});
     return()=>{active=false;};
   },[operation,plugin.type,reload,enabled]);

@@ -1,9 +1,11 @@
 import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
 import { fileURLToPath } from "node:url";
+import {codexModelOptions} from '../configuration/model-options.mjs';
 
-export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS, userInput = false } = {}) {
+export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS, userInput = false, modelSettings = {} } = {}) {
   const hook = fileURLToPath(new URL("./tool-policy.mjs", import.meta.url));
   return {
+    ...codexModelOptions(modelSettings),
     "features.shell_tool": false,
     "features.apply_patch_freeform": false,
     "features.js_repl": false,
@@ -12,6 +14,7 @@ export function runtimeConfig(agentPackage, mcpUrl, { toolTimeoutMs = DEFAULT_TO
     "features.connectors": false,
     "features.browser_use": false,
     "features.multi_agent": true,
+    "features.fast_mode": true,
     "features.hooks": true,
     "features.image_generation": agentPackage.native.imageGeneration === true,
     "multi_agent_v2.tool_namespace": "task_agents",

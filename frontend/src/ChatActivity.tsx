@@ -1,7 +1,7 @@
 import {MessageTime} from './ChatMessage';
 import {useConsole} from './context';
 import type {Action,Message} from './types';
-import {connectionWarning,progressTiming,runPresentation,RunIndicator,useProgressClock,type ChatConnection} from './ChatRunStatus';
+import {connectionWarning,progressTiming,runPresentation,RunIndicator,useProgressClock,type ChatConnection} from './chat-progress';
 
 export const messageStatuses:Record<string,string>={queued:'排队中',running:'运行中',executing:'操作中',unknown:'结果未知',interrupted:'等待继续',recovering:'恢复中',completed:'执行完成',failed:'执行失败',steered:'已引导'};
 export const isPending=(status:string)=>['queued','running','interrupted','recovering'].includes(status);

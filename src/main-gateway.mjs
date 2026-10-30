@@ -41,6 +41,7 @@ try {
   const operations=new OperationsService({store,registry,dispatcher,runner,config,configuration:settings,restartGateway:()=>void stop().then(()=>process.exit(0))});
   const retention=new HistoryRetentionWorker({db:store.db,
     readPolicy:()=>{const group=settings.get('retention');return {...group.values,revision:group.revision};},
+    maintenance:()=>store.notifications?.pruneTestHistory({cutoff:Date.now()-7*24*60*60*1000,limit:50}),
     runBatch:createTaskHistoryBatch({store,runner,schedules:operations.schedules,activeDeliveries:deliver.active}),
     compact:()=>compactHistoryDatabase(store.db,{idle:store.isHistoryIdle()&&!deliver.active.size}),
     onSweep:state=>console.log(JSON.stringify({service:'gateway',event:'history_retention_completed',deleted:state.deleted,failed:state.failed})),

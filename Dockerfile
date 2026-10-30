@@ -36,7 +36,7 @@ FROM base AS manager
 COPY --chown=1000:1000 frontend/src ./frontend/src
 COPY --chown=1000:1000 frontend/tsconfig.json frontend/vite.config.ts ./frontend/
 COPY --chown=1000:1000 docs ./docs
-COPY --chown=1000:1000 README.md README.zh-CN.md Dockerfile ./
+COPY --chown=1000:1000 README.md README.zh-CN.md Dockerfile Dockerfile.sandbox ./
 RUN node scripts/check-release.mjs --manager-source
 CMD ["node", "src/main-manager.mjs"]
 FROM base AS test

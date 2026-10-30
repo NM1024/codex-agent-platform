@@ -1,6 +1,8 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Card,Form,Modal,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
+import {Alert,Button,Card,Form,Modal,Select,Switch,Tag,Typography} from 'antd';
 import {Icon} from './Icon';
+import {ModelOptionsFields} from './ModelOptionsFields';
+import {changeAgentModel} from './modelOptions';
 import {useConsole} from './context';
 import type {AgentSettings} from './types';
 export const pretty=(value:unknown)=>JSON.stringify(value,null,2);
@@ -8,19 +10,7 @@ export const time=(value?:number|string)=>value?new Intl.DateTimeFormat('zh-CN',
 export const bytes=(value?:number)=>value===undefined?'—':value>=1073741824?(value/1073741824).toFixed(1)+' GB':(value/1048576).toFixed(1)+' MB';
 const labels:Record<string,string>={queued:'排队中',dispatching:'启动中',running:'运行中',completing:'提交中',suspended:'等待恢复',completed:'执行完成',failed:'执行失败',accepted:'接口已接收',unknown:'结果未知',not_required:'无需交付',pending:'等待交付',interrupted:'等待继续',executing:'操作中'};
 export const taskStatuses=['queued','dispatching','running','completing','suspended','completed','failed'];
-export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loading'>&{onClick:()=>Promise<unknown>}) {
-  const locked=useRef(false),[busy,setBusy]=useState(false),{act}=useConsole();
-  return <Button {...props} loading={busy} aria-busy={busy} onClick={()=>{
-    if(locked.current)return;
-    locked.current=true;setBusy(true);
-    void act(onClick).finally(()=>{locked.current=false;setBusy(false);});
-  }}/>;
-}
-export function LoadingState({label='正在加载数据…',className='',compact=false}:{label?:string;className?:string;compact?:boolean}) {
-  const {t}=useConsole();
-  return <div className={'loading-state '+(compact?'loading-state--compact ':'')+className} role="status" aria-live="polite" aria-atomic="true"><div className="loading-state-content"><span aria-hidden="true"><Spin size={compact?'small':'default'}/></span><span className="loading-state-label">{t(label)}</span></div></div>;
-}
-export function DataLoading(){return <LoadingState className="page-loading"/>;}
+export {AsyncButton,LoadingState,DataLoading} from './shell-components';
 export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
   const {t}=useConsole(),locked=useRef(false);
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -80,10 +70,14 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   const effortOptions=[...(inherit?[{value:'__inherit__',label:t(differentModel?'所选模型默认：{value}':'继承全局设置：{value}',{value:inheritedEffort})}]:[]),{value:'',label:t('模型默认')},...(model?.supportedReasoningEfforts??[]).map(item=>({value:item.reasoningEffort,label:item.reasoningEffort}))];
   const effort=Object.hasOwn(value,'reasoningEffort')?(value.reasoningEffort??''):inherit?'__inherit__':'';
   if(effort&&!effortOptions.some(item=>item.value===effort))effortOptions.push({value:effort,label:t('当前保存值：{value}',{value:effort})});
-  return <div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
-    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} labelRender={compact?({value,label})=><><span className="picker-label-full">{label}</span><span className="picker-label-phone">{value===''?inheritedModel?.displayName??defaults.model??t('模型默认'):label}</span></>:undefined} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange({...(!inherit?{model}:model?{model}:{}),...(!inherit?{reasoningEffort:null}:{})})}/></Form.Item>
+  const inheritedTier=defaults.serviceTier??'default',tier=value.serviceTier??(inherit?inheritedTier:'default');
+  const fastSupported=model?.serviceTiers?.some(item=>item.id==='priority')===true;
+  const tierOptions=[...(inherit?[{value:'__inherit__',label:t('继承全局设置：{value}',{value:t(inheritedTier==='priority'?'快速模式':'普通模式')})}]:[]),{value:'default',label:t('普通模式')},{value:'priority',label:t('快速模式'),disabled:!fastSupported}];
+  return <><div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
+    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} labelRender={compact?({value,label})=><><span className="picker-label-full">{label}</span><span className="picker-label-phone">{value===''?inheritedModel?.displayName??defaults.model??t('模型默认'):label}</span></>:undefined} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange(changeAgentModel(value,model||undefined,inherit))}/></Form.Item>
     <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=><><span className="picker-label-full">{value==='__inherit__'?t('默认：{value}',{value:inheritedEffort}):label}</span><span className="picker-label-phone">{value==='__inherit__'?inheritedEffort:label}</span></>:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
-  </div>;
+    <Form.Item label={t('响应速度')} htmlFor={id+'-serviceTier'} extra={t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}><Select id={id+'-serviceTier'} aria-label={t('响应速度')} disabled={disabled} value={value.serviceTier??(inherit?'__inherit__':'default')} options={tierOptions} status={tier==='priority'&&!fastSupported?'warning':undefined} onChange={serviceTier=>{const next={...value};if(serviceTier==='__inherit__')delete next.serviceTier;else next.serviceTier=serviceTier as 'default'|'priority';onChange(next);}}/></Form.Item>
+  </div><ModelOptionsFields id={id} value={value} defaults={defaults} inherit={inherit} disabled={disabled} onChange={onChange}/></>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {
   const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t}=useConsole();

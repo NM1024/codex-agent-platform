@@ -1,7 +1,7 @@
 import {createContext,useContext,useEffect,useState,useCallback,useRef,type ReactNode} from 'react';
 import {request,ApiError} from './api';
 import {getLocale,setLocale,t} from './i18n';
-import type {Catalog,View,ChatImage,QuestionDraft} from './types';
+import type {Catalog,View,ChatImage,ChatFile,SandboxAttachment,QuestionDraft} from './types';
 interface ConsoleContext {
   locale:string;changeLocale:(locale:string)=>void;t:typeof t;pending:number;notice:string;notify:(text:string)=>void;
   authenticated:boolean;setAuthenticated:(value:boolean)=>void;view:View;navigate:(view:View)=>void;
@@ -9,7 +9,9 @@ interface ConsoleContext {
   act:<T>(work:()=>Promise<T>)=>Promise<T|undefined>;chatId:string|null;setChatId:(id:string|null)=>void;
   chatDraft:string;setChatDraft:(value:string|((previous:string)=>string))=>void;
   chatImages:ChatImage[];setChatImages:(value:ChatImage[]|((previous:ChatImage[])=>ChatImage[]))=>void;
-  chatSendBusy:boolean;beginChatSend:(text:string,imageIds:string[])=>{accepted:()=>void;release:()=>void}|null;
+  chatFiles:ChatFile[];setChatFiles:(value:ChatFile[]|((previous:ChatFile[])=>ChatFile[]))=>void;
+  uploadChatFile:(conversationId:string,draft:ChatFile)=>Promise<SandboxAttachment>;
+  chatSendBusy:boolean;beginChatSend:(text:string,imageIds:string[],fileIds?:string[])=>{accepted:()=>void;release:()=>void;active:()=>boolean;created:(id:string)=>void}|null;
   catalog:Catalog;refreshCatalog:()=>Promise<void>;
   serializeConversation:<T>(id:string,work:()=>Promise<T>)=>Promise<T>;
   questionDrafts:Record<string,QuestionDraft>;
@@ -24,6 +26,13 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   const [pending,setPending]=useState(0),[notice,notify]=useState(''),[chatId,setChatId]=useState<string|null>(null),[catalog,setCatalog]=useState<Catalog>({models:[]});
   const [chatDraft,updateChatDraft]=useState('');
   const [chatImages,setChatImages]=useState<ChatImage[]>([]);
+  const [chatFiles,updateChatFiles]=useState<ChatFile[]>([]);
+  const chatFilesRef=useRef(chatFiles),chatIdRef=useRef(chatId);chatIdRef.current=chatId;
+  const fileUploads=useRef(new Map<string,Promise<SandboxAttachment>>());
+  const setChatFiles=useCallback((value:ChatFile[]|((previous:ChatFile[])=>ChatFile[]))=>{
+    const next=typeof value==='function'?value(chatFilesRef.current):value;
+    chatFilesRef.current=next;updateChatFiles(next);
+  },[]);
   const [chatSendBusy,setChatSendBusy]=useState(false);
   const [questionDrafts,setQuestionDrafts]=useState<Record<string,QuestionDraft>>({});
   const [queueDrafts,setQueueDrafts]=useState<Record<string,string>>({});
@@ -43,20 +52,43 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
     };
   },[]);
   const setChatDraft=useCallback((value:string|((previous:string)=>string))=>{draftVersion.current++;updateChatDraft(value);},[]);
-  const beginChatSend=useCallback((text:string,imageIds:string[])=>{
+  const beginChatSend=useCallback((text:string,imageIds:string[],fileIds:string[]=[])=>{
     if(chatSendLock.current)return null;
     const lease=Symbol(),generation=sessionGeneration.current,version=draftVersion.current;
     chatSendLock.current=lease;setChatSendBusy(true);
+    const originalConversation=chatIdRef.current;
     return {
+      active:()=>generation===sessionGeneration.current,
+      created:(id:string)=>{if(generation===sessionGeneration.current&&chatIdRef.current===originalConversation){chatIdRef.current=id;setChatId(id);}},
       accepted:()=>{
         if(generation!==sessionGeneration.current)return;
         if(version===draftVersion.current)updateChatDraft(current=>current===text?'':current);
         setChatImages(current=>current.filter(image=>!imageIds.includes(image.id)));
+        setChatFiles(current=>current.filter(file=>!fileIds.includes(file.id)));
       },
       release:()=>{if(chatSendLock.current===lease){chatSendLock.current=null;setChatSendBusy(false);}},
     };
   },[]);
-  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});setQueueDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatId(null);notify('');setCatalog({models:[]});}},[]);
+  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});setQueueDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatFiles([]);fileUploads.current.clear();setChatId(null);notify('');setCatalog({models:[]});}},[]);
+  const uploadChatFile=useCallback((conversationId:string,draft:ChatFile):Promise<SandboxAttachment>=>{
+    const generation=sessionGeneration.current,key=conversationId+':'+draft.id;
+    const cached=chatFilesRef.current.find(file=>file.id===draft.id)?.uploaded?.[conversationId];
+    if(cached)return Promise.resolve(cached);
+    const pending=fileUploads.current.get(key);if(pending)return pending;
+    const work=(async()=>{
+      const response=await fetch('/admin/api/conversations/'+encodeURIComponent(conversationId)+'/files',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream','x-file-name':encodeURIComponent(draft.file.name),'x-file-mime':draft.file.type},body:draft.file});
+      const value=await response.json();
+      if(generation!==sessionGeneration.current)throw new Error(t('登录已过期，请重新登录。'));
+      if(response.status===401)setAuthenticated(false);
+      if(!response.ok)throw new ApiError(value.error?.message??value.error?.code??'Request failed',response.status);
+      const uploaded=value as SandboxAttachment;
+      setChatFiles(current=>current.map(file=>file.id===draft.id?{...file,uploaded:{...file.uploaded,[conversationId]:uploaded}}:file));
+      return uploaded;
+    })();
+    fileUploads.current.set(key,work);
+    void work.finally(()=>{if(fileUploads.current.get(key)===work)fileUploads.current.delete(key);}).catch(()=>{});
+    return work;
+  },[setAuthenticated,setChatFiles]);
   // Writes must remain ordered even when ChatPage unmounts during navigation.
   const serializeConversation=useCallback(<T,>(id:string,work:()=>Promise<T>):Promise<T>=>{
     const generation=sessionGeneration.current;
@@ -69,7 +101,8 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
     return result;
   },[]);
   const api=useCallback(async<T,>(path:string,body?:unknown,method?:'DELETE')=>{
-    try{return await request<T>(path,body,method);}catch(error){if(error instanceof ApiError&&error.status===401)setAuthenticated(false);throw error;}
+    const generation=sessionGeneration.current;
+    try{return await request<T>(path,body,method);}catch(error){if(generation===sessionGeneration.current&&error instanceof ApiError&&error.status===401)setAuthenticated(false);throw error;}
   },[]);
   const operation=useCallback(<T,>(action:string,args:unknown={})=>api<T>('/operations',{action,args}),[api]);
   const act=useCallback(async<T,>(work:()=>Promise<T>)=>{
@@ -85,5 +118,5 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   useEffect(()=>{document.documentElement.lang=locale;document.title='Codex Agent Platform';},[locale]);
   const changeLocale=(value:string)=>{setLocale(value);updateLocale(getLocale());};
   const navigate=(next:View)=>{notify('');setView(next);};
-  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
+  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatFiles,setChatFiles,uploadChatFile,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
 }

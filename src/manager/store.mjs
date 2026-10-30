@@ -21,7 +21,8 @@ const busyHistorySql=(conversation=null)=>[
 const retentionCutoff=cutoff=>{if(!Number.isSafeInteger(cutoff))throw new HttpError(400,'INVALID_RETENTION','历史保留截止时间无效。');return cutoff;};
 
 export class ManagerStore {
-  constructor(path) {
+  constructor(path,{onDeleteOwner,onFinishInspection}={}) {
+    this.onDeleteOwner=onDeleteOwner;this.onFinishInspection=onFinishInspection;
     this.events=new EventEmitter();this.events.setMaxListeners(0);
     this.statements=new Map();this.db=new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
@@ -40,8 +41,9 @@ export class ManagerStore {
     `);
     for(const table of ['manager_conversations','manager_messages'])
       if(!this.statement(`PRAGMA table_info(${table})`).all().some(column=>column.name==='execution'))this.db.exec(`ALTER TABLE ${table} ADD COLUMN execution TEXT`);
-    for(const [table,columns] of [['manager_messages',{reply_to:'TEXT',started_at:'INTEGER',completed_at:'INTEGER',updated_at:'INTEGER',partial_text:'TEXT',queued_at:'INTEGER',steer_parent_id:'TEXT'}],['manager_actions',{message_id:'TEXT'}],['manager_conversation_cleanup',{attempted_at:'INTEGER NOT NULL DEFAULT 0'}]])
+    for(const [table,columns] of [['manager_conversations',{source_message_id:'TEXT',inspection_admitted:'INTEGER NOT NULL DEFAULT 0'}],['manager_messages',{reply_to:'TEXT',started_at:'INTEGER',completed_at:'INTEGER',updated_at:'INTEGER',partial_text:'TEXT',queued_at:'INTEGER',steer_parent_id:'TEXT'}],['manager_actions',{message_id:'TEXT'}],['manager_conversation_cleanup',{attempted_at:'INTEGER NOT NULL DEFAULT 0'}]])
       for(const [name,type] of Object.entries(columns))if(!this.statement(`PRAGMA table_info(${table})`).all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    this.db.exec("UPDATE manager_conversations SET inspection_admitted=CASE WHEN (SELECT status FROM manager_messages WHERE conversation_id=manager_conversations.id AND role='user' ORDER BY COALESCE(queued_at,created_at),rowid LIMIT 1) IN ('completed','failed') THEN 1 ELSE 0 END,source_message_id=(SELECT id FROM manager_messages WHERE conversation_id=manager_conversations.id AND role='user' ORDER BY COALESCE(queued_at,created_at),rowid LIMIT 1) WHERE source_id IS NOT NULL AND source_id NOT LIKE 'task:%' AND source_message_id IS NULL");
     this.db.exec('CREATE INDEX IF NOT EXISTS manager_action_message ON manager_actions(conversation_id,message_id,created_at); CREATE INDEX IF NOT EXISTS manager_history_order ON manager_messages(conversation_id,created_at); CREATE INDEX IF NOT EXISTS manager_reply_parent ON manager_messages(reply_to); CREATE INDEX IF NOT EXISTS manager_recent_conversations ON manager_conversations(updated_at DESC,id DESC);');
     this.db.exec("CREATE INDEX IF NOT EXISTS manager_pending_by_conversation ON manager_messages(conversation_id,status,COALESCE(queued_at,created_at)) WHERE role='user' AND status IN ('queued','interrupted')");
     const queued=alias=>`${alias}.role='user' AND ${alias}.status IN ('queued','draft','steering','steer_unknown')`;
@@ -85,7 +87,7 @@ export class ManagerStore {
   replies(id){return this.statement('SELECT id,text,status,created_at,updated_at FROM manager_reply_items WHERE message_id=? ORDER BY created_at,rowid').all(id);}
   questions(id){return this.statement('SELECT * FROM manager_questions WHERE message_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,questions:JSON.parse(row.questions),answers:row.answers?JSON.parse(row.answers):null}));}
   questionMessage(conversationId,id){return this.statement('SELECT m.id FROM manager_messages m JOIN manager_questions q ON q.message_id=m.id WHERE q.id=? AND m.conversation_id=?').get(id,conversationId);}
-  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),generated_images:this.generatedImages(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.statement('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
+  publicMessage(message){const files=this.messageFiles?.(message.id)??[];return {...messageRow(message),...(files.length?{files}:{}),...(this.canSteerMessage?.(message.id)===false?{steerable:false}:{}),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),generated_images:this.generatedImages(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.statement('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
   message(id){const row=this.statement('SELECT * FROM manager_messages WHERE id=?').get(id);return row?this.publicMessage(row):null;}
   metadata(id){const row=this.statement('SELECT * FROM manager_conversations WHERE id=?').get(id);if(!row)throw new HttpError(404,'CONVERSATION_NOT_FOUND','找不到管理会话。');return conversationRow(row);}
   observe(key,value){this.statement('INSERT OR REPLACE INTO manager_observations VALUES(?,?,?)').run(key,JSON.stringify(value),Date.now());}
@@ -140,7 +142,7 @@ export class ManagerStore {
   }
   requeue(conversationId,id,text) {
     const message=this.queuedMessage(conversationId,id,['draft']);
-    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!message.attachments.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
+    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!message.attachments.length&&!(message.files??[]).length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
     const now=Date.now();
     // A withdrawn message joins behind every currently queued request, even in the same millisecond.
     const last=this.statement("SELECT max(COALESCE(queued_at,created_at)) AS time FROM manager_messages WHERE conversation_id=? AND status='queued'").get(conversationId).time??0;
@@ -149,6 +151,7 @@ export class ManagerStore {
   }
   reserveSteer(conversationId,id,parentId,turnId) {
     const message=this.queuedMessage(conversationId,id);
+    if(this.canSteerMessage?.(id)===false)throw new HttpError(409,'MESSAGE_STEER_DISABLED','此授权续消息须独立执行，不能引导到其他任务。');
     // Public history positions are assigned only on first dispatch; all references use message IDs.
     this.statement("UPDATE manager_messages SET rowid=(SELECT max(rowid)+1 FROM manager_messages),status='steering',steer_parent_id=?,turn_id=?,started_at=?,created_at=?,updated_at=? WHERE id=? AND status='queued'").run(parentId,turnId,Date.now(),Date.now(),Date.now(),id);
     this.changed(conversationId,id);return message;
@@ -199,6 +202,8 @@ export class ManagerStore {
       const busy=cutoff===undefined?this.statement("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','running','interrupted') LIMIT 1").get(id):this.statement(`SELECT 1 FROM manager_conversations c WHERE c.id=? AND (${busyHistorySql('c.id')})`).get(id);
       if(busy)throw new HttpError(409,'CONVERSATION_BUSY','请等待此对话的排队或执行完成后再删除。');
       if(cutoff!==undefined&&conversation.updated_at>=cutoff)throw new HttpError(409,'CONVERSATION_NOT_EXPIRED','此对话尚未达到历史保留期限。');
+      const ownerDeletion=this.onDeleteOwner?.(conversation);
+      if(ownerDeletion&&typeof ownerDeletion.then==='function')throw new Error('ASYNC_OWNER_DELETE_HOOK');
       this.statement('INSERT OR IGNORE INTO manager_conversation_cleanup(id,created_at) VALUES(?,?)').run(id,Date.now());
       this.statement('DELETE FROM manager_message_activity WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
       this.statement('DELETE FROM manager_reply_items WHERE message_id IN (SELECT id FROM manager_messages WHERE conversation_id=?)').run(id);
@@ -213,38 +218,58 @@ export class ManagerStore {
   }
   list(){return this.statement("SELECT c.*,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status='queued') AS queued_count,(SELECT count(*) FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('running','interrupted')) AS running_count FROM manager_conversations c ORDER BY c.updated_at DESC").all().map(conversationRow);}
   validateExecution(execution){if(!checkExecution(execution))throw new HttpError(400,'INVALID_CONFIGURATION','模型或思考程度配置不正确。');}
-  setConversationExecution(id,execution){
+  setConversationExecution(id,execution,{expectedExecution}={}){
     this.validateExecution(execution);this.metadata(id);
-    this.statement('UPDATE manager_conversations SET execution=?,updated_at=? WHERE id=?').run(JSON.stringify(execution),Date.now(),id);
+    const updated=this.statement(`UPDATE manager_conversations SET execution=?,updated_at=? WHERE id=? ${expectedExecution===undefined?'':"AND COALESCE(execution,'{}')=?"}`).run(JSON.stringify(execution),Date.now(),id,...(expectedExecution===undefined?[]:[JSON.stringify(expectedExecution)]));
+    if(!updated.changes)throw new HttpError(409,'CONVERSATION_EXECUTION_CONFLICT','当前对话模型配置已变化，请重新读取后再修改。');
     this.changed(id);
     return this.getConversationPage(id);
   }
-  recordMessageExecution(id,execution){this.statement('UPDATE manager_messages SET execution=? WHERE id=? AND execution IS NULL').run(JSON.stringify(execution),id);}
+  recordMessageExecution(id,execution){
+    const saved=this.statement('SELECT execution FROM manager_messages WHERE id=?').get(id);
+    if(saved)this.statement('UPDATE manager_messages SET execution=? WHERE id=?').run(JSON.stringify({...execution,...(saved.execution?JSON.parse(saved.execution):{})}),id);
+  }
   investigations(){return this.statement("SELECT c.id,c.source_id,c.updated_at,EXISTS(SELECT 1 FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('queued','running','interrupted')) AS active FROM manager_conversations c WHERE c.source_id LIKE 'task:%' ORDER BY c.updated_at DESC LIMIT 100").all().map(row=>({...row,task_id:row.source_id.slice(5)}));}
   acceptInspection(sourceId,text) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      const old=this.statement('SELECT id FROM manager_conversations WHERE source_id=?').get(sourceId);
-      if(old){const conversation=this.getConversationPage(old.id);this.db.exec('COMMIT');return {created:false,conversation};}
-      const conversation=this.createConversation('定时巡检',sourceId),message=this.enqueue(conversation.id,text);
+      const old=this.statement('SELECT id,source_message_id FROM manager_conversations WHERE source_id=?').get(sourceId);
+      if(old){const conversation=this.getConversationPage(old.id),message=this.message(old.source_message_id);this.db.exec('COMMIT');return {created:false,conversation,message};}
+      let conversation=this.createConversation('定时巡检',sourceId);const message=this.enqueue(conversation.id,text);
+      this.statement('UPDATE manager_conversations SET source_message_id=?,inspection_admitted=0 WHERE id=?').run(message.id,conversation.id);
+      conversation=this.getConversationPage(conversation.id);
       this.db.exec('COMMIT');return {created:true,conversation,message};
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
-  enqueue(id,text,images=[]) {
+  pendingInspectionAdmissions({limit=100,after}={}) {
+    const size=pageSize(limit,100);
+    return this.statement(`SELECT c.source_id AS id,c.id AS conversation_id,c.source_message_id AS message_id,m.status AS message_status
+      FROM manager_conversations c JOIN manager_messages m ON m.id=c.source_message_id AND m.conversation_id=c.id
+      WHERE c.inspection_admitted=0 AND c.source_id IS NOT NULL AND c.source_id NOT LIKE 'task:%' ${after===undefined?'':'AND c.id>?'} ORDER BY c.id LIMIT ?`).all(...(after===undefined?[]:[after]),size);
+  }
+  admitInspection(sourceId,conversationId,messageId) {
+    const result=this.statement('UPDATE manager_conversations SET inspection_admitted=1 WHERE id=? AND source_id=? AND source_message_id=?').run(conversationId,sourceId,messageId);
+    if(!result.changes)throw new HttpError(409,'INSPECTION_MAPPING_MISMATCH','巡检执行消息映射不一致。');
+    this.changed(conversationId);
+  }
+  enqueue(id,text,images=[],fileIds=[]) {
     this.metadata(id);
-    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!images.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
+    if(!Array.isArray(fileIds)||fileIds.length>5||new Set(fileIds).size!==fileIds.length||fileIds.some(value=>typeof value!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value))||fileIds.length&&!this.attachMessageFiles)throw new HttpError(400,'INVALID_MESSAGE_FILES','文件附件不可用。');
+    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!images.length&&!fileIds.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
     const now=Date.now(),message={id:randomUUID(),conversation_id:id,role:'user',text,status:'queued',created_at:now,updated_at:now,started_at:null,completed_at:null,reply_to:null,activity:[],error:null};
     // Images have already passed asynchronous byte/decode validation at admission.
     this.db.exec('SAVEPOINT enqueue_chat_message');
     try {
     this.statement("INSERT INTO manager_messages(id,conversation_id,role,text,status,turn_id,error,created_at) VALUES(?,?,'user',?,'queued',NULL,NULL,?)").run(message.id,id,text,Date.now());
     for(const image of images)this.statement('INSERT INTO manager_chat_images VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),message.id,id,image.name,image.mime,image.width,image.height,image.size,image.bytes);
+    if(fileIds.length)this.attachMessageFiles(id,message.id,fileIds);
     const last=this.statement("SELECT max(COALESCE(queued_at,created_at)) AS time FROM manager_messages WHERE conversation_id=? AND status='queued' AND id<>?").get(id,message.id).time??0;
     this.statement('UPDATE manager_messages SET updated_at=?,queued_at=? WHERE id=?').run(Date.now(),Math.max(now,last+1),message.id);
     this.statement('UPDATE manager_conversations SET updated_at=? WHERE id=?').run(Date.now(),id);
     this.db.exec('RELEASE enqueue_chat_message');
     }catch(error){this.db.exec('ROLLBACK TO enqueue_chat_message; RELEASE enqueue_chat_message');throw error;}
     message.attachments=this.attachments(message.id);
+    const files=this.messageFiles?.(message.id)??[];if(files.length)message.files=files;
     this.changed(id,message.id);
     return message;
   }
@@ -273,9 +298,9 @@ export class ManagerStore {
     // A row inserted while this conversation executes is its durable wake signal.
     // Rotate at completion, even if that wake arrived before another conversation.
     const wake=this.statement('DELETE FROM manager_ready_queue WHERE conversation_id=?').run(id).changes;
-    if((!interrupted||wake)&&this.statement("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','interrupted') LIMIT 1").get(id))this.schedule(id);
+    if((!interrupted||wake)&&this.statement("SELECT 1 FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','interrupted') AND NOT EXISTS (SELECT 1 FROM manager_conversations admission WHERE admission.id=manager_messages.conversation_id AND admission.source_message_id IS NOT NULL AND admission.inspection_admitted=0) LIMIT 1").get(id))this.schedule(id);
   }
-  next(id) {const row=this.statement("SELECT * FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','interrupted') ORDER BY status,COALESCE(queued_at,created_at),rowid LIMIT 1").get(id);return row?messageRow(row):undefined;}
+  next(id) {const row=this.statement("SELECT * FROM manager_messages WHERE conversation_id=? AND role='user' AND status IN ('queued','interrupted') AND NOT EXISTS (SELECT 1 FROM manager_conversations admission WHERE admission.id=manager_messages.conversation_id AND admission.source_message_id IS NOT NULL AND admission.inspection_admitted=0) ORDER BY status,COALESCE(queued_at,created_at),rowid LIMIT 1").get(id);return row?messageRow(row):undefined;}
   markRunning(id){const now=Date.now();this.statement("UPDATE manager_messages SET rowid=CASE WHEN status='queued' THEN (SELECT max(rowid)+1 FROM manager_messages) ELSE rowid END,created_at=CASE WHEN status='queued' THEN ? ELSE created_at END,status='running',started_at=COALESCE(started_at,?),updated_at=? WHERE id=? AND status IN ('queued','interrupted')").run(now,now,now,id);this.changedMessage(id);}
   thread(conversationId,threadId){this.statement('UPDATE manager_conversations SET thread_id=? WHERE id=?').run(threadId,conversationId);}
   syncTitle(conversationId,name){
@@ -331,6 +356,13 @@ export class ManagerStore {
     try {
       const now=Date.now(),changed=this.statement("UPDATE manager_messages SET status=?,error=?,completed_at=?,updated_at=?,partial_text=NULL WHERE id=? AND status IN ('queued','running','interrupted')").run(error?'failed':'completed',error?JSON.stringify(error):null,now,now,message.id);
       if(!changed.changes){this.db.exec('COMMIT');return;}
+      if(this.onFinishInspection){
+        const owner=this.statement('SELECT source_id FROM manager_conversations WHERE id=? AND source_message_id=? AND inspection_admitted=1').get(message.conversation_id,message.id);
+        if(owner){
+          const queued=this.onFinishInspection({id:owner.source_id,conversation_id:message.conversation_id,message_id:message.id,state:error?'failed':'completed'});
+          if(queued&&typeof queued.then==='function')throw new Error('ASYNC_INSPECTION_FINISH_HOOK');
+        }
+      }
       this.statement("UPDATE manager_message_activity SET status=?,updated_at=? WHERE message_id=? AND status='running'").run(error?'failed':'completed',now,message.id);
       this.statement("UPDATE manager_reply_items SET status=?,updated_at=? WHERE message_id=? AND status='running'").run(error?'failed':'completed',now,message.id);
       this.expireQuestions(message.id);
@@ -348,8 +380,8 @@ export class ManagerStore {
       this.statement("UPDATE manager_questions SET status='expired',updated_at=? WHERE status='pending' AND message_id IN (SELECT id FROM manager_messages WHERE status='running')").run(now);
       this.statement("UPDATE manager_messages SET status='interrupted',updated_at=? WHERE status='running'").run(now);
       this.db.exec("UPDATE manager_actions SET status='unknown' WHERE status='executing'");
-      this.db.exec("DELETE FROM manager_ready_queue WHERE NOT EXISTS (SELECT 1 FROM manager_messages m WHERE m.conversation_id=manager_ready_queue.conversation_id AND m.role='user' AND m.status IN ('queued','interrupted'))");
-      this.db.exec("INSERT OR IGNORE INTO manager_ready_queue(conversation_id) SELECT c.id FROM manager_conversations c WHERE EXISTS (SELECT 1 FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('queued','interrupted')) ORDER BY c.rowid");
+      this.db.exec("DELETE FROM manager_ready_queue WHERE NOT EXISTS (SELECT 1 FROM manager_messages m WHERE m.conversation_id=manager_ready_queue.conversation_id AND m.role='user' AND m.status IN ('queued','interrupted') AND NOT EXISTS (SELECT 1 FROM manager_conversations admission WHERE admission.id=m.conversation_id AND admission.source_message_id IS NOT NULL AND admission.inspection_admitted=0))");
+      this.db.exec("INSERT OR IGNORE INTO manager_ready_queue(conversation_id) SELECT c.id FROM manager_conversations c WHERE EXISTS (SELECT 1 FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('queued','interrupted') AND NOT EXISTS (SELECT 1 FROM manager_conversations admission WHERE admission.id=m.conversation_id AND admission.source_message_id IS NOT NULL AND admission.inspection_admitted=0)) ORDER BY c.rowid");
       const count=this.statement('SELECT count(*) AS count FROM manager_ready_queue').get().count;
       this.db.exec('RELEASE recover_manager_queue');return count;
     }catch(error){this.db.exec('ROLLBACK TO recover_manager_queue; RELEASE recover_manager_queue');throw error;}

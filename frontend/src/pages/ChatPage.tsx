@@ -1,8 +1,9 @@
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {Fragment,useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
 import {CatalogNote, LoadingState, Status} from '../components';
 import {ChatAgentPicker} from '../ChatAgentPicker';
+import {agentSettingsFromValues} from '../modelOptions';
 import {useConsole} from '../context';
 import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress} from '../ChatActivity';
@@ -11,8 +12,11 @@ import {compressChatImage} from '../chatImages';
 import {Icon} from '../Icon';
 import {QuestionCard} from '../QuestionCard';
 import {ChatQueue,type QueueAction} from '../ChatQueue';
-import {ChatRunStatus,connectionWarning,runPresentation} from '../ChatRunStatus';
-import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
+import {SandboxActivity,SandboxProvider} from '../SandboxActivity';
+import {SandboxAttachments,SandboxDraftFiles} from '../SandboxAttachments';
+import {validateSandboxFiles} from '../sandbox-files';
+import {connectionWarning,runPresentation} from '../chat-progress';
+import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message,SandboxAttachment} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
   summary?: {task_id?: string};
@@ -22,7 +26,7 @@ type History=NonNullable<Conversation['history']>;
 interface ChatConversation extends Omit<Conversation, 'actions'> {actions?: ChatAction[];olderLoaded?:boolean;historyBacklog?:{resume?:History;boundary:string[]}[]}
 interface ConversationPage {items:Conversation[];next_cursor:string|null}
 interface TranscriptPart {message:Message;key:string;live:boolean;tail?:boolean}
-const mergeRows=<T extends {id:string}>(older:T[]=[],newer:T[]=[])=>Array.from(new Map([...older,...newer].map(row=>[row.id,row])).values());
+const mergeRows=<T extends {id:string}>(older:T[]=[],newer:T[]=[])=>{const rows=new Map(older.map(row=>[row.id,row]));for(const row of newer)rows.set(row.id,{...rows.get(row.id),...row});return Array.from(rows.values());};
 const rootIds=(item:ChatConversation)=>item.messages?.filter(message=>message.role==='user'||!message.reply_to).map(message=>message.id)??[];
 const mergeConversation=(current:ChatConversation|undefined,item:ChatConversation):ChatConversation=>{
   if(current?.id!==item.id)return item;
@@ -36,7 +40,7 @@ type ConversationSummary=Pick<Conversation,'id'|'title'|'execution'|'queued_coun
 const conversationSummary=(item:Conversation):ConversationSummary=>({id:item.id,title:item.title,execution:item.execution,...conversationCounts(item)});
 
 export default function ChatPage() {
-  const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
+  const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatFiles:files,setChatFiles:setFiles,uploadChatFile,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [listLoading,setListLoading]=useState(true);
   const [listCursor,setListCursor]=useState<string|null>(null);
@@ -51,6 +55,7 @@ export default function ChatPage() {
   const [conversation, setConversation] = useState<ChatConversation>();
   const [saving, setSaving] = useState<Record<string,boolean>>({});
   const [compressing,setCompressing]=useState(false);
+  const [uploading,setUploading]=useState(false);
   const [imageError,setImageError]=useState('');
   const [loadingId,setLoadingId]=useState<string|null>(chatId);
   const [loadError,setLoadError]=useState('');
@@ -75,8 +80,10 @@ export default function ChatPage() {
   const navigation = useRef(0);
   const initialSelectionDone = useRef(Boolean(chatId));
   const selectionVersions = useRef<Record<string, number>>({});
+  const unsavedSelections = useRef<Record<string,boolean>>({});
+  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id])setSelections(current=>({...current,[id]:execution}));};
   const reads = useRef<Record<string, number>>({});
-  const fileInput=useRef<HTMLInputElement>(null);
+  const fileInput=useRef<HTMLInputElement>(null),genericFileInput=useRef<HTMLInputElement>(null);
   const compressLock=useRef(false);
   const imagesRef=useRef(images);imagesRef.current=images;
   // Track external navigation as well as sidebar clicks before any async response can render.
@@ -91,10 +98,8 @@ export default function ChatPage() {
   const visibleConversation = conversation?.id === chatId ? conversation : undefined;
   const conversationRef=useRef(conversation);conversationRef.current=conversation;
   const messages=visibleConversation?.messages??[];
-  const pending=messages.filter(message=>message.role==='user'&&isPending(message.status));
-  const queued=pending.filter(message=>message.status==='queued');
+  const queued=messages.filter(message=>message.role==='user'&&message.status==='queued');
   const queue=visibleConversation?.queue??messages.filter(message=>['queued','draft','steering','steer_unknown'].includes(message.status));
-  const totals=visibleConversation?conversationCounts(visibleConversation):{queued_count:0,running_count:0};
   const unconfirmedIds=unconfirmedRoots.id===chatId?unconfirmedRoots.ids:[];
   const runConnection=readFailure===chatId?'failed':streamStatus;
   const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
@@ -143,8 +148,7 @@ export default function ChatPage() {
         if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);
         const available=items.filter(item=>!deletedIds.current.has(item.id)).map(conversationSummary);
         setConversations(current => [...available, ...current.filter(row => !deletedIds.current.has(row.id)&&!items.some(item => item.id === row.id))]);
-        setDefaults({...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
-          ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {})});
+        setDefaults(agentSettingsFromValues(group.values,'concise'));
         if (!initialSelectionDone.current) {
           initialSelectionDone.current = true;
           if (!currentId.current && available.length) setChatId(available[0].id);
@@ -200,7 +204,7 @@ export default function ChatPage() {
         void reconcileOmitted(item);
         hasLoaded=true;setLoadingId(null);setLoadError('');setReadFailure(null);
         setConversations(current => current.map(row => row.id === item.id ? {...row, title:item.title,...conversationCounts(item)} : row));
-        setSelections(current => Object.hasOwn(current, chatId) ? current : {...current, [chatId]:item.execution ?? {}});
+        syncSelection(chatId,item.execution??{});
       } catch (error) {
         if(active&&currentId.current===chatId&&navigation.current===generation&&reads.current[chatId]===read&&(streamVersions.current[chatId]??0)===streamVersion)setReadFailure(chatId);
         if(active && currentId.current===chatId && navigation.current===generation && reads.current[chatId]===read && (streamVersions.current[chatId]??0)===streamVersion && error instanceof ApiError && error.status===404){forgetConversation(chatId);return;}
@@ -226,7 +230,7 @@ export default function ChatPage() {
           for(const message of item.messages??[])messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
           void reconcileOmitted(item);
           setConversations(current=>current.map(row=>row.id===chatId?conversationSummary(item):row));
-          setSelections(current=>Object.hasOwn(current,chatId)?current:{...current,[chatId]:item.execution??{}});
+          syncSelection(chatId,item.execution??{});
         }catch{fallback=true;setStreamStatus('fallback');}
       });
       source.addEventListener('patch',event=>{
@@ -239,8 +243,9 @@ export default function ChatPage() {
           setConversation(current=>{
             if(current?.id!==chatId)return current;
             const changed=new Map(patch.messages.map(message=>[message.id,message]));
-            return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.get(message.id)??message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:mergeRows(current.actions,patch.actions)};
+            return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.has(message.id)?{...message,...changed.get(message.id)}:message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:mergeRows(current.actions,patch.actions)};
           });
+          if(Object.hasOwn(patch.conversation,'execution'))syncSelection(chatId,patch.conversation.execution??{});
           setConversations(current=>current.map(row=>row.id===chatId?conversationSummary({...row,...patch.conversation}):row));
         }catch{fallback=true;setStreamStatus('fallback');}
       });
@@ -304,15 +309,17 @@ export default function ChatPage() {
     finally{historyLock.current=null;if(mounted.current)setHistoryLoading(false);}
   };
 
-  // A send's configuration write and enqueue share the same queue as automatic saves.
-  // A later selection cannot slip between those two requests.
+  // Queue explicit local edits before sending; clean server settings may also
+  // change through the management Agent and must not be overwritten on send.
   const persistSelection = (id: string, value: AgentSettings) => {
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
+    unsavedSelections.current[id]=true;
     setSaving(current=>({...current,[id]:true}));
     setSaveErrors(current => ({...current, [id]:undefined}));
     void serialize(id, () => api('/conversations/' + id, {execution:value})).then(() => {
       if (!mounted.current || selectionVersions.current[id] !== version) return;
+      unsavedSelections.current[id]=false;
       setConversations(current => current.map(item => item.id === id ? {...item, execution:value} : item));
       setSaveErrors(current => ({...current, [id]:undefined}));
     }).catch(error => {
@@ -332,6 +339,18 @@ export default function ChatPage() {
     }catch(error){if(mounted.current && navigation.current===generation)setImageError(t(error instanceof Error?error.message:String(error)));}
     finally {compressLock.current=false;if(mounted.current)setCompressing(false);}
   };
+  const addFiles=(selected:File[])=>{
+    if(!selected.length)return;
+    setFiles(current=>{
+      const error=validateSandboxFiles(current,selected);
+      if(error){setImageError(t(error));return current;}
+      setImageError('');return [...current,...selected.map(file=>({id:crypto.randomUUID(),file}))];
+    });
+  };
+  const addDroppedFiles=(selected:File[])=>{
+    if(selected.every(file=>/^image\/(jpeg|png|webp)$/.test(file.type)))void addImages(selected);
+    else addFiles(selected);
+  };
   const changeSelection = (value: AgentSettings) => {
     initialSelectionDone.current = true;
     setSelections(current => ({...current, [selectedKey]:value}));
@@ -339,20 +358,22 @@ export default function ChatPage() {
   };
 
   const send = async () => {
-    if (submitting.current || composing.current || compressLock.current || (!draft.trim()&&!images.length) || draft.length>20000) return;
-    const lease=beginChatSend(draft,images.map(image=>image.id));
+    if (submitting.current || composing.current || compressLock.current || (!draft.trim()&&!images.length&&!files.length) || draft.length>20000) return;
+    const lease=beginChatSend(draft,images.map(image=>image.id),files.map(file=>file.id));
     if(!lease)return;
     initialSelectionDone.current = true;
     submitting.current = true;
     let released=false;
     const releaseSend=()=>{if(released)return;released=true;submitting.current=false;lease.release();};
-    const text = draft, sentImages=[...images], execution = {...selection}, generation = navigation.current;
+    const text = draft, sentImages=[...images],sentFiles=[...files], execution = {...selection}, generation = navigation.current;
     let id = chatId;
     const stillSelected = () => mounted.current && navigation.current === generation;
     try {
       if (!id) {
-        const created = await api<ChatConversation>('/conversations', {title:text.slice(0, 30)||t('图片消息'), execution});
+        const created = await api<ChatConversation>('/conversations', {title:text.slice(0, 30)||t(sentFiles.length?'文件消息':'图片消息'), execution});
         id = created.id;
+        if(!lease.active())return;
+        if(!mounted.current||stillSelected())lease.created(id);
         if (mounted.current) {
           setConversations(current => [conversationSummary(created), ...current.filter(row => row.id !== created.id)]);
           setSelections(current => ({...current, [created.id]:execution}));
@@ -364,19 +385,31 @@ export default function ChatPage() {
           setChatId(id);
         }
       }
+      if(!lease.active())return;
       const sentId = id;
+      if(sentFiles.length&&mounted.current)setUploading(true);
+      const uploaded:SandboxAttachment[]=[];
+      for(const file of sentFiles){
+        if(!lease.active())return;
+        uploaded.push(await uploadChatFile(sentId,file));
+      }
+      if(!lease.active())return;
+      if(mounted.current)setUploading(false);
       const accepted=await serialize(sentId, async () => {
-        await api('/conversations/' + sentId, {execution});
-        return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{})});
+        if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
+        if(unsavedSelections.current[sentId]){await api('/conversations/' + sentId, {execution});unsavedSelections.current[sentId]=false;}
+        if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
+        return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{}),...(uploaded.length?{file_ids:uploaded.map(file=>file.file_id)}:{})});
       });
+      if(!lease.active())return;
       // Clear accepted input before reading the conversation; a read failure must never suggest resending it.
       lease.accepted();
       if (mounted.current) {
         setSaveErrors(current => ({...current, [sentId]:undefined}));
       }
       if(stillSelected() && currentId.current===sentId && !deletedIds.current.has(sentId)){
-        const optimistic:Message={id:accepted.id??crypto.randomUUID(),role:'user',text,status:'queued',created_at:Date.now(),...accepted};
-        setConversation(current=>current?.messages?.some(message=>message.id===optimistic.id)?current:({...(current?.id===sentId?current:{id:sentId,title:text.slice(0,30)||t('图片消息'),execution}),messages:[...(current?.id===sentId?current.messages??[]:[]),optimistic],queue:[...(current?.id===sentId?current.queue??[]:[]),...(optimistic.status==='queued'?[optimistic]:[])]}));
+        const optimistic:Message={id:accepted.id??crypto.randomUUID(),role:'user',text,status:'queued',created_at:Date.now(),...(uploaded.length?{files:uploaded}:{}),...accepted};
+        setConversation(current=>current?.messages?.some(message=>message.id===optimistic.id)?current:({...(current?.id===sentId?current:{id:sentId,title:text.slice(0,30)||t(sentFiles.length?'文件消息':'图片消息'),execution}),messages:[...(current?.id===sentId?current.messages??[]:[]),optimistic],queue:[...(current?.id===sentId?current.queue??[]:[]),...(optimistic.status==='queued'?[optimistic]:[])]}));
       }
       if(mounted.current)setConversations(current=>current.map(row=>row.id===sentId?{...row,queued_count:(row.queued_count??0)+1}:row));
       releaseSend();
@@ -386,11 +419,13 @@ export default function ChatPage() {
       let updated:ChatConversation;
       try {updated=await api<ChatConversation>('/conversations/' + sentId);}catch{return;}
       if (!mounted.current || reads.current[sentId] !== read || (streamVersions.current[sentId]??0)!==streamVersion || deletedIds.current.has(sentId)) return;
-      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution,...conversationCounts(updated)} : row));
+      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution:updated.execution??{},...conversationCounts(updated)} : row));
+      syncSelection(sentId,updated.execution??{});
       if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(current=>mergeConversation(current,updated));
     } catch (error) {
-      if (stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));
+      if (lease.active()&&stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));
     } finally {
+      if(mounted.current)setUploading(false);
       releaseSend();
     }
   };
@@ -415,7 +450,7 @@ export default function ChatPage() {
     const result=await api<Message|{id:string;deleted:boolean}>(path+(action==='delete'?'':'/'+action),action==='delete'?undefined:action==='requeue'?{text}:{},action==='delete'?'DELETE':undefined);
     if(!mounted.current||currentId.current!==id||navigation.current!==generation)return;
     if((messageVersions.current[message.id]??0)===version) {
-      const updated:Message='deleted' in result?{...message,text:'',status:'removed',attachments:[]}:result;
+      const updated:Message='deleted' in result?{...message,text:'',status:'removed',attachments:[],files:[]}:result;
       setConversation(current=>{
         if(current?.id!==id)return current;
         const currentQueue=current.queue??(current.messages??[]).filter(item=>['queued','draft','steering','steer_unknown'].includes(item.status));
@@ -450,7 +485,7 @@ export default function ChatPage() {
     </nav>
   </>;
 
-  return <div className="chat-layout">
+  return <SandboxProvider conversationId={chatId}><div className="chat-layout">
     <Modal title={t('删除对话')} open={!!deleteTarget} okText={t('删除')} cancelText={t('取消')} okButtonProps={{danger:true,loading:!!deleting,'aria-label':t('删除')}} cancelButtonProps={{disabled:!!deleting}} closable={!deleting} maskClosable={!deleting} keyboard={!deleting} onOk={()=>void deleteConversation()} onCancel={()=>{if(!deleteLock.current)setDeleteTarget(undefined);}}>
       <p>{t('确定删除“{title}”吗？删除后无法恢复。',{title:deleteTarget?.title??''})}</p>
       {deleteError&&<Alert type="error" title={t(deleteError)}/>}
@@ -474,38 +509,42 @@ export default function ChatPage() {
           const source=message.role==='assistant'?messages.find(item=>item.role==='user'&&item.id===message.reply_to):undefined;
           const messageConnection=source&&unconfirmedIds.includes(source.id)?'unconfirmed':runConnection;
           const phase=source?runPresentation(source).label:'正在处理',warning=source&&isPending(source.status)?connectionWarning(messageConnection):'';
+          const hasAssistant=message.role==='user'&&transcript.some(part=>part.message.role==='assistant'&&part.message.reply_to===message.id);
           const replyLabel=source?.questions?.some(question=>question.status==='pending')?'等待回答':source?.status==='interrupted'?'等待继续':source?.status==='recovering'?'恢复中':warning?'状态待确认':'回复中';
-          return <article key={key} data-message-id={key} className={'message ' + message.role}>
+          return <Fragment key={key}><article data-message-id={key} className={'message ' + message.role}>
           <div className="message-avatar" aria-hidden="true">{message.role === 'user' ? 'U' : 'A'}</div>
           <div className="message-content">
             <div className="message-label">{message.role!=='user'&&<span>{t('管理 AGENT')}</span>}<MessageTime value={message.created_at}/>{live&&<span className="partial-label">{t(replyLabel)}</span>}</div>
             <div className="message-bubble">{message.role === 'assistant' ? <div className={live?'message-partial':undefined} aria-live="off"><AgentMessage text={message.text} live={live} onReveal={followReply}/>{live&&!message.text&&!source?.generated_images?.length&&<span className="reply-placeholder">{t(warning||phase)}</span>}</div> : <div className="message-text">{message.text}</div>}
+              {chatId&&!!message.files?.length&&<SandboxAttachments conversationId={chatId} files={message.files.filter(file=>message.role!=='user'||file.origin==='upload'||!hasAssistant)}/>}
+              {tail&&source&&chatId&&<SandboxAttachments conversationId={chatId} files={(source.files??[]).filter(file=>file.origin==='sandbox'&&!message.files?.some(existing=>existing.file_id===file.file_id))}/>}
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {tail&&!!source?.generated_images?.length&&<MessageImages images={source.generated_images} generated/>}
               {message.error && <div className="danger-text">{message.error.code}</div>}</div>
             {message.role==='assistant' && <div className="message-footer">
               {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
-              {source && tail && <>{source.questions?.map(request=><QuestionCard key={request.id} request={request} conversationId={chatId!}/>)}<MessageProgress message={source} connection={messageConnection} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/></>}
+              {source && tail && <><SandboxActivity messageId={source.id} existingFileIds={[...(source.files??[]),...(message.files??[])].map(file=>file.file_id)}/>{source.questions?.map(request=><QuestionCard key={request.id} request={request} conversationId={chatId!}/>)}<MessageProgress message={source} connection={messageConnection} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/></>}
             </div>}
           </div>
-        </article>;})}
+        </article>{message.role==='user'&&!hasAssistant&&<SandboxActivity messageId={message.id} existingFileIds={message.files?.map(file=>file.file_id)} asAgentReply/>}</Fragment>;})}
         {!messages.length && !loadError && !listLoading && (!loadingId||loadingId!==chatId) && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
-        onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
-        <ChatRunStatus key={'status:'+selectedKey} messages={messages} queuedCount={totals.queued_count??queued.length} runningCount={totals.running_count??0} connection={runConnection} unconfirmedIds={unconfirmedIds}/>
+        onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();addDroppedFiles(Array.from(event.dataTransfer.files));}}}>
         <ChatQueue key={'queue:'+selectedKey} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}
         <CatalogNote/>
+        <SandboxDraftFiles files={files} remove={id=>setFiles(current=>current.filter(file=>file.id!==id))}/>
         <DraftImages images={images} remove={id=>setImages(current=>current.filter(image=>image.id!==id))}/>
         {imageError && <Alert type="error" className="chat-image-error" title={imageError} closable onClose={()=>setImageError('')}/>}
+        {uploading&&<div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在上传文件…')}</div>}
         {compressing && <div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在压缩图片…')}</div>}
         <div className="composer-input-shell">
         <Input.TextArea id="message-input" aria-label={t('消息')} autoSize={{minRows:2, maxRows:6}} value={draft}
           placeholder={t('告诉我你想了解或处理什么，例如：查询失败任务并说明原因。')} onChange={event => setDraft(event.target.value)}
-          onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();void addImages(files);}}}
+          onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();addDroppedFiles(files);}}}
           onCompositionStart={() => {composing.current = true;}} onCompositionEnd={() => {composing.current = false;}}
           onKeyDown={event => {
             if (event.key !== 'Enter' || event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
@@ -515,7 +554,9 @@ export default function ChatPage() {
           <ChatAgentPicker key={selectedKey} value={selection} defaults={defaults} disabled={busy} onChange={changeSelection} saving={!!chatId&&saving[chatId]} saveError={chatId?saveErrors[chatId]:undefined} onRetry={()=>{if(chatId)persistSelection(chatId,{...selection});}}/>
           <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
           <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
-          <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length)||draft.length>20000} onClick={() => {void send();}}/>
+          <input ref={genericFileInput} id="chat-file-input" type="file" multiple hidden onChange={event=>{addFiles(Array.from(event.target.files??[]));event.target.value='';}}/>
+          <Button className="chat-file-picker" icon={<Icon name="box"/>} title={t('添加文件')} aria-label={t('添加文件')} disabled={files.length>=5} onClick={()=>genericFileInput.current?.click()}/>
+          <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length&&!files.length)||draft.length>20000} onClick={() => {void send();}}/>
         </div>
         </div>
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>
@@ -524,5 +565,5 @@ export default function ChatPage() {
           {chatId && saveErrors[chatId] && <Button type="link" size="small" danger title={saveErrors[chatId]} disabled={busy} onClick={() => persistSelection(chatId, {...selection})}>{t('保存失败，重试')}</Button>}</div>
       </div>
     </section>
-  </div>;
+  </div></SandboxProvider>;
 }

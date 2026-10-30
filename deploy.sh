@@ -33,10 +33,12 @@ case "$agent_action" in
         if [[ "$(id -u)" == 0 ]]; then chown 1000:1000 -- "$agent_deploy_dir/$agent_volume"; fi
       fi
     done
-    if [[ -L "$agent_deploy_dir/updater" ]]; then echo 'Refusing symlink updater channel' >&2; exit 1; fi
-    mkdir -p -- "$agent_deploy_dir/updater"
-    chmod 750 -- "$agent_deploy_dir/updater"
-    if [[ "$(id -u)" == 0 ]]; then chown 0:1000 -- "$agent_deploy_dir/updater"; fi
+    for agent_channel in updater sandbox; do
+      if [[ -L "$agent_deploy_dir/$agent_channel" ]]; then echo "Refusing symlink $agent_channel channel" >&2; exit 1; fi
+      mkdir -p -- "$agent_deploy_dir/$agent_channel"
+      chmod 750 -- "$agent_deploy_dir/$agent_channel"
+      if [[ "$(id -u)" == 0 ]]; then chown 0:1000 -- "$agent_deploy_dir/$agent_channel"; fi
+    done
     agent_password_path="$agent_deploy_dir/manager/initial-password"
     if [[ -L "$agent_password_path" ]]; then echo 'Refusing symlink password file' >&2; exit 1; fi
     if [[ ! -e "$agent_password_path" ]]; then
@@ -72,6 +74,14 @@ CONFIG
   ensure-web-update|enable-web-update|disable-web-update|web-update-status)
     exec python3 -B "$agent_source_dir/scripts/host-updater.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
     ;;
+  enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground)
+    exec python3 -B "$agent_source_dir/scripts/host-sandbox.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
+    ;;
+  build-sandbox)
+    agent_sandbox_build=(docker build -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.2)
+    if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then agent_sandbox_build+=(--secret "id=proxy_ca,src=$CODEX_PROXY_CERT"); fi
+    "${agent_sandbox_build[@]}" "$agent_source_dir"
+    ;;
   validate)
     agent_compose config --quiet
     agent_compose run --rm --no-deps --entrypoint node gateway scripts/validate-config.mjs
@@ -86,6 +96,7 @@ CONFIG
       docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.2 "$agent_source_dir"
       docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.2 "$agent_source_dir"
     else agent_compose build; fi
+    "$agent_source_dir/deploy.sh" build-sandbox "$agent_deploy_dir"
     ;;
   start)
     "$agent_source_dir/deploy.sh" init "$agent_deploy_dir"
@@ -99,5 +110,5 @@ CONFIG
   login)
     agent_compose run --rm --no-deps --entrypoint codex runner login --device-auth
     ;;
-  *) echo 'Usage: ./deploy.sh init|validate|build|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status [deployment-directory]' >&2; exit 2 ;;
+  *) echo 'Usage: ./deploy.sh init|validate|build|build-sandbox|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground [deployment-directory]' >&2; exit 2 ;;
 esac

@@ -3,8 +3,10 @@ import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Tabs, Typog
 import {AgentPicker, CatalogNote, DataLoading, JsonView, Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
+import NotificationChannelsPanel from '../NotificationChannelsPanel';
 import HttpTargetsPanel from '../HttpTargetsPanel';
 import RetentionPanel from '../RetentionPanel';
+import {agentSettingKeys,agentSettingsFromValues,modelOptionKeys} from '../modelOptions';
 
 interface ConfigurationList {
   groups: ConfigGroup[];
@@ -30,10 +32,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   const properties = group.schema.properties ?? {};
   const simpleFields=Object.entries(properties).filter(([key,schema])=>!complex(key,schema));
   const complexFields=Object.entries(properties).filter(([key,schema])=>complex(key,schema));
-  const savedAgent: AgentSettings = {
-    ...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
-    ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {}),
-  };
+  const savedAgent=agentSettingsFromValues(group.values,group.scope==='manager'?'concise':'auto');
   const update = (key:string, value:FieldDraft) => setDrafts(current => ({...current, [key]:value}));
   const save = async () => {
     if(saveLock.current)return;
@@ -43,10 +42,12 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       if (agent) {
         if (agent.model !== savedAgent.model) patch.model = agent.model;
         if (agent.reasoningEffort !== savedAgent.reasoningEffort) patch.reasoningEffort = agent.reasoningEffort ?? null;
+        if (agent.serviceTier !== savedAgent.serviceTier) patch.serviceTier = agent.serviceTier ?? 'default';
+        for(const key of modelOptionKeys){const value=agent[key]===undefined?savedAgent[key]??null:agent[key];if(value!==(savedAgent[key]??null))patch[key]=value;}
       }
       for (const [key, schema] of Object.entries(properties)) {
         if (complex(key,schema)) continue;
-        if (properties.model && (key === 'model' || key === 'reasoningEffort')) continue;
+        if (properties.model && (agentSettingKeys as readonly string[]).includes(key)) continue;
         if (schema.writeOnly) {
           if (clears[key]) patch[key] = '';
           else if (typeof drafts[key] === 'string' && drafts[key]) patch[key] = drafts[key];
@@ -58,7 +59,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
         if (JSON.stringify(value) !== JSON.stringify(group.values[key])) patch[key] = value;
       }
       if (!Object.keys(patch).length) {notify(t('没有需要保存的修改。')); return;}
-      const result = await operation<{synchronization?:{runner?:string}}>('configuration_update', {scope:group.scope, patch});
+      const result = await operation<{synchronization?:{runner?:string}}>('configuration_update', {scope:group.scope, patch, revision:group.revision});
       await reload();
       setDrafts({}); setClears({}); setAgent(undefined);
       notify(t(result.synchronization?.runner === 'pending' ? '已保存，Runner 暂时不可用，恢复后自动同步。' : '已保存，配置按本组说明生效。'));
@@ -70,9 +71,9 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
     <Form id={'configuration-' + group.scope} className="settings-form" layout="horizontal" colon={false} onFinish={() => {void save();}}>
       <Typography.Paragraph>{t(group.description)}</Typography.Paragraph>
       {group.error && <Alert type="error" showIcon title={t(group.error.message)}/>}
-      {properties.model && <><CatalogNote/><AgentPicker id={'setting-' + group.scope} value={agent ?? savedAgent} onChange={value => {if (!saving) setAgent(value);}}/></>}
+      {properties.model && <><CatalogNote/><AgentPicker id={'setting-' + group.scope} value={agent ?? savedAgent} disabled={saving} onChange={value => {if (!saving) setAgent(value);}}/></>}
       <div className="form-grid">
-        {simpleFields.filter(([key]) => !properties.model || (key !== 'model' && key !== 'reasoningEffort')).map(([key, schema]) => {
+        {simpleFields.filter(([key]) => !properties.model || !(agentSettingKeys as readonly string[]).includes(key)).map(([key, schema]) => {
           const id = 'setting-' + group.scope + '-' + key;
           const value = Object.hasOwn(drafts, key) ? drafts[key] : fieldValue(schema, group.values[key]);
           const label = t(schema.title ?? key);
@@ -137,6 +138,7 @@ export default function SettingsPage() {
     const rank=(scope:string)=>order.includes(scope)?order.indexOf(scope):order.length;
     return rank(a.scope)-rank(b.scope);
   }).map(group=>({key:group.scope,label:<span data-settings-tab={group.scope}>{t(group.title)}</span>,forceRender:true,children:group.scope==='retention'?<RetentionPanel group={group} reload={reload} onSaved={saved=>setData(current=>current?{...current,groups:current.groups.map(item=>item.scope===saved.scope?saved:item)}:current)}/>:group.scope==='http_targets'?<HttpTargetsPanel group={group} reload={reload} onSaved={saved=>setData(current=>current?{...current,groups:current.groups.map(item=>item.scope===saved.scope?saved:item)}:current)}/>:<ConfigurationForm group={group} reload={reload}/>})),
+    {key:'notifications',label:<span data-settings-tab="notifications">{t('通知渠道')}</span>,children:<NotificationChannelsPanel/>},
     {key:'security',label:<span data-settings-tab="security">{t('安全与登录')}</span>,forceRender:true,children:<div className="settings-stack">{passwordPanel}{admin&&<ConfigurationForm group={admin} reload={reload}/>}</div>},
     {key:'deployment',label:<span data-settings-tab="deployment">{t('部署配置')}</span>,children:<Panel title={t('部署配置')}><Typography.Paragraph type="secondary">{t('这些配置通过服务器环境变量设置，修改后需要重启相应服务。')}</Typography.Paragraph>{data?.bootstrap?.map(item=><div className="deployment-setting" key={item.names.join('/')}><Typography.Text code>{item.names.join(' / ')}</Typography.Text><Typography.Paragraph>{t(item.description)}</Typography.Paragraph></div>)}</Panel>},
   ];

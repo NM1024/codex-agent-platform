@@ -84,7 +84,7 @@ test('new dispatches carry the current execution configuration without resubmitt
   const dispatcher=new Dispatcher({...app,runner});t.after(()=>dispatcher.stop());
   settings.update('execution',{model:'configured-model',taskTimeoutMs:8000,toolTimeoutMs:1234});
   app.store.accept('default',{type:'content.review',request_id:'hot',input:{content:'text'}});await dispatcher.drain();
-  assert.equal(launched.length,1);assert.deepEqual(launched[0].execution,{model:'configured-model',taskTimeoutMs:8000,toolTimeoutMs:1234});
+  assert.equal(launched.length,1);assert.deepEqual(launched[0].execution,{model:'configured-model',serviceTier:'default',verbosity:'medium',reasoningSummary:'auto',autoCompactTokenLimit:null,toolOutputTokenLimit:null,taskTimeoutMs:8000,toolTimeoutMs:1234});
   settings.update('execution',{model:'future-model'});assert.equal(launched[0].execution.model,'configured-model');
 });
 test('a Runner uses the launch execution snapshot for its model and MCP timeout',async t=>{

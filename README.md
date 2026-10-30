@@ -39,6 +39,7 @@ The current release assumes one operator or a trusted team sharing administrativ
 - **Runs a complete task autonomously.** Normal execution sends one full task message to one independent Codex conversation. The Agent chooses its steps, uses the permitted tools and submits its final result through `complete_task`.
 - **Makes the input and output predictable.** A plugin declares its input fields, instructions, available capabilities and result schema. The service checks submitted data against that contract.
 - **Keeps work and results on record.** Tasks have durable status, errors, execution details and downloadable image/text artifacts.
+- **Sends notifications when the Agent decides they are needed.** Bind existing Feishu/Lark, WeCom, DingTalk, Slack, Discord or custom Webhook channels to tasks and schedules. The Agent chooses when and what to send using explicitly granted tools; channel configurations are maintained in Admin or by the management Agent, with write-only credentials. See [notification setup and API](docs/NOTIFICATIONS.md).
 - **Provides an operations console and Agent.** Manage plugins, schedules, queue settings, task investigations and explicit retries through the same preset operations. Management replies stream into assistant bubbles with collapsible activity and connection recovery; ended chat history can be deleted from its sidebar.
 - **Applies ordinary settings without a restart.** Model, concurrency, pause, queue limits, timeouts and management instructions are persisted and configurable. Humans configure each plugin's entry and optional callback connection in Admin.
 - **Resumes incomplete work after a restart.** Recovery uses the existing task and Codex thread when their saved state is available. It may send an additional continuation message; completed or failed tasks do not automatically run again.
@@ -57,7 +58,7 @@ Here, an **Agent** is the AI that carries out the work. **MCP tools** are the sp
 
 Two generic examples are installed: `content.review` for text review, and `novel.illustrated` for illustrated fiction. Existing tools can save text, register generated images and send JSON to named HTTP destinations. Native image generation and web search depend on the plugin and your account's available capabilities.
 
-**A plugin is configuration, not arbitrary code.** You can add work without changing the platform when the existing tools cover its needs. A new database integration, file format processor or other missing capability still needs implementation. The management Agent cannot edit source code, run arbitrary shell commands or administer unrelated services.
+**A plugin is configuration, not arbitrary code.** You can add work without changing the platform when the existing tools cover its needs. A new database integration, file format processor or other missing capability still needs implementation. The management Agent cannot edit deployed source code, run host shell commands or administer unrelated services. Its optional [local code sandbox](docs/SANDBOX.md) runs Python/JavaScript in temporary conversation-owned containers, with file upload/download and explicit approval for supported network access or extra limits.
 
 Each accepted API request creates new work, including an identical `request_id` and input. The platform does not use that field to deduplicate submissions. One initial message does not mean one model computation: tools and internal collaboration can involve several model steps. Plan caller-side retries and usage accordingly.
 
@@ -94,13 +95,15 @@ sudo ./deploy.sh init /data/codex-agent-platform
 
 Before first start, review `/data/codex-agent-platform/.env` locally. After opening Admin, configure a plugin's entry address and entry key before enabling it or submitting work. A callback URL is optional. Never use `.env.example` placeholder credentials in a deployment.
 
-### 2. Build the three service images
+### 2. Build the service images and optional sandbox image
 
 ```bash
 sudo ./deploy.sh build /data/codex-agent-platform
 ```
 
 This step installs the locked runtime dependencies into the images. Rebuild after a source or dependency upgrade. Routine configuration changes through Admin do not require a build.
+
+The fixed Python/Node sandbox image is built too. To enable local code execution in Management chat, explicitly run `sudo ./deploy.sh enable-sandbox /data/codex-agent-platform` on a supported host. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
 
 ### 3. Allow device-code login and sign in
 
@@ -205,6 +208,10 @@ For `content.review`, a completed result contains `approved` and `reasons`. An i
 ## Add your own work and schedules
 
 Global model and reasoning selectors are available in **Settings**. In **Management chat**, click the model name in the composer to open one panel with model choices and a stepped reasoning slider. Click a level or use the arrow/Home/End keys; dragging previews the level and saves on release. Reset restores inherited reasoning; Use model default remains a separate choice. Long model lists can be searched, and unavailable saved values remain readable. The panel becomes a bottom sheet on phones and supports short keyboard-height viewports. Use **Business plugins → Configure connection → Model settings** to select a plugin's model and reasoning effort directly, or ask the management Agent to configure them. Each conversation or plugin can inherit global defaults or use its own overrides. Plugin choices are retained with accepted tasks; conversation changes apply to subsequent turns. See [model and reasoning selection](docs/DEPLOYMENT.md#model-and-reasoning-selection).
+
+All model configuration locations also offer **Standard / Fast** response speed. Standard is the default, including older saved settings. Chat places its Fast switch in the reasoning card; model names and default reasoning levels share one list row. Speed is independent of reasoning. Fast is offered only when the model catalog advertises it and increases usage consumption; account availability still applies. Conversation/plugin overrides may inherit global speed or explicitly select Standard even when the global default is Fast.
+
+Expand **Advanced model settings** in either global settings group, the chat model panel or plugin model settings to control reply verbosity, public reasoning summaries, auto-compaction threshold and tool-output budget. Verbosity defaults to Medium; summaries default to Concise for Manager and Automatic for business Agents; both budgets default to Automatic. Overrides can inherit each global value, and an explicit Automatic budget clears a manual global budget. Changing models preserves these options and speed. The management Agent can read and change its current conversation's settings with `conversation_execution`; changes apply to subsequent turns. See [model options, bounds and inheritance](docs/MODEL-OPTIONS.md).
 
 **Business plugins** displays saved definitions, status and model overrides with a direct enable/disable switch. To create, edit or trial a plugin, use **Management chat**. Describe the input fields, complete instructions, result format and permitted tools; do not put secrets in instructions or input. After creation, use that row's **Configure connection** action to set its entry address/key and optional callback. Entry paths and keys must be unique. Connection settings survive business definition edits, and saving a connection does not enable the plugin automatically.
 
@@ -369,6 +376,7 @@ The Admin frontend uses React, TypeScript and Ant Design, with one production bu
 | [Architecture](docs/ARCHITECTURE.md) | Components, lifecycle and trust boundaries. |
 | [System prompts](prompts/README.md) | Where to edit built-in instructions and how they take effect. |
 | [Plugins](docs/PLUGINS.md) | JSON definitions, tool capabilities, routes, artifacts and callbacks. |
+| [Notifications](docs/NOTIFICATIONS.md) | Channels, task/schedule bindings, native JSON messages and delivery history. |
 | [Deployment](docs/DEPLOYMENT.md) | Persistent data, HTTPS, probes, password recovery and backups. |
 | [Contributing](CONTRIBUTING.md) | Development and contribution expectations. |
 | [Security](SECURITY.md) | Safe reporting and deployment considerations. |
