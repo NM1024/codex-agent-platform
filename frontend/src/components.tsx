@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Card,Form,Modal,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
+import {Alert,Button,Card,Form,Modal,Select,Switch,Tag,Typography} from 'antd';
 import {Icon} from './Icon';
 import {ModelOptionsFields} from './ModelOptionsFields';
 import {changeAgentModel} from './modelOptions';
@@ -10,19 +10,7 @@ export const time=(value?:number|string)=>value?new Intl.DateTimeFormat('zh-CN',
 export const bytes=(value?:number)=>value===undefined?'—':value>=1073741824?(value/1073741824).toFixed(1)+' GB':(value/1048576).toFixed(1)+' MB';
 const labels:Record<string,string>={queued:'排队中',dispatching:'启动中',running:'运行中',completing:'提交中',suspended:'等待恢复',completed:'执行完成',failed:'执行失败',accepted:'接口已接收',unknown:'结果未知',not_required:'无需交付',pending:'等待交付',interrupted:'等待继续',executing:'操作中'};
 export const taskStatuses=['queued','dispatching','running','completing','suspended','completed','failed'];
-export function AsyncButton({onClick,...props}:Omit<ButtonProps,'onClick'|'loading'>&{onClick:()=>Promise<unknown>}) {
-  const locked=useRef(false),[busy,setBusy]=useState(false),{act}=useConsole();
-  return <Button {...props} loading={busy} aria-busy={busy} onClick={()=>{
-    if(locked.current)return;
-    locked.current=true;setBusy(true);
-    void act(onClick).finally(()=>{locked.current=false;setBusy(false);});
-  }}/>;
-}
-export function LoadingState({label='正在加载数据…',className='',compact=false}:{label?:string;className?:string;compact?:boolean}) {
-  const {t}=useConsole();
-  return <div className={'loading-state '+(compact?'loading-state--compact ':'')+className} role="status" aria-live="polite" aria-atomic="true"><div className="loading-state-content"><span aria-hidden="true"><Spin size={compact?'small':'default'}/></span><span className="loading-state-label">{t(label)}</span></div></div>;
-}
-export function DataLoading(){return <LoadingState className="page-loading"/>;}
+export {AsyncButton,LoadingState,DataLoading} from './shell-components';
 export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
   const {t}=useConsole(),locked=useRef(false);
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');

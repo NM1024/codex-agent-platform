@@ -4,7 +4,7 @@ import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
 import {useConsole} from './context';
 import type {View} from './types';
-import {AsyncButton,LoadingState} from './components';
+import {AsyncButton,LoadingState} from './shell-components';
 import {Icon} from './Icon';
 import {consoleTheme} from './theme';
 import {useVisualViewport} from './useVisualViewport';

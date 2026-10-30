@@ -7,6 +7,7 @@ const models=[
   {model:'fixture-supported',displayName:'Fixture Supported',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}],serviceTiers:[{id:'priority',name:'Fast'}]},
   {model:'fixture-standard',displayName:'Fixture Standard',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}],serviceTiers:[]},
 ];
+let originalGlobals=[];
 async function operation(page,action,args={}){const response=await page.request.post('/admin/api/operations',{data:{action,args}});expect(response.ok()).toBeTruthy();return response.json();}
 async function choose(page,id,label){
   const input=page.locator(id);await input.click();
@@ -14,12 +15,21 @@ async function choose(page,id,label){
   await page.locator('.ant-select-dropdown:visible').filter({has:page.locator('[id="'+listId+'"]')}).getByText(label,{exact:true}).click();
 }
 test.beforeEach(async({page})=>{
+  originalGlobals=[];
   await page.route('**/admin/api/operations',route=>route.request().postDataJSON().action==='models'?route.fulfill({json:{models}}):route.continue());
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();
   await expect(page.locator('#workspace')).toBeVisible();
-  for(const scope of ['manager','execution'])await operation(page,'configuration_update',{scope,patch:{serviceTier:'default'}});
+  // The fixture's server is shared across spec files. Earlier settings tests
+  // may save an unlisted model, so speed tests must establish a supported one.
+  for(const scope of ['manager','execution']){
+    const {values}=await operation(page,'configuration_get',{scope});
+    originalGlobals.push({scope,patch:{model:values.model,serviceTier:values.serviceTier??'default'}});
+    await operation(page,'configuration_update',{scope,patch:{model:models[0].model,serviceTier:'default'}});
+  }
 });
-test.afterEach(async({page})=>{for(const scope of ['manager','execution'])await operation(page,'configuration_update',{scope,patch:{serviceTier:'default'}});});
+test.afterEach(async({page})=>{
+  for(const settings of originalGlobals)await operation(page,'configuration_update',settings);
+});
 async function conversation(page,execution={}){
   const response=await page.request.post('/admin/api/conversations',{data:{title:'Synthetic speed picker',execution}});expect(response.ok()).toBeTruthy();const created=await response.json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
