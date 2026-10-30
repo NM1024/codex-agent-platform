@@ -34,7 +34,7 @@ test('running turns show partial replies, collapsed activity and FIFO pending me
     {...user('first','running','First request'),activity:[{id:'summary',kind:'reasoning_summary',label:'Progress summary',text:'Inspecting synthetic queue',status:'running',created_at:stamp,updated_at:stamp+5000},{id:'partial',kind:'assistant_message',label:'Assistant',text:'Partial answer while working',status:'running',created_at:stamp,updated_at:stamp+5000}]},
     user('second','queued','Second request'),user('third','queued','Third request')],actions:[{id:'tool-action',message_id:'first',name:'configuration_get',status:'completed'}]};
   await synthetic(page,conversation);
-  await expect(page.locator('.chat-run-status')).toContainText('排队 2 条');
+  await expect(page.locator('.chat-queue-row')).toHaveCount(2);
   await expect(page.locator('.message-progress').first()).toContainText('运行中');
   await expect(page.locator('.message-partial')).toContainText('Partial answer while working');
   await expect(page.getByText('Inspecting synthetic queue',{exact:true})).not.toBeVisible();
@@ -219,7 +219,7 @@ test('switching conversations shows an independent loader and ignores a late pre
   await page.locator('.conversation-list').getByRole('button',{name:'Fast second',exact:true}).click();
   await expect(page.locator('#messages')).toContainText('New conversation content');release();
   await page.waitForTimeout(250);await expect(page.locator('#messages')).not.toContainText('Old conversation content');
-  await expect(page.locator('.chat-run-status')).toContainText('执行失败');
+  await expect(page.locator('.chat-run-status')).toHaveCount(0);
 });
 
 test('leaving chat during compression cannot repopulate the image draft after logout',async({page})=>{

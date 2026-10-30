@@ -11,7 +11,7 @@ import {compressChatImage} from '../chatImages';
 import {Icon} from '../Icon';
 import {QuestionCard} from '../QuestionCard';
 import {ChatQueue,type QueueAction} from '../ChatQueue';
-import {ChatRunStatus,connectionWarning,runPresentation} from '../ChatRunStatus';
+import {connectionWarning,runPresentation} from '../chat-progress';
 import type {Action, AgentSettings, ChatImage, ConfigGroup, Conversation, Message} from '../types';
 
 interface ChatAction extends Omit<Action, 'error'> {
@@ -91,10 +91,8 @@ export default function ChatPage() {
   const visibleConversation = conversation?.id === chatId ? conversation : undefined;
   const conversationRef=useRef(conversation);conversationRef.current=conversation;
   const messages=visibleConversation?.messages??[];
-  const pending=messages.filter(message=>message.role==='user'&&isPending(message.status));
-  const queued=pending.filter(message=>message.status==='queued');
+  const queued=messages.filter(message=>message.role==='user'&&message.status==='queued');
   const queue=visibleConversation?.queue??messages.filter(message=>['queued','draft','steering','steer_unknown'].includes(message.status));
-  const totals=visibleConversation?conversationCounts(visibleConversation):{queued_count:0,running_count:0};
   const unconfirmedIds=unconfirmedRoots.id===chatId?unconfirmedRoots.ids:[];
   const runConnection=readFailure===chatId?'failed':streamStatus;
   const actions = visibleConversation?.actions?.filter(action=>!action.message_id).slice(-8) ?? [];
@@ -494,7 +492,6 @@ export default function ChatPage() {
       </div>
       <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
         onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();void addImages(Array.from(event.dataTransfer.files));}}}>
-        <ChatRunStatus key={'status:'+selectedKey} messages={messages} queuedCount={totals.queued_count??queued.length} runningCount={totals.running_count??0} connection={runConnection} unconfirmedIds={unconfirmedIds}/>
         <ChatQueue key={'queue:'+selectedKey} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}

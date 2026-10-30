@@ -579,22 +579,11 @@ button, input, textarea { font: inherit; }
   .plugin-connection-modal .connection-form { --settings-label-width: 76px; --settings-label-gap: 10px; }
 }
 
-/* Persistent task state: animation never changes the occupied space. */
-.chat-run-status { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 12px; margin-bottom: 8px; border: 1px solid #d6e6dc; border-left: 3px solid #345e4f; border-radius: 10px; background: #edf5ef; color: #345e4f; }
-.chat-run-copy { flex: 1; min-width: 0; }
-.chat-run-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; line-height: 20px; }
-.chat-run-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.chat-run-queue { flex-shrink: 0; font-size: 11px; }
-.chat-run-meta { display: flex; gap: 4px 14px; min-height: 18px; min-width: 0; overflow: hidden; font-size: 11px; line-height: 18px; color: #566d60; font-variant-numeric: tabular-nums; }
-.chat-run-meta > span { white-space: nowrap; flex-shrink: 0; }
-.chat-run-meta > .chat-run-tool, .chat-run-meta > .chat-run-last-state { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.chat-run-status[data-tone="warning"] { color: #805817; border-color: #ecdbb5; border-left-color: #a87520; background: #fff8e9; }
-.chat-run-status[data-tone="error"] { color: #a3322c; border-color: #eccfcb; border-left-color: #b74438; background: #fff2f0; }
-.chat-run-status[data-tone="neutral"] { color: #52675c; border-color: #dce4df; border-left-color: #84958b; background: #f5f7f6; }
+/* Message progress indicators keep a stable footprint while animating. */
 .run-indicator { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: inherit; }
 .run-indicator > svg { width: 18px; height: 18px; }
-.run-indicator[data-spinning="true"] { border: 2px solid #bfd5c6; border-top-color: #345e4f; border-right-color: #345e4f; border-radius: 50%; animation: chat-run-spin 1s linear infinite; }
-@keyframes chat-run-spin { to { transform: rotate(360deg); } }
+.run-indicator[data-spinning="true"] { border: 2px solid #bfd5c6; border-top-color: #345e4f; border-right-color: #345e4f; border-radius: 50%; animation: message-progress-spin 1s linear infinite; }
+@keyframes message-progress-spin { to { transform: rotate(360deg); } }
 .message-run-state { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 8px; border-radius: 6px; background: #eaf3ed; color: #345e4f; font-size: 12px; }
 .message-run-state .run-indicator { width: 13px; height: 13px; }
 .message-run-state .run-indicator > svg { width: 13px; height: 13px; }
@@ -603,32 +592,12 @@ button, input, textarea { font: inherit; }
 .message-run-state[data-tone="error"] { color: #a3322c; background: #fff0ed; }
 .message-progress { align-items: center; font-size: 11px; }
 @media (prefers-reduced-motion: reduce) { .run-indicator[data-spinning="true"] { animation: none; } }
-@media (max-width: 600px) {
-  .chat-run-status { padding: 7px 9px; gap: 8px; }
-  .chat-run-heading strong { font-size: 13px; }
-  .chat-run-meta { gap: 8px; font-size: 10px; }
-}
-@media (max-height: 600px) {
-  .chat-run-status { min-height: 48px; padding-block: 4px; margin-bottom: 5px; }
-}
-:root[data-compact-viewport] .chat-run-status { min-height: 48px; padding-block: 4px; margin-bottom: 5px; }
 
 .message-label .partial-label { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reply-placeholder { color: #607467; font-size: 13px; }
 
 .message-progress > span:nth-child(2) { min-width: 64px; font-variant-numeric: tabular-nums; }
 
-:root[data-tiny-viewport] .chat-main:has(.chat-run-status) .messages { min-height: 16px; }
-:root[data-tiny-viewport] .chat-run-status { min-height: 28px; padding-block: 2px; }
-:root[data-tiny-viewport] .chat-run-meta { display: none; }
-@media (max-height: 320px) {
-  .chat-main:has(.chat-run-status) .messages { min-height: 16px; }
-  .chat-run-status { min-height: 28px; padding-block: 2px; }
-  .chat-run-meta { display: none; }
-}
-
-:root[data-tiny-viewport] .chat-main:has(.chat-run-status) #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; }
-@media (max-height: 320px) { .chat-main:has(.chat-run-status) #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; } }
 
 .plugin-icon-actions > .ant-btn { flex: 0 0 32px; width: 32px; padding-inline: 0; }
 
