@@ -20,6 +20,7 @@ export class ScheduleStore {
       CREATE TABLE IF NOT EXISTS platform_schedule_runs(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,due_at INTEGER NOT NULL,triggered_at INTEGER NOT NULL,task_id TEXT NOT NULL,UNIQUE(schedule_id,due_at));
       CREATE TABLE IF NOT EXISTS platform_inspections(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,conversation_id TEXT,created_at INTEGER NOT NULL);
     `);
+    if(!this.db.prepare('PRAGMA table_info(platform_schedules)').all().some(column=>column.name==='revision'))this.db.exec('ALTER TABLE platform_schedules ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
     if(!this.db.prepare('PRAGMA table_info(platform_inspections)').all().some(column=>column.name==='finished_at')) {
       this.db.exec('ALTER TABLE platform_inspections ADD COLUMN finished_at INTEGER');
     }
@@ -35,10 +36,10 @@ export class ScheduleStore {
     const row=this.db.prepare('SELECT * FROM platform_schedules WHERE id=? AND deleted_at IS NULL').get(id);
     if (!row) throw new HttpError(404,'SCHEDULE_NOT_FOUND','找不到定时计划。');
     const binding=this.store.notifications?.getBinding({kind:'schedule',id});
-    return {...JSON.parse(row.definition),next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at,...(binding?{notification_channels:binding.notification_channels,notification_revision:binding.notification_revision}:{})};
+    return {...JSON.parse(row.definition),revision:row.revision,next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at,...(binding?{notification_channels:binding.notification_channels,notification_revision:binding.notification_revision}:{})};
   }
   list() {return this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
-  save(raw,now=Date.now()) {
+  save(raw,now=Date.now(),{revision}={}) {
     if (!raw || typeof raw!=='object' || !['task','inspection'].includes(raw.kind) || typeof raw.name!=='string' || !raw.name.trim()) throw invalid('name 和 kind 不正确。');
     const timezone=raw.timezone ?? 'Asia/Shanghai',next_run_at=nextAt(raw.cron,timezone,now);
     const id=raw.id ?? randomUUID();if (!/^[a-f0-9-]{36}$/.test(id)) throw invalid('id 不正确。');
@@ -57,17 +58,18 @@ export class ScheduleStore {
       definition.message=raw.message;
     }
     return this.store.transaction(()=>{
-      this.db.prepare('INSERT INTO platform_schedules(id,definition,enabled,next_run_at,blocked_reason,updated_at) VALUES(?,?,?,?,NULL,?) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,enabled=excluded.enabled,next_run_at=excluded.next_run_at,blocked_reason=NULL,updated_at=excluded.updated_at').run(id,JSON.stringify(definition),Number(definition.enabled),next_run_at,now);
+      if(revision!==undefined){const current=this.db.prepare('SELECT revision FROM platform_schedules WHERE id=?').get(id);if((current?.revision??0)!==revision)throw new HttpError(409,'SCHEDULE_REVISION_CONFLICT','定时计划已被修改，请重新读取后再保存。');}
+      this.db.prepare('INSERT INTO platform_schedules(id,definition,enabled,next_run_at,blocked_reason,updated_at,revision) VALUES(?,?,?,?,NULL,?,1) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,enabled=excluded.enabled,next_run_at=excluded.next_run_at,blocked_reason=NULL,updated_at=excluded.updated_at,revision=revision+1').run(id,JSON.stringify(definition),Number(definition.enabled),next_run_at,now);
       if(ids.length||raw.notification_channels!==undefined){if(!this.store.notifications)throw invalid('通知渠道暂不可用。');this.store.notifications.setBinding({kind:'schedule',id},ids);}
       return this.get(id);
     });
   }
   setEnabled(id,enabled) {
-    const {next_run_at,blocked_reason,updated_at,...definition}=this.get(id);
+    const {next_run_at,blocked_reason,updated_at,revision,...definition}=this.get(id);
     if(typeof enabled!=='boolean')throw invalid('enabled 必须为布尔值。');
     if(enabled)return this.save({...definition,enabled});
     // Stopping a plan must remain possible even if its plugin can no longer execute it.
-    this.db.prepare('UPDATE platform_schedules SET enabled=0,definition=?,updated_at=? WHERE id=?').run(JSON.stringify({...definition,enabled:false}),Date.now(),id);
+    this.db.prepare('UPDATE platform_schedules SET enabled=0,definition=?,updated_at=?,revision=revision+1 WHERE id=?').run(JSON.stringify({...definition,enabled:false}),Date.now(),id);
     return this.get(id);
   }
   delete(id) {

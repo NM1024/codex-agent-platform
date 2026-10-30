@@ -6,6 +6,7 @@ import type {Plugin} from 'vite';
 
 const br=promisify(brotliCompress),gz=promisify(gzip);
 // Only public, content-hashed resources are compressed. Nonce HTML stays private.
+// Spend compression effort at build time to keep added UI out of the download budget.
 export function compressedAssets():Plugin {
   let output:string;
   return {
@@ -14,7 +15,7 @@ export function compressedAssets():Plugin {
     async closeBundle(){
       await Promise.all((await readdir(output)).filter(file=>/\.(?:js|css)$/.test(file)).map(async file=>{
         const data=await readFile(resolve(output,file));
-        const [gzipData,brData]=await Promise.all([gz(data,{level:9}),br(data,{params:{[constants.BROTLI_PARAM_QUALITY]:6}})]);
+        const [gzipData,brData]=await Promise.all([gz(data,{level:9}),br(data,{params:{[constants.BROTLI_PARAM_QUALITY]:9}})]);
         await Promise.all([writeFile(resolve(output,file+'.gz'),gzipData),writeFile(resolve(output,file+'.br'),brData)]);
       }));
     },

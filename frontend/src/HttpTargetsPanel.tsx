@@ -1,4 +1,5 @@
 import './http-targets-i18n';
+import './admin-overlays.css';
 import {useRef,useState} from 'react';
 import {Alert,Button,Checkbox,Form,Input,InputNumber,Modal,Table,Typography} from 'antd';
 import {DeleteAction,Panel,Status} from './components';
@@ -51,18 +52,18 @@ export default function HttpTargetsPanel({group,onSaved,reload}:{group:ConfigGro
         catch(cause){if(cause instanceof ApiError&&cause.status===409)try{await reload();}catch{}throw cause;}
       }}/></div>},
     ]}/>
-    <Modal open={!!editor} title={t(editor?.name?'编辑 HTTP 目标':'新增 HTTP 目标')} okText={t('保存目标')} cancelText={t('取消')} onOk={()=>void save()} onCancel={close} okButtonProps={{loading:busy,disabled:conflict,'aria-label':t('保存目标'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} maskClosable={!busy} forceRender>
-      <Form name="http-target-editor" form={form} layout="horizontal" colon={false} className="settings-form http-target-form" disabled={busy}>
+    <Modal className="admin-overlay admin-modal" width={880} open={!!editor} title={t(editor?.name?'编辑 HTTP 目标':'新增 HTTP 目标')} okText={t('保存目标')} cancelText={t('取消')} onOk={()=>void save()} onCancel={close} okButtonProps={{loading:busy,disabled:conflict,'aria-label':t('保存目标'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} maskClosable={!busy} forceRender>
+      <Form name="http-target-editor" form={form} layout="horizontal" colon={false} className="admin-editor-form http-target-form" disabled={busy}><div className="admin-form-grid">
         <Form.Item name="name" label={t('目标名称')} rules={[{required:true,message:t('请输入目标名称。')},{pattern:/^[a-zA-Z0-9_-]+$/,message:t('名称只能包含英文字母、数字、下划线和短横线。')}]}><Input disabled={busy||!!editor?.name} maxLength={128}/></Form.Item>
-        <Form.Item name="url" label={t('目标地址')} rules={[{required:true,message:t('请输入目标地址。')},{validator:async(_,value:string)=>{
+        <Form.Item name="timeoutMs" label={t('超时（毫秒）')} rules={[{required:true,message:t('请输入超时时间。')}]}><InputNumber min={1} max={2147483647} precision={0}/></Form.Item>
+        <Form.Item className="admin-form-wide" name="url" label={t('目标地址')} rules={[{required:true,message:t('请输入目标地址。')},{validator:async(_,value:string)=>{
           if(!value)return;
           let url;try{url=new URL(value);}catch{throw new Error(t('请填写完整的 HTTPS 地址，或本机 HTTP 地址。'));}
           if(value.trim()!==value||url.username||url.password||url.hash||!(url.protocol==='https:'||url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname)))throw new Error(t('请填写完整的 HTTPS 地址，或本机 HTTP 地址。'));
         }}]}><Input placeholder="https://example.com/health"/></Form.Item>
-        <Form.Item name="timeoutMs" label={t('超时（毫秒）')} rules={[{required:true,message:t('请输入超时时间。')}]}><InputNumber min={1} max={2147483647} precision={0}/></Form.Item>
-        <Form.Item name="token" label={t('访问凭证')} extra={t('选填。请求时由平台通过 Authorization: Bearer 注入；已保存凭证不会回显，留空保留原值。')}><Input.Password autoComplete="new-password" maxLength={1024} disabled={busy||clearToken} placeholder={t(editor?.name&&configured(editor.name)?'已配置，留空保持原值':'尚未配置')}/></Form.Item>
+        <Form.Item className="admin-form-wide" name="token" label={t('访问凭证')} extra={t('选填。请求时由平台通过 Authorization: Bearer 注入；已保存凭证不会回显，留空保留原值。')}><Input.Password autoComplete="new-password" maxLength={1024} disabled={busy||clearToken} placeholder={t(editor?.name&&configured(editor.name)?'已配置，留空保持原值':'尚未配置')}/></Form.Item>
         {editor?.name&&configured(editor.name)&&<Form.Item label=" "><Checkbox checked={clearToken} onChange={event=>setClearToken(event.target.checked)}>{t('清除已保存凭证')}</Checkbox></Form.Item>}
-      </Form>
+      </div></Form>
       {error&&<Alert type="error" showIcon title={error} description={conflict?t('请关闭此窗口后重新打开，读取最新目标配置再修改。'):undefined}/>}
     </Modal>
   </Panel>;

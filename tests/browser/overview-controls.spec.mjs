@@ -7,8 +7,8 @@ test('collection distinguishes paused blocked and unknown states and never guess
   data.platform.runtime.paused=true;data.platform.runner.ready=false;data.platform.runner.reason='CHATGPT_LOGIN_REQUIRED';
   await page.reload();await expect(page.locator('#dispatch-title')).toHaveText('领取已暂停');await expect(page.getByRole('button',{name:'恢复领取',exact:true})).toBeEnabled();
   data.platform.runtime.paused=false;await page.reload();await expect(page.locator('#dispatch-title')).toHaveText('领取受阻');
-  await page.getByRole('button',{name:'查看原因',exact:true}).click();await expect(page.locator('[data-service="runner"]')).toContainText('CHATGPT_LOGIN_REQUIRED');
-  const details=page.locator('[data-service="runner"] button[aria-expanded]');await expect(details).toHaveAttribute('aria-expanded','true');await details.click();await expect(page.locator('#service-details-runner')).toHaveCount(0);await expect(details).toHaveAttribute('aria-expanded','false');
+  await page.getByRole('button',{name:'查看原因',exact:true}).click();const drawer=page.getByRole('dialog');await expect(drawer).toContainText('CHATGPT_LOGIN_REQUIRED');
+  const details=page.locator('[data-service="runner"] button[aria-expanded]');await expect(details).toHaveAttribute('aria-expanded','true');await drawer.getByRole('button',{name:/关闭|Close/}).click();await expect(drawer).not.toBeVisible();await expect(details).toHaveAttribute('aria-expanded','false');
   data.platform={unavailable:true,error:{message:'Synthetic gateway unavailable'}};await page.reload();await expect(page.locator('#dispatch-title')).toHaveText('状态未获取');
   await expect(page.getByRole('button',{name:'暂停领取',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'调整并发',exact:true})).toBeDisabled();
   for(const counter of await page.locator('[data-task-count] .ops-task-number').all())await expect(counter).toHaveText('—');
@@ -50,6 +50,7 @@ test('pending concurrency save cannot be hidden and reopened to bypass its write
   await page.route('**/admin/api/operations',async route=>{const body=route.request().postDataJSON();if(body.action!=='runtime_update')return route.continue();calls++;await gate;Object.assign(data.platform.runtime,body.args);await route.fulfill({json:data.platform.runtime});});
   await loginOverview(page);await page.getByRole('button',{name:'调整并发',exact:true}).click();await page.locator('#concurrency').fill('3');await page.getByRole('button',{name:'保存',exact:true}).click();
   await expect(page.getByRole('button',{name:'收起设置',exact:true})).toBeDisabled();await expect(page.locator('#concurrency')).toBeDisabled();
+  await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button',{name:'保存',exact:true}).dispatchEvent('click');expect(calls).toBe(1);release();await expect(page.locator('.ops-capacity')).toContainText('3');
 });
 

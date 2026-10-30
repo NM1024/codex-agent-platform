@@ -71,7 +71,10 @@ export class OperationsService {
     }
     if (action==='plugin_validate') {this.registry.compileDefinition(args.definition);return {valid:true,...(this.store.pluginConnections?{human_connection_required:true}: {})};}
     if (action==='plugin_save') {
-      const saved=pluginView(this.store.plugins.save(args.definition));
+      const saved=this.store.transaction(()=>{
+        if(args.revision!==undefined){const current=this.store.db.prepare('SELECT revision FROM platform_plugins WHERE type=?').get(typeof args.definition.type==='string'?args.definition.type:'');if((current?.revision??0)!==args.revision)throw new HttpError(409,'PLUGIN_REVISION_CONFLICT','业务插件已被修改，请重新读取后再保存。');}
+        return pluginView(this.store.plugins.save(args.definition));
+      });
       return saved.connection&&!saved.connection.ready?{...saved,user_action_required:'可调用 plugin_connection_initialize 初始化缺失入口信息；请到业务插件列表的“配置接入”领取生成的入口密钥或手动配置，完成后单独启用。回调地址和凭证可选，必须由人配置；请勿发送到管理对话。未完成配置或密钥未领取前不能启用、提交任务、试运行或执行定时计划。'}:saved;
     }
     if (action==='plugin_enable') return pluginView(this.store.plugins.setEnabled(args.type,args.enabled));
@@ -92,7 +95,7 @@ export class OperationsService {
       compatibility_profiles:Object.entries(this.registry.catalog.profiles ?? {}).map(([type,module])=>({type,tools:Object.keys(module.tools),contract:'Input/output/callback are fixed for the existing integration. Instructions may be edited.'}))
     };
     if (action==='schedules') return this.schedules.list();
-    if (action==='schedule_save') return this.schedules.save(args.schedule);
+    if (action==='schedule_save') return this.schedules.save(args.schedule,Date.now(),{revision:args.revision});
     if (action==='schedule_enable') return this.schedules.setEnabled(args.id,args.enabled);
     if (action==='schedule_delete') return this.schedules.delete(args.id);
     if (action==='runtime_update') {
