@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'notification-panels.focused.mjs',workers:1,timeout:20000,outputDir:'../../.tmp/notification-ui/results',reporter:'list',use:{baseURL:'http://127.0.0.1:4329',launchOptions:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{}},webServer:{command:'node notification-fixture.mjs',url:'http://127.0.0.1:4329/fixture.html',timeout:30000}});

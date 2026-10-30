@@ -1,0 +1,4 @@
+export const channelIdsSchema={type:'array',uniqueItems:true,maxItems:32,items:{type:'string',pattern:'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'}};
+export const notificationContextSchema={type:'object',additionalProperties:false,properties:{limit:{type:'integer',minimum:1,maximum:100},before:{type:'string',maxLength:300}}};
+export const notificationSendSchema={type:'object',additionalProperties:false,required:['notification_key','deliveries'],properties:{notification_key:{type:'string',minLength:1,maxLength:128},deliveries:{type:'array',minItems:1,maxItems:32,items:{type:'object',additionalProperties:false,required:['channel_id','body'],properties:{channel_id:channelIdsSchema.items,body:{}}}}}};
+export const notificationToolNames=['notification_context','send_notification'];

@@ -82,6 +82,19 @@ export function createManagerServer({store,agent,operations,auth,metrics,version
         res.writeHead(200,{...headers,'content-length':image.size});
         return res.end(req.method==='HEAD'?undefined:Buffer.from(image.bytes));
       }
+      if(path==='/admin/api/notification-channels'&&['GET','POST'].includes(req.method))return json(res,200,await operations.notificationChannels(req.method==='GET'?'list':'save',req.method==='GET'?{}:await readJson(req)));
+      const notificationChannel=path.match(/^\/admin\/api\/notification-channels\/([a-f0-9-]{36})(?:\/(enable|test))?$/);
+      if(notificationChannel&&['POST','DELETE'].includes(req.method)){
+        const [,id,action]=notificationChannel;if(req.method==='POST'&&!action)throw new HttpError(404,'NOT_FOUND');
+        return json(res,200,await operations.notificationChannels(req.method==='DELETE'?'delete':action,{...(await readJson(req)),id}));
+      }
+      const notificationBinding=path.match(/^\/admin\/api\/(tasks|schedules|inspections)\/([a-f0-9-]{36})\/notifications$/);
+      if(notificationBinding&&['GET','POST'].includes(req.method)){
+        const [,kind,id]=notificationBinding,name=kind==='tasks'?'task':kind==='schedules'?'schedule':'inspection',identity=kind==='tasks'?{task_id:id}:{id};
+        if(req.method==='GET')return json(res,200,await operations.execute(name+'_notifications_get',{...identity,...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
+        const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw new HttpError(400,'INVALID_NOTIFICATION_BINDING');
+        return json(res,200,await operations.execute(name+'_notifications_update',{...identity,notification_channels:body.notification_channels,notification_revision:body.revision}));
+      }
       const pluginConnection=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection$/);
       const pluginKeyClaim=path.match(/^\/admin\/api\/plugins\/([^/]+)\/connection\/entry-key\/claim$/);
       if(req.method==='POST'&&pluginKeyClaim)return json(res,200,await operations.claimPluginEntryKey(decodeURIComponent(pluginKeyClaim[1]),await readJson(req)));

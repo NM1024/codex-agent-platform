@@ -4,6 +4,7 @@ import { fault } from "./core/registry.mjs";
 import { createMcpHandler } from "./mcp/server.mjs";
 import {taskArtifacts} from "./core/task-results.mjs";
 import {HttpError} from './errors.mjs';
+import {NotificationOperations} from './notifications/operations.mjs';
 
 function pluginPrincipal(req,connections) {
   const headers=[];
@@ -60,6 +61,14 @@ export function createTaskApi({
       const principal=connections?pluginPrincipal(req,connections):null;
       if(!connections)requireAuth(req,config.ingressToken);
       const ownsTask=id=>connections?store.raw(id)?.type===principal:!!store.get(id,client);
+      const notificationPath=path.match(/^\/v2\/tasks\/([a-f0-9-]{36})\/notifications$/);
+      if(notificationPath&&['GET','POST'].includes(req.method)){
+        const id=notificationPath[1];if(!ownsTask(id))throw fault('NOT_FOUND',404);
+        const notificationOperations=new NotificationOperations({store});
+        if(req.method==='GET')return json(res,200,notificationOperations.task(id,{available:false,limit:url.searchParams.has('limit')?Number(url.searchParams.get('limit')):undefined,before:url.searchParams.get('before')??undefined}));
+        const body=await readJson(req);if(!body||Object.keys(body).some(key=>!['notification_channels','revision'].includes(key)))throw fault('INVALID_INPUT',400);
+        return json(res,200,notificationOperations.updateTask(id,body.notification_channels,body.revision,{available:false}));
+      }
       const artifactPath=path.match(/^\/v2\/tasks\/([a-f0-9-]{36})\/artifacts\/([a-f0-9-]{36})$/);
       if (req.method==='GET' && artifactPath) {
         if (!ownsTask(artifactPath[1]) || !registry.catalog.readArtifact) throw fault('NOT_FOUND',404);
@@ -76,7 +85,7 @@ export function createTaskApi({
       if (req.method==='POST' && routed) {
         if(connections&&routed.type!==principal)throw new HttpError(403,'PLUGIN_SCOPE_DENIED','该密钥只能调用所属业务插件。');
         const body=await readJson(req);
-        if (!body || Object.keys(body).some(key=>!['request_id','input'].includes(key))) throw fault('INVALID_INPUT',400);
+        if (!body || Object.keys(body).some(key=>!['request_id','input','notification_channels'].includes(key))) throw fault('INVALID_INPUT',400);
         const task=store.accept(connections?'plugin:'+principal:client,{...body,type:routed.type});void dispatcher.drain();return json(res,202,task);
       }
       if (req.method === "GET" && /^\/v2\/tasks\/[a-f0-9-]{36}$/.test(path)) {
@@ -116,6 +125,7 @@ export function createPrivateApi({
     if (path === "/mcp") return mcp(req, res);
     try {
       requireAuth(req, config.runnerToken);
+      if(path==='/internal/notification-channels'&&req.method==='POST'&&operations){const body=await readJson(req);return json(res,200,await operations.notifications.channelOperation(body.action,body));}
       const keyClaim=path.match(/^\/internal\/plugin-connections\/([^/]+)\/entry-key\/claim$/);
       if(keyClaim&&req.method==='POST'&&store.pluginConnections)return json(res,200,store.pluginConnections.claimEntryKey(decodeURIComponent(keyClaim[1]),await readJson(req)));
       const connection=path.match(/^\/internal\/plugin-connections\/([^/]+)$/);

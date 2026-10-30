@@ -5,27 +5,42 @@ import { managementTools } from '../contracts/management.mjs';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 
-export function createManagementMcpHandler({store,operations,authorize}) {
+export function createManagementMcpHandler({store,operations,authorize,executionContext}) {
   const pending=new Set();
   const handler=async(req,res)=>{
     let server,transport;
     try {
       if(new URL(req.url,'http://local').pathname!=='/mcp')return json(res,404,{error:{code:'NOT_FOUND'}});
       const credentials=[];for(let i=0;i<req.rawHeaders.length;i+=2)if(req.rawHeaders[i].toLowerCase()==='authorization')credentials.push(req.rawHeaders[i+1]);
-      const conversationId=credentials.length===1&&credentials[0].startsWith('Bearer ')?authorize(credentials[0].slice(7)):null;
+      const token=credentials.length===1&&credentials[0].startsWith('Bearer ')?credentials[0].slice(7):null;
+      const conversationId=token?authorize(token):null;
       if(!conversationId)throw new HttpError(401,'UNAUTHORIZED','认证失败');
       if(req.headers.origin)throw new HttpError(403,'ORIGIN_DENIED','管理 MCP 不接受浏览器来源。');
       if(req.method!=='POST')return json(res,405,{error:{code:'METHOD_NOT_ALLOWED'}});
       const body=await readJson(req);
       server=new Server({name:'platform-management',version:'1.0.0'},{capabilities:{tools:{}}});
-      server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:managementTools}));
+      const currentContext=()=>{
+        const context=executionContext?.(token);
+        return context?.conversationId===conversationId&&typeof context.messageId==='string'?{conversationId,messageId:context.messageId}:undefined;
+      };
+      const availableTools=()=>{
+        const context=currentContext();let inspection=false;
+        if(context)try{
+          const conversation=store.metadata(conversationId),message=store.message(context.messageId);
+          inspection=!!(conversation.inspection_admitted&&conversation.source_message_id===context.messageId&&/^[a-f0-9-]{36}$/.test(conversation.source_id)&&message?.conversation_id===conversationId&&message.status==='running');
+        }catch{}
+        return managementTools.filter(tool=>inspection||!['notification_context','send_notification'].includes(tool.name));
+      };
+      server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:availableTools()}));
       server.setRequestHandler(CallToolRequestSchema,async request=>{
         const name=request.params.name,args=request.params.arguments ?? {};
-        if(!managementTools.some(tool=>tool.name===name))return {isError:true,content:[{type:'text',text:'TOOL_NOT_ALLOWED'}]};
+        if(!availableTools().some(tool=>tool.name===name))return {isError:true,content:[{type:'text',text:'TOOL_NOT_ALLOWED'}]};
         const id=store.beginAction(conversationId,name,args);
         const operation=(async()=>{
           try {
-            const value=await operations.execute(name,args);store.finishAction(id,value);
+            const scoped=['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name);
+            const context=currentContext()??(name==='conversation_execution'?{conversationId}:undefined);
+            const value=await (scoped?operations.execute(name,args,context):operations.execute(name,args));store.finishAction(id,value);
             return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{result:value}};
           }catch(error){store.finishAction(id,null,error);return {isError:true,content:[{type:'text',text:JSON.stringify({error:{code:error.code ?? 'OPERATION_FAILED',message:error.message,operation_status:error.effectUnknown?'unknown':'failed',action:error.effectUnknown?'Inspect current records before deciding whether to retry.':'Correct the input or inspect service health.'}})}]};}
         })();pending.add(operation);try{return await operation;}finally{pending.delete(operation);}

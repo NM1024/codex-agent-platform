@@ -84,7 +84,7 @@ export class BusinessRegistry {
       !body ||
       Array.isArray(body) ||
       Object.keys(body).some(
-        (k) => !["type", "request_id", "input"].includes(k),
+        (k) => !["type", "request_id", "input", "notification_channels"].includes(k),
       ) ||
       typeof body.request_id !== "string" ||
       !body.request_id.trim() ||

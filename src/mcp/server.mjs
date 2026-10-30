@@ -102,6 +102,7 @@ export function createMcpHandler({
             afterFlush: (callback) => afterFlush.push(callback),
             store,
             runId: current.run_id,
+            generation:current.generation,
             taskId: current.task_id,
             input: JSON.parse(current.execution_input),
           };

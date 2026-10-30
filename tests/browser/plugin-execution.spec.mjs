@@ -131,13 +131,16 @@ test('row actions are compact named icons with focus tooltips in both languages 
       await page.setViewportSize({width,height:900});
       const row=page.getByRole('row').filter({hasText:'content.review'}),actions=row.locator('.plugin-row-actions');
       await expect(actions.getByRole('button')).toHaveCount(4);
-      const centers=[];
       for(const label of labels){
         const button=actions.getByRole('button',{name:label,exact:true});
         await expect(button).toBeVisible();await expect(button).toHaveText('');await expect(button.locator('svg')).toHaveCount(1);
-        const box=await button.boundingBox();centers.push(box.y+box.height/2);
       }
-      expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(1);
+      // A viewport resize can move the document while individual assertions
+      // resolve. Measure all controls in one frame and wait for settled layout.
+      await expect.poll(()=>actions.getByRole('button').evaluateAll(buttons=>{
+        const centers=buttons.map(button=>{const box=button.getBoundingClientRect();return box.y+box.height/2;});
+        return Math.max(...centers)-Math.min(...centers);
+      }),{message:`Action alignment: ${locale}, ${width}px`}).toBeLessThan(1);
       await actions.getByRole('button',{name:labels[0],exact:true}).focus();
       await expect(page.getByRole('tooltip')).toContainText(labels[0]);
       await actions.getByRole('button',{name:labels[0],exact:true}).evaluate(button=>button.blur());

@@ -27,7 +27,7 @@ A plugin defines a business contract, not executable code. Admin shows definitio
 }
 ```
 
-Standard submission: `POST /v2/tasks` with `{type, request_id, input}` and `Authorization: Bearer <that-plugin-entry-key>`. The body type must match the plugin identified by the key. A human-configured `/hooks/...` route accepts `{request_id, input}` and determines the type from that route; its key must identify the same plugin. Use this key for queries and artifact downloads too; it cannot access another plugin's tasks or files.
+Standard submission: `POST /v2/tasks` with `{type, request_id, input, notification_channels?}` and `Authorization: Bearer <that-plugin-entry-key>`. The body type must match the plugin identified by the key. A human-configured `/hooks/...` route accepts `{request_id, input, notification_channels?}` and determines the type from that route; its key must identify the same plugin. `notification_channels` is an optional array of 0–32 distinct existing channel UUIDs, outside business `input`; omission defaults to no bindings. Use this key for queries, notification-binding updates and artifact downloads too; it cannot access another plugin's tasks or files.
 
 ## Per-plugin integration documentation
 
@@ -59,10 +59,22 @@ The management `capabilities` operation returns the current plugin schema, tool 
 - `write_text_artifact`: save supplied UTF-8 text under a task-owned artifact identity.
 - `read_artifact`: read metadata for an artifact belonging to this task.
 - `http_request`: GET/POST to a named destination configured in **Settings → HTTP targets** or the `http_targets` management configuration group. The tool returns HTTP status and response text; POST sends JSON. The Agent chooses when to invoke it. Changes apply to the next call without restart; saving does not send a request. Read the current scope revision before updating its complete targets map, retaining unrelated names and omitting stored token fields to preserve credentials. Tokens are write-only and should be entered in Admin, not chat. These targets remain separate from final-result callbacks. `PLATFORM_HTTP_TARGETS_JSON` only initializes the new scope; retired `http` records are not imported.
+- `notification_context`: read the current task's live notification bindings, safe channel metadata, provider-native JSON examples and paginated notification history.
+- `send_notification`: send native JSON through a selected subset of bound channels, with a stable `notification_key` and per-channel outcomes. Grant both notification tools explicitly in `capabilities.tools` before binding any channels; adding an input field cannot grant them. Humans manage Webhook URLs and credentials in **Settings → Notification channels**. See [notification setup, binding APIs and examples](NOTIFICATIONS.md).
 - Native `image_generation` and `web_search` are selected in the plugin. Availability depends on the installed Codex version and signed-in account.
 - `complete_task` is added automatically. Its result must satisfy the plugin's result schema. Artifact IDs referenced in results must belong to the task and point to readable files.
 
 No private reference assets or resource IDs are installed by default. `resources` may select resources explicitly registered by a deployment's capability catalog. Adding an entirely new tool integration or resource provider still requires implementation; a JSON plugin combines capabilities that already exist.
+
+## Notification instructions and bindings
+
+For notifications, use `"capabilities":{"tools":["notification_context","send_notification"]}` alongside any other required tools. Describe the event conditions, timing and desired native message format in `instructions`; binding channels does not send automatically. The Agent may send to one or more selected destinations multiple times during a task. The backend controls the saved target, authentication and supported signatures. `accepted` confirms receiver acceptance, not human readership or business success.
+
+`GET /v2/tasks/{task_id}/notifications` reads the binding, its `notification_revision` and history. `POST` to that path with `{"notification_channels":[],"revision":0}` replaces a nonterminal task's selection using the revision just read; the example clears a revision-0 binding. A conflict requires rereading. New selections must be available; existing unavailable references can remain visible. Changes affect future sends, without replaying or retracting earlier messages. The plugin key remains scoped to its own tasks and does not enumerate all channels. Administrators provide usable channel UUIDs.
+
+Management `submit_task` and `schedule_save` accept `notification_channels`; scheduled business tasks and built-in scheduled inspections copy plan bindings into each new execution. Plan edits affect later triggers, while execution-binding edits affect only that execution. Use `task_notifications_get/update`, `schedule_notifications_get/update` or `inspection_notifications_get/update` with the latest `notification_revision` for binding-only updates. `retry` inherits the original task's current selection unless an explicit array overrides it; `[]` clears it, and unavailable inherited channels require an explicit new choice. Original scheduled inspection messages get trusted notification scope; ordinary management chats and later followups cannot borrow it.
+
+Within an execution, repeated `notification_key` plus identical deliveries returns recorded outcomes; the same key with different contents conflicts. Inspect every channel's `accepted`, `rejected`, `unavailable` or `unknown` status. Network uncertainty or interrupted sends remain `unknown` and are not automatically replayed. After an explicit rejection the Agent may correct the message and use a new key if the task requires it; uncertain effects must be checked first. Notifications remain independent of the final-result callback described below.
 
 ## Result and delivery
 

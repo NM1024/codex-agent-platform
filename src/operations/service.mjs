@@ -10,6 +10,7 @@ import {ConfigurationStore} from '../configuration/store.mjs';
 import {executionScope,runtimeSettings} from '../configuration/execution.mjs';
 import {bootstrapSettings} from '../configuration/bootstrap.mjs';
 import {retentionScope} from '../configuration/retention.mjs';
+import {NotificationOperations,notificationManagementActions,notificationPrivateActions} from '../notifications/operations.mjs';
 
 const fault=(code,status=400)=>new HttpError(status,code,code);
 export class OperationsService {
@@ -17,6 +18,7 @@ export class OperationsService {
     Object.assign(this,{store,registry,config,dispatcher,runner,restartGateway});
     this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config}),retentionScope()]);
     this.schedules=new ScheduleStore(store,{clientId:config.clientId ?? 'default'});
+    this.notifications=new NotificationOperations({store,schedules:this.schedules});
     this.metrics=new ResourceSampler({diskPath:config.workspace ?? '/data'});
     const ajv=new Ajv({strict:true});this.checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
   }
@@ -24,10 +26,12 @@ export class OperationsService {
     const pluginView=definition=>this.store.pluginConnections?{...definition,connection:this.store.pluginConnections.status(definition.type)}:definition;
     if(action==='inspection_list')return this.schedules.pendingInspections();
     if(action==='inspection_claim')return this.schedules.claimInspection(args.id);
-    if(action==='inspection_ack')return this.schedules.acknowledgeInspection(args.id,args.conversation_id);
+    if(action==='inspection_ack')return this.schedules.acknowledgeInspection(args.id,args.conversation_id,args.message_id,args.message_status);
+    if(notificationPrivateActions.has(action))return this.notifications.executePrivate(action,args);
     const check=this.checks.get(action);
     if (!check) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','未知管理操作。');
     if (!check(args)) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT',`${check.errors[0].instancePath || '/'} ${check.errors[0].message} ${JSON.stringify(check.errors[0].params)}`);
+    if(notificationManagementActions.has(action))return this.notifications.execute(action,args);
     if(action==='models')return this.runner.models();
     if(action==='configuration_list')return {groups:this.configuration.list(),bootstrap:bootstrapSettings};
     if(action==='configuration_get')return this.configuration.get(args.scope);
@@ -52,11 +56,11 @@ export class OperationsService {
       return module.inspectRecords(args,{store:this.store});
     }
     if (action==='submit_task') {
-      const task=this.store.accept(this.config.clientId ?? 'default',{type:args.type,input:args.input,request_id:args.request_id ?? `management:${randomUUID()}`});
+      const task=this.store.accept(this.config.clientId ?? 'default',{type:args.type,input:args.input,request_id:args.request_id ?? `management:${randomUUID()}`,...(args.notification_channels!==undefined?{notification_channels:args.notification_channels}:{})});
       void this.dispatcher.drain();return task;
     }
     if(action==='retry') {
-      const next=this.store.retry(args.task_id,{itemIds:args.item_ids});
+      const next=this.store.retry(args.task_id,{itemIds:args.item_ids,notification_channels:args.notification_channels});
       setImmediate(()=>void this.dispatcher.drain());return next;
     }
     if (action==='plugins') return {configured:this.store.plugins.list().map(pluginView),builtin:[...this.registry.modules.values()].filter(module=>!module.definition).map(module=>({type:module.type,version:module.version})),invalid:[...this.store.plugins.invalid,...this.registry.configurationErrors()]};

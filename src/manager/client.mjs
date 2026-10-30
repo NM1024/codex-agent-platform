@@ -1,6 +1,13 @@
 import { HttpError } from '../errors.mjs';
 export class OperationsClient {
   constructor({url,token}){Object.assign(this,{url,token});}
+  async notificationChannels(action,args={}) {
+    let response,body;
+    try{
+      response=await fetch(new URL('/internal/notification-channels',this.url),{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:JSON.stringify({...args,action}),redirect:'error',signal:AbortSignal.timeout(action==='test'?130000:20000)});body=await response.json();
+    }catch{throw Object.assign(new HttpError(503,'GATEWAY_UNAVAILABLE','通知渠道暂不可用，请刷新核对状态。'),{effectUnknown:action!=='list'});}
+    if(!response.ok)throw new HttpError(response.status,body.error?.code??'NOTIFICATION_OPERATION_FAILED',body.error?.message??'通知操作失败。');return body;
+  }
   async claimPluginEntryKey(type,body) {
     let response,value;
     try {
@@ -21,7 +28,7 @@ export class OperationsClient {
   }
   async execute(action,args={}) {
     let response,body;
-    try {response=await fetch(new URL('/internal/admin',this.url),{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:JSON.stringify({action,args}),redirect:'error',signal:AbortSignal.timeout(20000)});body=await response.json();}
+    try {response=await fetch(new URL('/internal/admin',this.url),{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:JSON.stringify({action,args}),redirect:'error',signal:AbortSignal.timeout(action==='inspection_notification'&&args.action==='send'?180000:20000)});body=await response.json();}
     catch {throw Object.assign(new HttpError(503,'GATEWAY_UNAVAILABLE','无法连接 Gateway，操作结果可能未知，请查询记录。'),{effectUnknown:true});}
     if(!response.ok)throw new HttpError(response.status,body.error?.code ?? 'OPERATION_FAILED',body.error?.message ?? '管理操作失败。');return body;
   }

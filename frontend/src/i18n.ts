@@ -1,6 +1,29 @@
+import {notificationEnglish} from './notification-i18n.ts';
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  ...notificationEnglish,
+  '高级模型参数':'Advanced model settings',
+  '回复详细程度':'Response verbosity',
+  '简洁':'Concise',
+  '适中':'Medium',
+  '详细':'Detailed',
+  '思考摘要':'Reasoning summary',
+  '自动摘要':'Automatic summary',
+  '简要摘要':'Concise summary',
+  '详细摘要':'Detailed summary',
+  '不显示摘要':'No summary',
+  '自动压缩阈值':'Auto-compaction threshold',
+  '工具输出预算':'Tool output budget',
+  '自动':'Automatic',
+  '手动':'Manual',
+  'Token 数':'Tokens',
+  '整数范围：{min}–{max}':'Integer range: {min}–{max}',
+  '控制回复详细倾向，并非硬性长度限制；实际效果取决于模型。':'Sets the preferred detail level, not a hard length limit. Actual behavior depends on the model.',
+  '仅控制公开摘要，不改变思考程度。':'Controls the public summary only; reasoning effort is unchanged.',
+  '自动跟随模型；手动阈值不会扩展真实上下文上限。':'Automatic follows the model. A manual threshold does not expand its context window.',
+  '自动跟随模型；预算过小可能截断重要工具信息。':'Automatic follows the model. A small budget may truncate important tool information.',
+
 
   '响应速度':'Response speed',
   '普通模式':'Standard mode',
@@ -267,7 +290,6 @@ const english: Record<string, string> = {
   '继承全局设置：{value}':'Inherit global settings: {value}',
   '所选模型默认：{value}':'Selected model default: {value}',
   '思考':'Think',
-  '自动':'Auto',
   '会话列表':'Conversations',
   '最近对话':'Recent chats',
   'Enter 发送，Shift + Enter 换行':'Enter to send · Shift + Enter for a new line',

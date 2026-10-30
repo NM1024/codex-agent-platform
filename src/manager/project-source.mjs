@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {HttpError} from '../errors.mjs';
 
 // Deployment-owned source only. Never point this reader at a runtime volume.
-const directories=['src/manager','src/contracts','src/configuration','src/codex','frontend/src','prompts','docs'];
+const directories=['src/manager','src/contracts','src/configuration','src/codex','src/notifications','frontend/src','prompts','docs'];
 const files=['README.md','README.zh-CN.md','package.json','Dockerfile','frontend/vite.config.ts','frontend/tsconfig.json',
   'src/main-manager.mjs','src/prompts.mjs','src/config.mjs','src/errors.mjs','src/files.mjs','src/http.mjs'];
 const extensions=new Set(['.mjs','.ts','.tsx','.css','.md']);

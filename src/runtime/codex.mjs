@@ -230,7 +230,7 @@ export class AgentRuntime {
       await initialize(client);
       const {effort,serviceTier}=await validateModelExecution(client,run.execution);
       if (state.ending) return this.acknowledge(state);
-      const config = runtimeConfig(run.package, this.mcpUrl, { toolTimeoutMs: run.execution.toolTimeoutMs });
+      const config = runtimeConfig(run.package, this.mcpUrl, { toolTimeoutMs: run.execution.toolTimeoutMs, modelSettings: run.execution });
       const resuming = !!old?.thread_id;
       if (resuming && !old.persistent) throw new Error("CODEX_SESSION_UNAVAILABLE");
       let thread;
@@ -290,6 +290,7 @@ export class AgentRuntime {
         model:run.execution.model,
         effort,
         serviceTier,
+        summary:run.execution.reasoningSummary,
       });
       state.turnId = turn.turn.id;
       await this.save(state, {

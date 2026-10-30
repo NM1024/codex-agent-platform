@@ -2,6 +2,8 @@ import {useState} from 'react';
 import {Button,Descriptions,Table,Typography} from 'antd';
 import {AgentGuidance,DataLoading,DeleteAction,EnableToggle,JsonView,Panel,Status,TableField,useLoad} from '../components';
 import {useConsole} from '../context';
+import {NotificationBindingsPanel} from '../NotificationBindingsPanel';
+import {ScheduleNotificationExecutions} from '../ScheduleNotificationExecutions';
 import type {Schedule} from '../types';
 
 function nextRun(plan:Schedule) {
@@ -47,6 +49,7 @@ export default function SchedulesPage() {
       ]}/>
       {selected.blocked_reason&&<Typography.Paragraph type="danger">{selected.blocked_reason}</Typography.Paragraph>}
       {selected.kind==='inspection'?<><Typography.Title level={3}>{t('巡检要求')}</Typography.Title><Typography.Paragraph className="literal-text">{selected.message}</Typography.Paragraph></>:<><Typography.Paragraph>{t('业务类型')+': '+selected.type}</Typography.Paragraph><Typography.Title level={3}>{t('业务输入 JSON')}</Typography.Title><JsonView value={selected.input??{}}/></>}
+      {selected.id&&<><NotificationBindingsPanel key={selected.id} kind="schedule" id={selected.id}/><ScheduleNotificationExecutions key={selected.id+'-runs'} scheduleId={selected.id}/></>}
     </div></Panel>}
     <Panel title={t('运行说明')}>
       <Typography.Paragraph>{t('定时任务按 Cron 周期自动执行：业务任务调用指定插件处理固定输入；管理巡检把巡检要求交给管理 Agent，并在管理对话中保存结果。')}</Typography.Paragraph>

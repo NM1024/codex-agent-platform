@@ -2,6 +2,8 @@ import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties} from 'reac
 import {Button,Drawer,Grid,Input,Popover,Switch} from 'antd';
 import {useConsole} from './context';
 import {Icon} from './Icon';
+import {ModelOptionsFields} from './ModelOptionsFields';
+import {changeAgentModel} from './modelOptions';
 import type {AgentSettings} from './types';
 
 const effortOrder=['none','minimal','low','medium','high','xhigh'];
@@ -54,7 +56,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
     if(next!==undefined&&previewRef.current!==effectiveIndex)setEffort(next);
   };
   const reset=()=>{if(overridden){const next={...value};delete next.reasoningEffort;onChange(next);}};
-  const selectModel=(id:string|undefined)=>{if(value.model!==id){setSearch('');onChange({...(id?{model:id}:{}),...(value.serviceTier!==undefined?{serviceTier:value.serviceTier}:{})});}};
+  const selectModel=(id:string|undefined)=>{if(value.model!==id){setSearch('');onChange(changeAgentModel(value,id,true));}};
   const chooseByKey=(event:React.KeyboardEvent<HTMLDivElement>)=>{
     if(!['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
     const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
@@ -68,7 +70,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
     onKeyDown={event=>{
       if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close(true);}
       if(!mobile&&event.key==='Tab'){
-        const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled)'));
+        const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),[tabindex="0"]')).filter(control=>control.tabIndex>=0&&control.getClientRects().length>0);
         const first=controls[0],last=controls.at(-1);
         if(event.shiftKey&&(document.activeElement===first||document.activeElement===event.currentTarget)){event.preventDefault();last?.focus();}
         else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
@@ -105,6 +107,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         <div className="chat-speed-row"><span>{t('快速模式')}</span><div>{value.serviceTier!==undefined&&<Button size="small" type="text" aria-label={t('恢复默认响应速度')} title={t('恢复默认响应速度')} disabled={disabled} onClick={()=>{const next={...value};delete next.serviceTier;onChange(next);}}><Icon name="reset"/></Button>}<Switch size="small" aria-label={t('快速模式')} checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onChange={enabled=>onChange({...value,serviceTier:enabled?'priority':'default'})}/></div></div>
         <p className="chat-speed-note">{t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}</p>
       </section>
+      <ModelOptionsFields id="chat-options" value={value} defaults={defaults} inherit disabled={disabled} onChange={onChange}/>
       {saveError&&<div className="chat-agent-save-error" role="alert"><span title={saveError}>{t('保存失败，已保留当前选择。')}</span><Button type="link" size="small" disabled={disabled} onClick={onRetry}>{t('重试保存')}</Button></div>}
     </div>
     <div className="chat-agent-footnote" role={saving?'status':undefined}>{t(saving?'正在保存…':'下一轮对话生效')}</div>

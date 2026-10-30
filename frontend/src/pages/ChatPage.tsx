@@ -3,6 +3,7 @@ import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} 
 import {ApiError} from '../api';
 import {CatalogNote, LoadingState, Status} from '../components';
 import {ChatAgentPicker} from '../ChatAgentPicker';
+import {agentSettingsFromValues} from '../modelOptions';
 import {useConsole} from '../context';
 import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress} from '../ChatActivity';
@@ -75,6 +76,8 @@ export default function ChatPage() {
   const navigation = useRef(0);
   const initialSelectionDone = useRef(Boolean(chatId));
   const selectionVersions = useRef<Record<string, number>>({});
+  const unsavedSelections = useRef<Record<string,boolean>>({});
+  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id])setSelections(current=>({...current,[id]:execution}));};
   const reads = useRef<Record<string, number>>({});
   const fileInput=useRef<HTMLInputElement>(null);
   const compressLock=useRef(false);
@@ -141,9 +144,7 @@ export default function ChatPage() {
         if(!listExpanded.current)setListCursor(Array.isArray(page)?null:page.next_cursor);
         const available=items.filter(item=>!deletedIds.current.has(item.id)).map(conversationSummary);
         setConversations(current => [...available, ...current.filter(row => !deletedIds.current.has(row.id)&&!items.some(item => item.id === row.id))]);
-        setDefaults({...(typeof group.values.model === 'string' ? {model:group.values.model} : {}),
-          serviceTier:group.values.serviceTier==='priority'?'priority':'default',
-          ...(typeof group.values.reasoningEffort === 'string' || group.values.reasoningEffort === null ? {reasoningEffort:group.values.reasoningEffort} : {})});
+        setDefaults(agentSettingsFromValues(group.values,'concise'));
         if (!initialSelectionDone.current) {
           initialSelectionDone.current = true;
           if (!currentId.current && available.length) setChatId(available[0].id);
@@ -199,7 +200,7 @@ export default function ChatPage() {
         void reconcileOmitted(item);
         hasLoaded=true;setLoadingId(null);setLoadError('');setReadFailure(null);
         setConversations(current => current.map(row => row.id === item.id ? {...row, title:item.title,...conversationCounts(item)} : row));
-        setSelections(current => Object.hasOwn(current, chatId) ? current : {...current, [chatId]:item.execution ?? {}});
+        syncSelection(chatId,item.execution??{});
       } catch (error) {
         if(active&&currentId.current===chatId&&navigation.current===generation&&reads.current[chatId]===read&&(streamVersions.current[chatId]??0)===streamVersion)setReadFailure(chatId);
         if(active && currentId.current===chatId && navigation.current===generation && reads.current[chatId]===read && (streamVersions.current[chatId]??0)===streamVersion && error instanceof ApiError && error.status===404){forgetConversation(chatId);return;}
@@ -225,7 +226,7 @@ export default function ChatPage() {
           for(const message of item.messages??[])messageVersions.current[message.id]=(messageVersions.current[message.id]??0)+1;
           void reconcileOmitted(item);
           setConversations(current=>current.map(row=>row.id===chatId?conversationSummary(item):row));
-          setSelections(current=>Object.hasOwn(current,chatId)?current:{...current,[chatId]:item.execution??{}});
+          syncSelection(chatId,item.execution??{});
         }catch{fallback=true;setStreamStatus('fallback');}
       });
       source.addEventListener('patch',event=>{
@@ -240,6 +241,7 @@ export default function ChatPage() {
             const changed=new Map(patch.messages.map(message=>[message.id,message]));
             return {...current,...patch.conversation,messages:[...(current.messages??[]).map(message=>changed.get(message.id)??message),...patch.messages.filter(message=>!current.messages?.some(existing=>existing.id===message.id))],actions:mergeRows(current.actions,patch.actions)};
           });
+          if(Object.hasOwn(patch.conversation,'execution'))syncSelection(chatId,patch.conversation.execution??{});
           setConversations(current=>current.map(row=>row.id===chatId?conversationSummary({...row,...patch.conversation}):row));
         }catch{fallback=true;setStreamStatus('fallback');}
       });
@@ -303,15 +305,17 @@ export default function ChatPage() {
     finally{historyLock.current=null;if(mounted.current)setHistoryLoading(false);}
   };
 
-  // A send's configuration write and enqueue share the same queue as automatic saves.
-  // A later selection cannot slip between those two requests.
+  // Queue explicit local edits before sending; clean server settings may also
+  // change through the management Agent and must not be overwritten on send.
   const persistSelection = (id: string, value: AgentSettings) => {
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
+    unsavedSelections.current[id]=true;
     setSaving(current=>({...current,[id]:true}));
     setSaveErrors(current => ({...current, [id]:undefined}));
     void serialize(id, () => api('/conversations/' + id, {execution:value})).then(() => {
       if (!mounted.current || selectionVersions.current[id] !== version) return;
+      unsavedSelections.current[id]=false;
       setConversations(current => current.map(item => item.id === id ? {...item, execution:value} : item));
       setSaveErrors(current => ({...current, [id]:undefined}));
     }).catch(error => {
@@ -365,7 +369,7 @@ export default function ChatPage() {
       }
       const sentId = id;
       const accepted=await serialize(sentId, async () => {
-        await api('/conversations/' + sentId, {execution});
+        if(unsavedSelections.current[sentId]){await api('/conversations/' + sentId, {execution});unsavedSelections.current[sentId]=false;}
         return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{})});
       });
       // Clear accepted input before reading the conversation; a read failure must never suggest resending it.
@@ -385,7 +389,8 @@ export default function ChatPage() {
       let updated:ChatConversation;
       try {updated=await api<ChatConversation>('/conversations/' + sentId);}catch{return;}
       if (!mounted.current || reads.current[sentId] !== read || (streamVersions.current[sentId]??0)!==streamVersion || deletedIds.current.has(sentId)) return;
-      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution,...conversationCounts(updated)} : row));
+      setConversations(current => current.map(row => row.id === sentId ? {...row, title:updated.title, execution:updated.execution??{},...conversationCounts(updated)} : row));
+      syncSelection(sentId,updated.execution??{});
       if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(current=>mergeConversation(current,updated));
     } catch (error) {
       if (stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));

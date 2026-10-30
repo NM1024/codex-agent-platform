@@ -1,6 +1,8 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {Alert,Button,Card,Form,Modal,Select,Spin,Switch,Tag,Typography,type ButtonProps} from 'antd';
 import {Icon} from './Icon';
+import {ModelOptionsFields} from './ModelOptionsFields';
+import {changeAgentModel} from './modelOptions';
 import {useConsole} from './context';
 import type {AgentSettings} from './types';
 export const pretty=(value:unknown)=>JSON.stringify(value,null,2);
@@ -83,11 +85,11 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   const inheritedTier=defaults.serviceTier??'default',tier=value.serviceTier??(inherit?inheritedTier:'default');
   const fastSupported=model?.serviceTiers?.some(item=>item.id==='priority')===true;
   const tierOptions=[...(inherit?[{value:'__inherit__',label:t('继承全局设置：{value}',{value:t(inheritedTier==='priority'?'快速模式':'普通模式')})}]:[]),{value:'default',label:t('普通模式')},{value:'priority',label:t('快速模式'),disabled:!fastSupported}];
-  return <div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
-    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} labelRender={compact?({value,label})=><><span className="picker-label-full">{label}</span><span className="picker-label-phone">{value===''?inheritedModel?.displayName??defaults.model??t('模型默认'):label}</span></>:undefined} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange({...(!inherit?{model}:model?{model}:{}),...(!inherit?{reasoningEffort:null}:{}),...(value.serviceTier!==undefined?{serviceTier:value.serviceTier}:{})})}/></Form.Item>
+  return <><div className={compact?'agent-picker agent-picker-compact':'form-grid agent-picker'}>
+    <Form.Item label={compact?undefined:t('模型')} htmlFor={id+'-model'}><Select id={id+'-model'} aria-label={t('模型')} labelRender={compact?({value,label})=><><span className="picker-label-full">{label}</span><span className="picker-label-phone">{value===''?inheritedModel?.displayName??defaults.model??t('模型默认'):label}</span></>:undefined} disabled={disabled} value={value.model??''} options={modelOptions} optionFilterProp="label" showSearch onChange={model=>onChange(changeAgentModel(value,model||undefined,inherit))}/></Form.Item>
     <Form.Item label={compact?undefined:t('思考程度')} htmlFor={id+'-reasoningEffort'}><Select id={id+'-reasoningEffort'} aria-label={t('思考程度')} prefix={compact?<span className="picker-label">{t('思考')}</span>:undefined} labelRender={compact?({value,label})=><><span className="picker-label-full">{value==='__inherit__'?t('默认：{value}',{value:inheritedEffort}):label}</span><span className="picker-label-phone">{value==='__inherit__'?inheritedEffort:label}</span></>:undefined} disabled={disabled} value={effort} options={effortOptions} onChange={effort=>{const next={...value};if(effort==='__inherit__')delete next.reasoningEffort;else next.reasoningEffort=effort||null;onChange(next);}}/></Form.Item>
     <Form.Item label={t('响应速度')} htmlFor={id+'-serviceTier'} extra={t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}><Select id={id+'-serviceTier'} aria-label={t('响应速度')} disabled={disabled} value={value.serviceTier??(inherit?'__inherit__':'default')} options={tierOptions} status={tier==='priority'&&!fastSupported?'warning':undefined} onChange={serviceTier=>{const next={...value};if(serviceTier==='__inherit__')delete next.serviceTier;else next.serviceTier=serviceTier as 'default'|'priority';onChange(next);}}/></Form.Item>
-  </div>;
+  </div><ModelOptionsFields id={id} value={value} defaults={defaults} inherit={inherit} disabled={disabled} onChange={onChange}/></>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {
   const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t}=useConsole();

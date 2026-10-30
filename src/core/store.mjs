@@ -4,6 +4,8 @@ import { removeTableUniqueness } from "./sqlite.mjs";
 import { digest, fault } from "./registry.mjs";
 import { PluginStore } from '../plugins/store.mjs';
 import { PluginConnectionStore } from '../plugins/connections.mjs';
+import {assertNotificationCapability} from '../notifications/catalog.mjs';
+import {modelOptionDefaults} from '../configuration/model-options.mjs';
 const tokenHash = (token) => createHash("sha256").update(token).digest("hex");
 const active = "'dispatching','running','completing','suspended'";
 const expiredHistory = `q.status IN ('completed','failed') AND q.finished_at IS NOT NULL AND q.finished_at<?
@@ -64,7 +66,7 @@ export class RequestStore {
     this.plugins = new PluginStore(this.db,this.registry);
     for (const definition of this.registry.initialDefinitions ?? [])
       if (!this.db.prepare('SELECT 1 FROM platform_plugins WHERE type=?').get(definition.type)) this.plugins.save(definition);
-    this.registry.catalog.initializeStorage?.({db:this.db});
+    this.registry.catalog.initializeStorage?.({db:this.db,store:this});
     this.operationColumns = new Set(this.db.prepare("PRAGMA table_info(agent_operations)").all().map((column) => column.name));
     this.db.exec(
       "UPDATE agent_deliveries SET status='unknown' WHERE status='attempted'",
@@ -147,7 +149,7 @@ export class RequestStore {
   canPurgeTaskHistory(taskId,{cutoff,now=Date.now()}={}) {
     historyTimes({cutoff,now});
     const row=this.db.prepare(`SELECT q.run_id FROM agent_requests q WHERE ${expiredHistory} AND q.task_id=?`).get(cutoff,now,taskId);
-    return !!row && ![...this.validations].some(value=>value.startsWith(`${row.run_id}:`));
+    return !!row && !this.notifications?.hasActive({kind:'task',id:taskId}) && ![...this.validations].some(value=>value.startsWith(`${row.run_id}:`));
   }
   // Call only after owned files have been cleaned. Schedule trigger history can
   // join this transaction through ScheduleStore.deleteTaskHistory(taskId).
@@ -168,13 +170,14 @@ export class RequestStore {
     });
   }
   operationRecords(runId){return this.db.prepare('SELECT tool,status FROM agent_operations WHERE run_id=?').all(runId);}
-  retry(taskId,{itemIds}={}) {
+  retry(taskId,{itemIds,notification_channels}={}) {
     return this.transaction(()=>{
       const row=this.raw(taskId);if(!row)throw fault('NOT_FOUND',404);
       if(!['completed','failed'].includes(row.status))throw fault('TASK_NOT_TERMINAL',409);
       const module=this.moduleFor(row);let input=JSON.parse(row.input);
       if(itemIds){if(!module.retryInput)throw fault('ITEM_SELECTION_UNAVAILABLE',400);input=module.retryInput(input,itemIds);}
-      const next=this.accept(row.client_id,{type:row.type,request_id:`retry:${row.task_id}:${randomUUID()}`,input});
+      const channels=notification_channels===undefined?(this.notifications?.getBinding({kind:'task',id:taskId}).notification_channels??[]):notification_channels;
+      const next=this.accept(row.client_id,{type:row.type,request_id:`retry:${row.task_id}:${randomUUID()}`,input,...(channels?.length||notification_channels!==undefined?{notification_channels:channels}:{})});
       this.db.prepare('UPDATE agent_requests SET retry_of=? WHERE task_id=?').run(row.task_id,next.task_id);
       return {...next,retry_of:row.task_id};
     });
@@ -192,6 +195,7 @@ export class RequestStore {
       type: row.type,
       module_version: row.module_version,
       retry_of:row.retry_of ?? null,
+      ...(this.notifications?(()=>{const {notification_channels,notification_revision}=this.notifications.getBinding({kind:'task',id});return {notification_channels,notification_revision};})():{}),
       created_at:row.created_at,updated_at:row.updated_at,
       status: row.status,
       result: row.result ? JSON.parse(row.result) : null,
@@ -210,10 +214,14 @@ export class RequestStore {
   recordToolError(run,tool,error) {
     this.db.prepare('INSERT INTO platform_errors VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),run.task_id,run.run_id,run.generation ?? 0,'tool',tool,error.code,error.message?.slice(0,4096) ?? null,Date.now());
   }
-  accept(client, body, { prepared: imported } = {}) {
+  accept(client, body, { prepared: imported,notificationInherited=false } = {}) {
     if(typeof body?.type==='string'&&this.db.prepare('SELECT deleted_at FROM platform_plugins WHERE type=?').get(body.type)?.deleted_at!=null)throw fault('PLUGIN_DELETED',409);
     if(body?.type&&this.registry.modules.get(body.type)?.definition)this.pluginConnections?.assertReady(body.type);
     const { module, input } = this.registry.normalize(body);
+    const notificationChannels=body.notification_channels===undefined?[]:body.notification_channels;
+    if(!Array.isArray(notificationChannels)||notificationChannels.length>32||notificationChannels.some(value=>typeof value!=='string'||!/^[a-f0-9-]{36}$/.test(value))||new Set(notificationChannels).size!==notificationChannels.length)throw fault('INVALID_NOTIFICATION_BINDING',400);
+    assertNotificationCapability(module,notificationChannels);
+    if(notificationChannels.length&&!this.notifications)throw fault('NOTIFICATIONS_UNAVAILABLE',503);
     // Only trusted legacy imports supply prepared data; new admissions use the
     // module's configuration check without preventing historical queue migration.
     if (!imported) module.assertRequest?.(input);
@@ -246,6 +254,7 @@ export class RequestStore {
         if (this.requestColumns.has(column)) values[column] = "";
       const columns = Object.keys(values);
       this.db.prepare(`INSERT INTO agent_requests(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`).run(...Object.values(values));
+      if(notificationChannels.length)this.notifications.setBinding({kind:'task',id:taskId},notificationChannels,{allowUnavailable:notificationInherited});
       return {
         ...this.get(taskId),
         duplicate: false,
@@ -337,7 +346,7 @@ export class RequestStore {
     if(!run||!['dispatching','running','completing','suspended'].includes(run.status)||(generation!==undefined&&run.generation!==generation))return;
     if(!execution||typeof execution.model!=='string'||!Number.isSafeInteger(execution.taskTimeoutMs)||execution.taskTimeoutMs<1||!Number.isSafeInteger(execution.toolTimeoutMs)||execution.toolTimeoutMs<1)return;
     const metadata=JSON.parse(run.runtime_metadata ?? '{}');
-    metadata.execution={model:execution.model,serviceTier:execution.serviceTier ?? 'default',...(execution.reasoningEffort!==undefined?{reasoningEffort:execution.reasoningEffort}:{}),taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
+    metadata.execution={model:execution.model,serviceTier:execution.serviceTier ?? 'default',...Object.fromEntries(Object.entries(modelOptionDefaults()).map(([key,value])=>[key,execution[key]===undefined?value:execution[key]])),...(execution.reasoningEffort!==undefined?{reasoningEffort:execution.reasoningEffort}:{}),taskTimeoutMs:execution.taskTimeoutMs,toolTimeoutMs:execution.toolTimeoutMs};metadata.execution_generation=run.generation;
     this.db.prepare('UPDATE agent_runs SET runtime_metadata=? WHERE run_id=?').run(JSON.stringify(metadata),id);
   }
   executionSettings(id,generation) {
