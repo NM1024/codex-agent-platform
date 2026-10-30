@@ -31,44 +31,44 @@
 ### Task 1: Local container runtime and safe file operations
 **Files:** scripts/sandbox_runtime.py, scripts/sandbox_files.py, tests/sandbox-runtime.test.mjs.
 **Interfaces:** fixed host protocol and SandboxRuntime.dispatch/recover/sweep/close from .tmp/sandbox/contracts.md; consumes network module from Task2.
-- [ ] Write failing tests for actual container isolation, resource/byte bounds, file path/link denial, LRU/idle cleanup, scope, repeat keys and full-tree cancellation.
-- [ ] Implement fixed Docker argument lists, bounded process output and private tmpfs workspace. Never run request text in host Shell.
-- [ ] Prove Python and Node work in actual fixed-image containers; timeout and descendant cleanup return honest terminal records.
+- [x] Write failing tests for actual container isolation, resource/byte bounds, file path/link denial, LRU/idle cleanup, scope, repeat keys and full-tree cancellation.
+- [x] Implement fixed Docker argument lists, bounded process output and private tmpfs workspace. Never run request text in host Shell.
+- [x] Prove Python and Node work in actual fixed-image containers; timeout and descendant cleanup return honest terminal records.
 
 ### Task 2: Approved-only egress
 **Files:** scripts/sandbox_network.py, tests/sandbox-network.test.mjs.
 **Interfaces:** SandboxNetwork.available/enable/disable/recover/close, per-job peer identity and deadline.
-- [ ] Write failing proxy tests for allowed host, private/IPv6/rebinding/redirect/new-domain rejection, and connection close on revoke.
-- [ ] Implement internal per-container networking with direct egress blocked and host access denied except guarded proxy; fail closed if firewall unavailable.
-- [ ] Verify no shared platform network and no credentials injected into code. Preserve managed upstream proxy/trust when applicable.
+- [x] Write failing proxy tests for allowed host, private/IPv6/rebinding/redirect/new-domain rejection, and connection close on revoke.
+- [x] Implement internal per-container networking with direct egress blocked and host access denied except guarded proxy; fail closed if firewall unavailable.
+- [x] Verify no shared platform network and no credentials injected into code. Preserve managed upstream proxy/trust when applicable.
 
 ### Task 3: Manager sandbox service and scoped contracts
 **Files:** src/sandbox/contracts.mjs/client.mjs, src/manager/sandbox.mjs, focused tests.
 **Interfaces:** ManagerSandbox execute/context/upload/attach/filesForMessage/readFile/decide/queueCleanup/cleanup/recover/cancelMessage as fixed contract.
-- [ ] Test owning active-message authorization, file upload/import/publication, untrusted preview, invalid grant, expiry/revision mismatch, duplicate decision/exec and cleanup recovery.
-- [ ] Implement authenticated Unix client with bounded JSON and unknown-effect errors; keep user approval decisions outside MCP execute.
-- [ ] Persist attachments and small approval/operation records in Manager storage, stable file bytes outside DB; no extra job platform.
+- [x] Test owning active-message authorization, file upload/import/publication, untrusted preview, invalid grant, expiry/revision mismatch, duplicate decision/exec and cleanup recovery.
+- [x] Implement authenticated Unix client with bounded JSON and unknown-effect errors; keep user approval decisions outside MCP execute.
+- [x] Persist attachments and small approval/operation records in Manager storage, stable file bytes outside DB; no extra job platform.
 
 ### Task 4: Existing Manager integration
 **Files:** manager agent/store/server/operations/mcp/main, contracts/management, prompts, AGENTS, release/source checks and new real integration tests.
-- [ ] Add file_ids admission and public message file metadata through safe injectable hooks; attach and enqueue atomically.
-- [ ] Forward trusted execution context to sandbox tools; add same-origin upload/download/context/decision/cancel routes.
-- [ ] Wire callbacks for deletion, retention, restart and inspection terminal cancellation; include safe input file IDs in every start/resume.
-- [ ] Verify real MCP + authenticated HTTP loop for upload→script→execution→publication→download and denial of foreign/plain-chat approvals.
+- [x] Add file_ids admission and public message file metadata through safe injectable hooks; attach and enqueue atomically.
+- [x] Forward trusted execution context to sandbox tools; add same-origin upload/download/context/decision/cancel routes.
+- [x] Wire callbacks for deletion, retention, restart and inspection terminal cancellation; include safe input file IDs in every start/resume.
+- [x] Verify real MCP + authenticated HTTP loop for upload→script→execution→publication→download and denial of foreign/plain-chat approvals.
 
 ### Task 5: Chat UI
 **Files:** ChatPage/context/types, new Sandbox components/styles/translations, browser tests.
 **Interfaces:** raw upload, file_ids messages, authenticated attachment URLs, context polling and decision/cancel APIs in contract.
-- [ ] Observe failing integrated tests for file-only sends and pending approval cards.
-- [ ] Add generic file selection/upload retention, input/output attachments, lightweight execution cards and explicit allow/deny/revoke controls.
-- [ ] Verify draft preservation, duplicate click lock, logout/navigation invalidation, mobile and English copy.
+- [x] Observe failing integrated tests for file-only sends and pending approval cards.
+- [x] Add generic file selection/upload retention, input/output attachments, lightweight execution cards and explicit allow/deny/revoke controls.
+- [x] Verify draft preservation, duplicate click lock, logout/navigation invalidation, mobile and English copy.
 
 ### Task 6: Fixed image and deployment
 **Files:** Dockerfile.sandbox, sandbox requirements, host wrapper, compose/deploy/docs and deployment tests.
 **Interfaces:** host wrapper imports runtime/network and exposes fixed peer-authenticated Unix protocol; image codex-agent-platform-sandbox:1.0.2.
-- [ ] Test install config, endpoint ownership, strict request controls, no Docker socket mount and safe unavailable/manual setup behavior.
-- [ ] Build fixed Python+Node+pytest/numpy/pandas/matplotlib/Pillow image with pinned dependencies and inherited build proxy/CA trust.
-- [ ] Integrate optional host helper installation/status/disable and Manager socket channel; never start real production service from tests.
+- [x] Test install config, endpoint ownership, strict request controls, no Docker socket mount and safe unavailable/manual setup behavior.
+- [x] Build fixed Python+Node+pytest/numpy/pandas/matplotlib/Pillow image with pinned dependencies and inherited build proxy/CA trust.
+- [x] Integrate optional host helper installation/status/disable and Manager socket channel; never start real production service from tests.
 
 ### Task 7: Verification, review and publication
 - [ ] Run focused tests, npm test, release validation, actual Docker isolation and approved network checks, then serial relevant browser suites.

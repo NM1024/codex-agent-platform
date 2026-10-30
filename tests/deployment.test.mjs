@@ -154,6 +154,7 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
   await cp(join(root,'frontend'),join(dir,'frontend'),{recursive:true});
   await cp(join(root,'docs'),join(dir,'docs'),{recursive:true});
   await cp(join(root,'README.md'),join(dir,'README.md'));
+  await cp(join(root,'Dockerfile.sandbox'),join(dir,'Dockerfile.sandbox'));
   const managerSource=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs'),'--manager-source'],{cwd:dir,encoding:'utf8'});
   assert.equal(managerSource().status,0,managerSource().stderr);
   await unlink(join(dir,'frontend/src/PluginExecutionSettings.tsx'));

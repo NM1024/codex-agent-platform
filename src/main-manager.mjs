@@ -1,3 +1,5 @@
+import {ManagerSandbox} from './manager/sandbox.mjs';
+import {SandboxHostClient} from './sandbox/client.mjs';
 import { createServer } from 'node:http';
 import { join,resolve } from 'node:path';
 import { loadConfig } from './config.mjs';
@@ -27,21 +29,25 @@ try {
   if(!auth.initialized)await auth.initialize((await readFile(join(root,'initial-password'),'utf8')).trim());
   const client=new OperationsClient({url:config.gatewayInternalUrl,token:config.runnerToken});
   const inspectionNotifications=new InspectionNotificationBridge({store,client});
-  store.onDeleteOwner=conversation=>inspectionNotifications.queueCleanup(conversation);
+  let agent;
+  const sandbox=new ManagerSandbox({store,root,client:new SandboxHostClient(),wake:id=>agent?.kick(id)});
+  store.attachMessageFiles=(...args)=>sandbox.attach(...args);store.messageFiles=id=>sandbox.filesForMessage(id);store.canSteerMessage=id=>!sandbox.isPermissionContinuation(id);
+  store.onDeleteOwner=conversation=>{inspectionNotifications.queueCleanup(conversation);sandbox.queueCleanup(conversation);};
   store.onFinishInspection=event=>inspectionNotifications.queueLifecycle(event);
   const metrics=new ResourceSampler({procRoot:env.HOST_PROC_PATH ?? '/host/proc',diskPath:root});
-  const agent=new ManagementAgent({store,root,authFile:join(env.CODEX_LOGIN_HOME ?? '/codex','auth.json'),mcpUrl:`http://127.0.0.1:${mcpPort}/mcp`,model:config.model,timeoutMs:config.taskTimeoutMs,toolTimeoutMs:config.toolTimeoutMs,inspectionLifecycle:event=>inspectionNotifications.lifecycle(event),inspectionCleanup:id=>inspectionNotifications.cleanup({conversationId:id})});
+  agent=new ManagementAgent({store,root,sandbox,authFile:join(env.CODEX_LOGIN_HOME ?? '/codex','auth.json'),mcpUrl:`http://127.0.0.1:${mcpPort}/mcp`,model:config.model,timeoutMs:config.taskTimeoutMs,toolTimeoutMs:config.toolTimeoutMs,inspectionLifecycle:event=>inspectionNotifications.lifecycle(event),inspectionCleanup:id=>inspectionNotifications.cleanup({conversationId:id})});
   const configuration=createManagerConfiguration({store,agent,auth});
-  const operations=createManagerOperations({client,store,metrics,configuration,auth});
+  const operations=createManagerOperations({client,store,metrics,configuration,auth,sandbox});
   const mcp=createManagementMcpHandler({store,operations,authorize:token=>agent.authorize(token),executionContext:token=>agent.executionContext(token)});
-  const internal=createServer(mcp),api=createManagerServer({store,agent,operations,metrics,auth});
+  const internal=createServer(mcp),api=createManagerServer({store,agent,operations,metrics,auth,sandbox});
   await Promise.all([new Promise(r=>internal.listen(mcpPort,'127.0.0.1',r)),new Promise(r=>api.listen(config.port,'0.0.0.0',r))]);
   console.log(JSON.stringify({service:'manager',event:'listening',port:config.port}));
+  try{await sandbox.recover();}catch{console.log(JSON.stringify({service:'manager',event:'sandbox_unavailable'}));}
   await agent.recover();let closing=false,inspectionTask;
   const retention=new HistoryRetentionWorker({db:store.db,
     readPolicy:async()=>{const group=await client.execute('configuration_get',{scope:'retention'});return {...group.values,revision:group.revision};},
     runBatch:createManagerHistoryBatch({store,agent}),
-    maintenance:async()=>{await agent.retryConversationCleanup({limit:50});await inspectionNotifications.retryLifecycle({limit:50});await inspectionNotifications.cleanup({limit:50});},
+    maintenance:async()=>{await agent.retryConversationCleanup({limit:50});await inspectionNotifications.retryLifecycle({limit:50});await inspectionNotifications.cleanup({limit:50});await sandbox.cleanup({limit:50});},
     compact:()=>compactHistoryDatabase(store.db,{idle:!agent.running.size&&store.isHistoryIdle()}),
     onSweep:state=>console.log(JSON.stringify({service:'manager',event:'history_retention_completed',deleted:state.deleted,failed:state.failed})),
   });

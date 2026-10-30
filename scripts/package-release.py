@@ -23,7 +23,7 @@ def package(revision, output):
     output.mkdir(parents=True,exist_ok=True)
     name=f'codex-agent-platform-{tag}.tar.gz'
     # Explicit distributable roots; no .git, runtime data, local evidence or dependencies.
-    paths=['package.json','package-lock.json','Dockerfile','compose.yaml','deploy.sh',
+    paths=['package.json','package-lock.json','Dockerfile','Dockerfile.sandbox','compose.yaml','deploy.sh',
            '.dockerignore','.gitignore','.env.example','LICENSE','README.md','README.zh-CN.md',
            'src','frontend','prompts','scripts','docs','tests','playwright.config.mjs']
     raw=git('archive','--format=tar',f'--prefix=codex-agent-platform-{tag}/',commit,'--',*paths)

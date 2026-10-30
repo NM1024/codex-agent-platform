@@ -58,7 +58,7 @@ Here, an **Agent** is the AI that carries out the work. **MCP tools** are the sp
 
 Two generic examples are installed: `content.review` for text review, and `novel.illustrated` for illustrated fiction. Existing tools can save text, register generated images and send JSON to named HTTP destinations. Native image generation and web search depend on the plugin and your account's available capabilities.
 
-**A plugin is configuration, not arbitrary code.** You can add work without changing the platform when the existing tools cover its needs. A new database integration, file format processor or other missing capability still needs implementation. The management Agent cannot edit source code, run arbitrary shell commands or administer unrelated services.
+**A plugin is configuration, not arbitrary code.** You can add work without changing the platform when the existing tools cover its needs. A new database integration, file format processor or other missing capability still needs implementation. The management Agent cannot edit deployed source code, run host shell commands or administer unrelated services. Its optional [local code sandbox](docs/SANDBOX.md) runs Python/JavaScript in temporary conversation-owned containers, with file upload/download and explicit approval for supported network access or extra limits.
 
 Each accepted API request creates new work, including an identical `request_id` and input. The platform does not use that field to deduplicate submissions. One initial message does not mean one model computation: tools and internal collaboration can involve several model steps. Plan caller-side retries and usage accordingly.
 
@@ -95,13 +95,15 @@ sudo ./deploy.sh init /data/codex-agent-platform
 
 Before first start, review `/data/codex-agent-platform/.env` locally. After opening Admin, configure a plugin's entry address and entry key before enabling it or submitting work. A callback URL is optional. Never use `.env.example` placeholder credentials in a deployment.
 
-### 2. Build the three service images
+### 2. Build the service images and optional sandbox image
 
 ```bash
 sudo ./deploy.sh build /data/codex-agent-platform
 ```
 
 This step installs the locked runtime dependencies into the images. Rebuild after a source or dependency upgrade. Routine configuration changes through Admin do not require a build.
+
+The fixed Python/Node sandbox image is built too. To enable local code execution in Management chat, explicitly run `sudo ./deploy.sh enable-sandbox /data/codex-agent-platform` on a supported host. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
 
 ### 3. Allow device-code login and sign in
 

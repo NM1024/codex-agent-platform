@@ -1,9 +1,11 @@
+import {sandboxTools} from '../sandbox/contracts.mjs';
 import {agentOverridesSchema} from '../configuration/agent-settings.mjs';
 import {channelIdsSchema,notificationContextSchema,notificationSendSchema} from '../notifications/contracts.mjs';
 const string={type:'string'},id={type:'string',pattern:'^[a-f0-9-]{36}$'};
 const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:object(properties,required)});
 export const managementTools=[
+  ...sandboxTools,
   tool('overview','Read current gateway/runner health, execution queue, failures and delivery statistics.'),
   tool('models','List available Codex models, supported reasoning efforts and serviceTiers. priority is Fast with increased usage; Standard is the platform default. Does not start a model turn.'),
   tool('conversation_execution','Read or update model settings for this current conversation only. Omit execution to read current overrides, effective values and content revision. To update, send the complete execution overrides and latest revision; omitted override fields restore inheritance. Applies to subsequent turns, never changes the active message. Cannot target another conversation.',{execution:agentOverridesSchema,revision:{type:'string',pattern:'^[a-f0-9]{64}$'}}),

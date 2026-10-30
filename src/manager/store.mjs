@@ -87,7 +87,7 @@ export class ManagerStore {
   replies(id){return this.statement('SELECT id,text,status,created_at,updated_at FROM manager_reply_items WHERE message_id=? ORDER BY created_at,rowid').all(id);}
   questions(id){return this.statement('SELECT * FROM manager_questions WHERE message_id=? ORDER BY created_at,rowid').all(id).map(row=>({...row,questions:JSON.parse(row.questions),answers:row.answers?JSON.parse(row.answers):null}));}
   questionMessage(conversationId,id){return this.statement('SELECT m.id FROM manager_messages m JOIN manager_questions q ON q.message_id=m.id WHERE q.id=? AND m.conversation_id=?').get(id,conversationId);}
-  publicMessage(message){return {...messageRow(message),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),generated_images:this.generatedImages(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.statement('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
+  publicMessage(message){const files=this.messageFiles?.(message.id)??[];return {...messageRow(message),...(files.length?{files}:{}),...(this.canSteerMessage?.(message.id)===false?{steerable:false}:{}),error:message.error?JSON.parse(message.error):null,attachments:this.attachments(message.id),generated_images:this.generatedImages(message.id),replies:this.replies(message.id),questions:this.questions(message.id),activity:this.statement('SELECT id,kind,label,text,status,created_at,updated_at FROM manager_message_activity WHERE message_id=? ORDER BY created_at,rowid').all(message.id)};}
   message(id){const row=this.statement('SELECT * FROM manager_messages WHERE id=?').get(id);return row?this.publicMessage(row):null;}
   metadata(id){const row=this.statement('SELECT * FROM manager_conversations WHERE id=?').get(id);if(!row)throw new HttpError(404,'CONVERSATION_NOT_FOUND','找不到管理会话。');return conversationRow(row);}
   observe(key,value){this.statement('INSERT OR REPLACE INTO manager_observations VALUES(?,?,?)').run(key,JSON.stringify(value),Date.now());}
@@ -142,7 +142,7 @@ export class ManagerStore {
   }
   requeue(conversationId,id,text) {
     const message=this.queuedMessage(conversationId,id,['draft']);
-    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!message.attachments.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
+    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!message.attachments.length&&!(message.files??[]).length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
     const now=Date.now();
     // A withdrawn message joins behind every currently queued request, even in the same millisecond.
     const last=this.statement("SELECT max(COALESCE(queued_at,created_at)) AS time FROM manager_messages WHERE conversation_id=? AND status='queued'").get(conversationId).time??0;
@@ -151,6 +151,7 @@ export class ManagerStore {
   }
   reserveSteer(conversationId,id,parentId,turnId) {
     const message=this.queuedMessage(conversationId,id);
+    if(this.canSteerMessage?.(id)===false)throw new HttpError(409,'MESSAGE_STEER_DISABLED','此授权续消息须独立执行，不能引导到其他任务。');
     // Public history positions are assigned only on first dispatch; all references use message IDs.
     this.statement("UPDATE manager_messages SET rowid=(SELECT max(rowid)+1 FROM manager_messages),status='steering',steer_parent_id=?,turn_id=?,started_at=?,created_at=?,updated_at=? WHERE id=? AND status='queued'").run(parentId,turnId,Date.now(),Date.now(),Date.now(),id);
     this.changed(conversationId,id);return message;
@@ -251,21 +252,24 @@ export class ManagerStore {
     if(!result.changes)throw new HttpError(409,'INSPECTION_MAPPING_MISMATCH','巡检执行消息映射不一致。');
     this.changed(conversationId);
   }
-  enqueue(id,text,images=[]) {
+  enqueue(id,text,images=[],fileIds=[]) {
     this.metadata(id);
-    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!images.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
+    if(!Array.isArray(fileIds)||fileIds.length>5||new Set(fileIds).size!==fileIds.length||fileIds.some(value=>typeof value!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value))||fileIds.length&&!this.attachMessageFiles)throw new HttpError(400,'INVALID_MESSAGE_FILES','文件附件不可用。');
+    if(typeof text!=='string'||text.length>20000||(!text.trim()&&!images.length&&!fileIds.length))throw new HttpError(400,'INVALID_MESSAGE','消息不能为空，文字最多 20000 个字符。');
     const now=Date.now(),message={id:randomUUID(),conversation_id:id,role:'user',text,status:'queued',created_at:now,updated_at:now,started_at:null,completed_at:null,reply_to:null,activity:[],error:null};
     // Images have already passed asynchronous byte/decode validation at admission.
     this.db.exec('SAVEPOINT enqueue_chat_message');
     try {
     this.statement("INSERT INTO manager_messages(id,conversation_id,role,text,status,turn_id,error,created_at) VALUES(?,?,'user',?,'queued',NULL,NULL,?)").run(message.id,id,text,Date.now());
     for(const image of images)this.statement('INSERT INTO manager_chat_images VALUES(?,?,?,?,?,?,?,?,?)').run(randomUUID(),message.id,id,image.name,image.mime,image.width,image.height,image.size,image.bytes);
+    if(fileIds.length)this.attachMessageFiles(id,message.id,fileIds);
     const last=this.statement("SELECT max(COALESCE(queued_at,created_at)) AS time FROM manager_messages WHERE conversation_id=? AND status='queued' AND id<>?").get(id,message.id).time??0;
     this.statement('UPDATE manager_messages SET updated_at=?,queued_at=? WHERE id=?').run(Date.now(),Math.max(now,last+1),message.id);
     this.statement('UPDATE manager_conversations SET updated_at=? WHERE id=?').run(Date.now(),id);
     this.db.exec('RELEASE enqueue_chat_message');
     }catch(error){this.db.exec('ROLLBACK TO enqueue_chat_message; RELEASE enqueue_chat_message');throw error;}
     message.attachments=this.attachments(message.id);
+    const files=this.messageFiles?.(message.id)??[];if(files.length)message.files=files;
     this.changed(id,message.id);
     return message;
   }

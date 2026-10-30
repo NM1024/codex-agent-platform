@@ -1,7 +1,9 @@
+import {sandboxEnglish} from './sandbox-i18n.ts';
 import {notificationEnglish} from './notification-i18n.ts';
 // Interface copy only. Plugin definitions, prompts, task data and Agent replies
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
+  ...sandboxEnglish,
   ...notificationEnglish,
   '高级模型参数':'Advanced model settings',
   '回复详细程度':'Response verbosity',

@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema,CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { managementTools } from '../contracts/management.mjs';
+import {sandboxToolNames} from '../sandbox/contracts.mjs';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
 
@@ -38,7 +39,7 @@ export function createManagementMcpHandler({store,operations,authorize,execution
         const id=store.beginAction(conversationId,name,args);
         const operation=(async()=>{
           try {
-            const scoped=['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name);
+            const scoped=(['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name)||sandboxToolNames.has(name));
             const context=currentContext()??(name==='conversation_execution'?{conversationId}:undefined);
             const value=await (scoped?operations.execute(name,args,context):operations.execute(name,args));store.finishAction(id,value);
             return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{result:value}};

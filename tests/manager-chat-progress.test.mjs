@@ -63,7 +63,9 @@ test('management FIFO correlates exact turn before acknowledgement and excludes 
   const second=agent.enqueue(conversation.id,'Second request');
   assert.equal(calls.length,1);assert.equal(store.getConversation(conversation.id).messages.find(row=>row.id===second.id).status,'queued');
   assert.ok(store.getConversation(conversation.id).messages[0].activity.some(row=>row.text.includes('Visible partial')));
-  assert.deepEqual(calls[0].input,[{type:'text',text:`[management_message_id:${first.id}]\n`},{type:'image',url:dataUrl}]);
+  assert.ok(calls[0].input[0].text.startsWith(`[management_message_id:${first.id}]\n`));
+  assert.deepEqual(JSON.parse(calls[0].input[0].text.split('\n').find(line=>line.startsWith('[{"file_id"'))),[{file_id:first.attachments[0].id,name:'blue.png',mime:'image/png',size:imageBytes.length}]);
+  assert.deepEqual(calls[0].input.slice(1),[{type:'image',url:dataUrl}]);
   finishers[0]();await secondStarted;await new Promise(resolve=>setImmediate(resolve));finishers[1]();await agent.idle(conversation.id);
   const saved=store.getConversation(conversation.id);
   assert.deepEqual(saved.messages.filter(row=>row.role==='assistant').map(row=>[row.reply_to,row.text]),[[first.id,'Reply 0'],[second.id,'Reply 1']]);
@@ -113,7 +115,9 @@ test('queued image-only message survives store reopen and sends one initial turn
   const agent=create();await agent.recover();await agent.idle(conversation.id);await agent.stop();
   const next=create();await next.recover();await next.idle(conversation.id);
   const starts=calls.filter(call=>call.method==='turn/start');assert.equal(starts.length,1);
-  assert.deepEqual(starts[0].params.input,[{type:'text',text:`[management_message_id:${message.id}]\n`},{type:'image',url:dataUrl}]);
+  assert.ok(starts[0].params.input[0].text.startsWith(`[management_message_id:${message.id}]\n`));
+  assert.deepEqual(JSON.parse(starts[0].params.input[0].text.split('\n').find(line=>line.startsWith('[{"file_id"'))),[{file_id:message.attachments[0].id,name:'queued.jpg',mime:'image/jpeg',size:bytes.length}]);
+  assert.deepEqual(starts[0].params.input.slice(1),[{type:'image',url:dataUrl}]);
   assert.equal(store.getConversation(conversation.id).messages[0].status,'completed');
 });
 

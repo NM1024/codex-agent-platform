@@ -16,4 +16,7 @@
 !README.md
 !README.zh-CN.md
 !Dockerfile
+!Dockerfile.sandbox
 src/manager/web-dist/
+**/__pycache__/
+**/*.pyc

@@ -83,9 +83,12 @@ test('native guidance uses the exact active turn once and never launches a secon
   const f=await fixture(t),message=f.agent.enqueue(f.conversation.id,'Adjust the task',[{name:'fixture.png',mime:'image/png',width:1,height:1,size:1,bytes:Buffer.from([1])}]);
   const accepted=await f.agent.steerQueued(f.conversation.id,message.id);
   assert.equal(accepted.status,'steered');assert.equal(accepted.steer_parent_id,f.active.id);
-  assert.deepEqual(f.calls.find(call=>call.method==='turn/steer').params,{
+  const guidance=f.calls.find(call=>call.method==='turn/steer').params;
+  assert.ok(guidance.input[0].text.startsWith(`[management_message_id:${message.id}]\nAdjust the task\n`));
+  assert.deepEqual(JSON.parse(guidance.input[0].text.split('\n').find(line=>line.startsWith('[{"file_id"'))),[{file_id:message.attachments[0].id,name:'fixture.png',mime:'image/png',size:1}]);
+  assert.deepEqual({...guidance,input:guidance.input.slice(1)},{
     threadId:'queue-thread',expectedTurnId:'queue-turn',clientUserMessageId:message.id,
-    input:[{type:'text',text:`[management_message_id:${message.id}]\nAdjust the task`},{type:'image',url:'data:image/png;base64,AQ=='}],
+    input:[{type:'image',url:'data:image/png;base64,AQ=='}],
   });
   await f.agent.steerQueued(f.conversation.id,message.id);
   assert.equal(f.calls.filter(call=>call.method==='turn/steer').length,1);

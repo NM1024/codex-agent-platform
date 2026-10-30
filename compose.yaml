@@ -108,6 +108,7 @@ services:
       - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/manager:/management"
       - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/codex:/codex"
       - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/updater:/run/platform-updater:ro"
+      - "${PLATFORM_DATA_DIR:-/data/codex-agent-platform}/sandbox:/run/platform-sandbox:ro"
       - "/proc:/host/proc:ro"
     tmpfs: ["/tmp:size=128m,mode=1777"]
     healthcheck:
