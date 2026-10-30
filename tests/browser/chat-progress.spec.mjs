@@ -10,6 +10,9 @@ async function synthetic(page,conversation) {
   await page.route('**/admin/api/conversations',route=>route.fulfill({json:[conversation]}));
   await page.route(`**/admin/api/conversations/${conversation.id}`,route=>route.fulfill({json:conversation}));
   await navigate(page,'chat');
+  // Initial conversation selection changes the attachment generation. Wait for
+  // this fixture's conversation before interacting with the composer.
+  await expect(page.locator('.chat-header')).toContainText(conversation.title);
 }
 test.beforeEach(async({page})=>{
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');
