@@ -454,6 +454,14 @@ button, input, textarea { font: inherit; }
 :root[data-compact-viewport] .chat-time-note, :root[data-compact-viewport] .composer-hint { display: none; }
 :root[data-compact-viewport] .chat-compose { padding-block: 6px; }
 
+/* Keep the textarea above its toolbar when a phone keyboard leaves little room. */
+:root[data-tiny-viewport] .chat-main .messages { min-height: 16px; }
+:root[data-tiny-viewport] .chat-compose #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; }
+@media (max-height: 320px) {
+  .chat-main .messages { min-height: 16px; }
+  .chat-compose #message-input { height: 24px !important; min-height: 24px !important; max-height: 24px !important; line-height: 22px; padding-block: 1px; transition: none !important; }
+}
+
 /* Human-managed plugin connections. Modal content is independent of chat state. */
 .plugin-row-actions { display: flex; align-items: center; gap: 8px; }
 .plugin-row-actions .ant-btn { white-space: nowrap; }
