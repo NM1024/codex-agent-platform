@@ -318,7 +318,7 @@ def docker(*args,check=True):
     return subprocess.run(['docker','--host=unix:///var/run/docker.sock',*args],check=check,capture_output=True,text=True,timeout=20).stdout
 if not network.available():
     print(json.dumps({'skip':network.reason})); sys.exit(0)
-image='codex-agent-platform-sandbox:1.0.2'
+image='codex-agent-platform-sandbox:1.0.3'
 try: docker('image','inspect',image)
 except subprocess.CalledProcessError:
     print(json.dumps({'skip':'Fixed sandbox image is not built locally'})); sys.exit(0)

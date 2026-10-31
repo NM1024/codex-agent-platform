@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Stable release: v1.0.2.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Stable release: v1.0.3.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -86,7 +86,7 @@ Run the server commands from the same cloned source directory. Keep runtime data
 ### 1. Get the source and initialize private configuration
 
 ```bash
-sudo git clone --branch v1.0.2 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+sudo git clone --branch v1.0.3 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
 cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
