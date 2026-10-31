@@ -41,7 +41,7 @@ PIDS_PROGRAM = "import os,json; print(json.dumps(sorted(int(x) for x in os.listd
 
 
 class SandboxRuntime:
-    def __init__(self, image='codex-agent-platform-sandbox:1.0.2', installation='default', network=None, docker_command=None):
+    def __init__(self, image='codex-agent-platform-sandbox:1.0.3', installation='default', network=None, docker_command=None):
         if not isinstance(installation, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', installation):
             raise ValueError('Invalid installation identifier')
         self.image, self.installation, self.network = image, installation, network

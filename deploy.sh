@@ -78,7 +78,7 @@ CONFIG
     exec python3 -B "$agent_source_dir/scripts/host-sandbox.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
     ;;
   build-sandbox)
-    agent_sandbox_build=(docker build -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.2)
+    agent_sandbox_build=(docker build -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.3)
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then agent_sandbox_build+=(--secret "id=proxy_ca,src=$CODEX_PROXY_CERT"); fi
     "${agent_sandbox_build[@]}" "$agent_source_dir"
     ;;
@@ -92,9 +92,9 @@ CONFIG
   build)
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.2 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.2 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.2 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.3 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.3 "$agent_source_dir"
+      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.3 "$agent_source_dir"
     else agent_compose build; fi
     "$agent_source_dir/deploy.sh" build-sandbox "$agent_deploy_dir"
     ;;
