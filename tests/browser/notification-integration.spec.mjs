@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {setNotificationChoice,expectNotificationChoice} from './notification-select.mjs';
 import {test,expect} from '@playwright/test';
 import {navigate} from './navigation.mjs';
@@ -55,7 +56,7 @@ test.beforeEach(async({page})=>{
 test('settings notification tab edits a real private channel without sending and reloads saved metadata',async({page})=>{
   const channel=await createChannel(page,'settings');const sends=[];
   page.on('request',request=>{if(/\/notification-channels\/[^/]+\/test$/.test(new URL(request.url()).pathname))sends.push(request.url());});
-  await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();
+  await navigate(page,'settings');await selectSettingsCategory(page,'notifications');
   const card=page.locator('.notification-channel').filter({has:page.getByText(channel.name,{exact:true})});
   await expect(card).toContainText('已启用');await expect(card).not.toContainText('synthetic-notification-browser-token');
   await card.getByRole('button',{name:`编辑通知渠道：${channel.name}`,exact:true}).click();const modal=page.getByRole('dialog');await modal.getByRole('tab',{name:'接入与认证',exact:true}).click();
@@ -65,7 +66,7 @@ test('settings notification tab edits a real private channel without sending and
   const saved=(await json(await page.request.get('/admin/api/notification-channels'))).items.find(item=>item.id===channel.id);
   expect(saved).toMatchObject({name,description:'Synthetic revised description',revision:channel.revision+1,configured:{url:true,token:true}});
   expect(JSON.stringify(saved)).not.toContain('127.0.0.1');expect(JSON.stringify(saved)).not.toContain('synthetic-notification-browser-token');expect(sends).toEqual([]);
-  await page.reload();await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();await expect(page.getByText(name,{exact:true})).toBeVisible();
+  await page.reload();await navigate(page,'settings');await selectSettingsCategory(page,'notifications');await expect(page.getByText(name,{exact:true})).toBeVisible();
 });
 
 test('task detail saves and reloads independent notification bindings through the real API',async({page})=>{

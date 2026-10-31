@@ -18,13 +18,14 @@ export default function SchedulesPage() {
   const [selectedId,setSelectedId]=useState<string>();
   const [editor,setEditor]=useState<Schedule|'new'>();
   const [detailTab,setDetailTab]=useState('overview');
+  const [help,setHelp]=useState(false);
   const {data:loadedPlans,setData:setPlans,loading}=useLoad(()=>api<Schedule[]>('/schedules'),[api]);
   const plans=loadedPlans??[];
   const selected=plans.find(plan=>plan.id===selectedId);
   if(loading&&loadedPlans===undefined)return <DataLoading/>;
   return <>
     <AgentGuidance title={t('定时计划配置')} description={t('可直接新增、编辑、启用或停用定时计划，也可通过管理 Agent 操作。')}/>
-    <Panel title={t('定时计划')} extra={<Button type="primary" onClick={()=>setEditor('new')}>{t('新增定时计划')}</Button>}>
+    <Panel title={t('定时计划')} extra={<div className="schedule-header-actions"><Button onClick={()=>setHelp(true)}>{t('运行说明')}</Button><Button type="primary" onClick={()=>setEditor('new')}>{t('新增定时计划')}</Button></div>}>
       <Typography.Paragraph type="secondary">{t('时间按每个计划设置的时区显示；新计划默认停用。')}</Typography.Paragraph>
       <Table<Schedule> rowKey={plan=>plan.id??plan.name} dataSource={plans} loading={loading} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" locale={{emptyText:t('暂无记录')}} columns={[
         {title:t('计划名称'),key:'plan',className:'table-name-cell',render:(_,plan)=><TableField label={t('计划名称')}><span className="table-summary" title={plan.name}>{plan.name}</span></TableField>},
@@ -58,10 +59,10 @@ export default function SchedulesPage() {
       {selected.kind==='inspection'?<><Typography.Title level={3}>{t('巡检要求')}</Typography.Title><Typography.Paragraph className="literal-text">{selected.message}</Typography.Paragraph></>:<><Typography.Paragraph>{t('业务类型')+': '+selected.type}</Typography.Paragraph><Typography.Title level={3}>{t('业务输入 JSON')}</Typography.Title><JsonView value={selected.input??{}}/></>}
       </>},{key:'channels',label:t('通知渠道'),children:selected.id&&<NotificationBindingsPanel key={selected.id} kind="schedule" id={selected.id}/>},{key:'executions',label:t('执行记录'),children:selected.id&&<ScheduleNotificationExecutions key={selected.id+'-runs'} scheduleId={selected.id}/>} ]}/></div>}
     </AdminDrawer>
-    <Panel title={t('运行说明')}>
+    <AdminDrawer title={t('运行说明')} open={help} onClose={()=>setHelp(false)} width={720}>
       <Typography.Paragraph>{t('定时任务按 Cron 周期自动执行：业务任务调用指定插件处理固定输入；管理巡检把巡检要求交给管理 Agent，并在管理对话中保存结果。')}</Typography.Paragraph>
       <Typography.Paragraph type="secondary">{t('例如：每天 09:00 检查队列与失败任务，Cron 为 0 9 * * *。触发时间以计划填写的时区为准；启用后实际执行会使用模型额度。')}</Typography.Paragraph>
       <Typography.Paragraph type="secondary">{t('停机期间错过的计划在恢复后执行一次，再进入下个正常时刻。每次触发都是独立任务，执行受统一并发设置控制。')}</Typography.Paragraph>
-    </Panel>
+    </AdminDrawer>
   </>;
 }

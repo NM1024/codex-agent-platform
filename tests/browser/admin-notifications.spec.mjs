@@ -1,9 +1,10 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 import {navigate} from './navigation.mjs';
 const request=async(response)=>{expect(response.ok(),await response.text()).toBeTruthy();return response.json();};
 test.beforeEach(async({page})=>{await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await expect(page.locator('#workspace')).toBeVisible();});
 test('channel editor groups connection and formatting fields in compact tabs without sending',async({page})=>{
- await navigate(page,'settings');await page.locator('[data-settings-tab="notifications"]').click();await page.getByRole('button',{name:'新增通知渠道',exact:true}).click();const modal=page.getByRole('dialog');
+ await navigate(page,'settings');await selectSettingsCategory(page,'notifications');await page.getByRole('button',{name:'新增通知渠道',exact:true}).click();const modal=page.getByRole('dialog');
  await expect(modal.getByRole('tab',{name:'基本配置',exact:true})).toBeVisible();await expect(modal.getByLabel('渠道名称',{exact:true})).toBeVisible();await expect(modal.getByLabel('Webhook 地址',{exact:true})).not.toBeVisible();
  await modal.getByRole('tab',{name:'接入与认证',exact:true}).click();await expect(modal.getByLabel('Webhook 地址',{exact:true})).toBeVisible();
  await modal.getByRole('tab',{name:'消息格式',exact:true}).click();await expect(modal.getByLabel('补充格式说明',{exact:true})).toBeVisible();

@@ -1,5 +1,8 @@
 import {registerEnglish} from './i18n.ts';
 registerEnglish({
+  "配置分类":"Settings category",
+  "查看内容":"View content",
+  "查看复杂配置：{name}":"View configuration: {name}",
   "定时计划已被修改，请重新读取后再保存。":"The schedule has changed. Reload before saving.",
   "定时计划暂时无法读取，请重试。":"Could not load the schedule. Try again.",
   "移除通知渠道：{name}": "Remove notification channel: {name}",

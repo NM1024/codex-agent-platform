@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 const viewports=[{width:2267,height:1273},{width:1366,height:768},{width:390,height:844},{width:320,height:568},{width:844,height:390}];
@@ -38,7 +39,7 @@ for(const kind of kinds)test(`${kind} modal stays centered with reachable action
     await page.locator('.ant-select-dropdown:visible, .language-menu:visible').getByText(locale==='en'?'English':'简体中文',{exact:true}).click();
     const en=locale==='en',view=kind.startsWith('http')?'settings':kind==='chat-delete'?'chat':kind==='schedule-delete'?'schedules':'plugins';
     await page.locator(`[data-view="${view}"]`).click();
-    if(view==='settings')await page.locator('[data-settings-tab="http_targets"]').click();
+    if(view==='settings')await selectSettingsCategory(page,'http_targets');
     if(kind==='connection')await page.getByRole('row').filter({hasText:'content.review'}).getByRole('button',{name:en?'Configure connection':'配置接入',exact:true}).click();
     else if(kind==='plugin-delete')await page.getByRole('row').filter({hasText:'content.review'}).getByRole('button',{name:/^(删除业务插件：|Delete plugin:)/}).click();
     else if(kind==='schedule-delete')await page.getByRole('row').filter({hasText:'每日运行巡检'}).getByRole('button',{name:/^(删除定时计划：|Delete schedule:)/}).click();

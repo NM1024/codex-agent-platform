@@ -22,7 +22,7 @@ export function DeleteAction({label,name,description,onDelete}:{label:string;nam
   };
   return <>
     <Button type="text" danger icon={<Icon name="trash"/>} aria-label={label} title={label} onClick={()=>{setError('');setOpen(true);}}/>
-    <Modal open={open} title={t('逻辑删除')} okText={t('删除')} cancelText={t('取消')} onOk={()=>void remove()} onCancel={()=>{if(!locked.current)setOpen(false);}} okButtonProps={{danger:true,loading:busy,'aria-label':t('删除'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} maskClosable={!busy} keyboard={!busy}>
+    <Modal className="admin-overlay admin-modal" open={open} title={t('逻辑删除')} okText={t('删除')} cancelText={t('取消')} onOk={()=>void remove()} onCancel={()=>{if(!locked.current)setOpen(false);}} okButtonProps={{danger:true,loading:busy,'aria-label':t('删除'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} maskClosable={!busy} keyboard={!busy}>
       <Typography.Paragraph>{t('确定删除“{name}”吗？',{name})}</Typography.Paragraph>
       <Typography.Paragraph>{description}</Typography.Paragraph>
       {error&&<Alert type="error" showIcon title={error}/>}

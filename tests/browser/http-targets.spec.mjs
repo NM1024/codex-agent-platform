@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 const navigate=(page,view)=>page.locator(`[data-view="${view}"]`).click();
 async function operation(page,action,args={}) {
@@ -5,7 +6,7 @@ async function operation(page,action,args={}) {
 }
 test.beforeEach(async({page})=>{
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();
-  await navigate(page,'settings');await page.locator('[data-settings-tab="http_targets"]').click();
+  await navigate(page,'settings');await selectSettingsCategory(page,'http_targets');
 });
 test('HTTP targets can be configured without JSON editing and tokens stay private across edits and reloads',async({page})=>{
   await page.getByRole('button',{name:'新增 HTTP 目标',exact:true}).click();const modal=page.getByRole('dialog');
@@ -17,7 +18,7 @@ test('HTTP targets can be configured without JSON editing and tokens stay privat
   await row.getByRole('button',{name:'编辑 HTTP 目标：browser_health'}).click();await expect(modal.getByLabel('访问凭证',{exact:true})).toHaveValue('');
   await modal.getByLabel('目标地址',{exact:true}).fill('https://example.invalid/updated');await modal.getByRole('button',{name:'保存目标',exact:true}).click();await expect(modal).toHaveCount(0);
   expect((await operation(page,'configuration_get',{scope:'http_targets'})).configured_secrets).toContain('/targets/browser_health/token');
-  await page.reload();await navigate(page,'settings');await page.locator('[data-settings-tab="http_targets"]').click();
+  await page.reload();await navigate(page,'settings');await selectSettingsCategory(page,'http_targets');
   await row.getByRole('button',{name:'编辑 HTTP 目标：browser_health'}).click();await modal.getByRole('checkbox',{name:'清除已保存凭证',exact:true}).check();
   await modal.getByRole('button',{name:'保存目标',exact:true}).click();await expect(modal).toHaveCount(0);
   expect((await operation(page,'configuration_get',{scope:'http_targets'})).configured_secrets).not.toContain('/targets/browser_health/token');
