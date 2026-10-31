@@ -1,6 +1,6 @@
 import '../workflow-i18n';
 import {useCallback, useRef, useState} from 'react';
-import {Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Tabs, Typography} from 'antd';
+import {Alert, Button, Checkbox, Form, Grid, Input, InputNumber, Select, Tabs, Typography} from 'antd';
 import {AgentPicker, CatalogNote, DataLoading, JsonView, Panel,useLoad} from '../components';
 import {useConsole} from '../context';
 import type {AgentSettings, ConfigGroup, Json, Schema, Values} from '../types';
@@ -8,6 +8,7 @@ import NotificationChannelsPanel from '../NotificationChannelsPanel';
 import HttpTargetsPanel from '../HttpTargetsPanel';
 import RetentionPanel from '../RetentionPanel';
 import {agentSettingKeys,agentSettingsFromValues,modelOptionKeys} from '../modelOptions';
+import {AdminDrawer} from '../AdminOverlays';
 import './settings.css';
 
 interface ConfigurationList {
@@ -31,6 +32,7 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   const [clears, setClears] = useState<Record<string, boolean>>({});
   const [agent, setAgent] = useState<AgentSettings>();
   const [saving, setSaving] = useState(false),saveLock=useRef(false);
+  const [detail,setDetail]=useState<string>();
   const properties = group.schema.properties ?? {};
   const simpleFields=Object.entries(properties).filter(([key,schema])=>!complex(key,schema));
   const complexFields=Object.entries(properties).filter(([key,schema])=>complex(key,schema));
@@ -97,12 +99,15 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
       {!!timeoutFields.length&&<fieldset className="configuration-section"><legend>{t('超时设置')}</legend><div className="form-grid admin-form-grid">{renderFields(timeoutFields)}</div></fieldset>}
       {!!complexFields.length&&<fieldset className="configuration-section complex-settings"><legend>{t('复杂配置')}</legend>
         <Typography.Paragraph type="secondary">{t('请通过管理 Agent 修改复杂配置。')}</Typography.Paragraph>
-        <Collapse items={complexFields.map(([key,schema])=>({key,label:t(schema.title??key),children:typeof group.values[key]==='string'?<Typography.Paragraph className="literal-text">{String(group.values[key])}</Typography.Paragraph>:<JsonView value={group.values[key]??{}}/>}))}/>
+        <div className="configuration-details">{complexFields.map(([key,schema])=><div className="configuration-detail" key={key}><span>{t(schema.title??key)}</span><Button aria-label={t('查看复杂配置：{name}',{name:t(schema.title??key)})} onClick={()=>setDetail(key)}>{t('查看内容')}</Button></div>)}</div>
         <Button onClick={()=>navigate('chat')}>{t('前往管理对话')}</Button>
       </fieldset>}
       {!!group.configured_secrets.length && <Typography.Paragraph type="secondary">{t('已配置凭证：') + group.configured_secrets.join('、') + t('。省略字段保留原值，显式空值表示清除。')}</Typography.Paragraph>}
       {!!simpleFields.length&&<div className="configuration-actions"><Button type="primary" htmlType="submit" loading={saving}>{t('保存配置')}</Button></div>}
     </Form>
+    <AdminDrawer open={!!detail} title={t(detail?properties[detail]?.title??detail:'复杂配置')} subtitle={t(group.title)} onClose={()=>setDetail(undefined)}>
+      {detail&&(typeof group.values[detail]==='string'?<Typography.Paragraph className="literal-text">{String(group.values[detail])}</Typography.Paragraph>:<JsonView value={group.values[detail]??{}}/>)}
+    </AdminDrawer>
   </Panel>;
 }
 
@@ -111,6 +116,7 @@ export default function SettingsPage() {
   const {data,setData,loading}=useLoad(()=>operation<ConfigurationList>('configuration_list'),[operation]);
   const [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''),[currentPassword,setCurrentPassword]=useState('');
   const [tab,setTab]=useState('manager');
+  const screens=Grid.useBreakpoint(),mobile=screens.lg===false;
   const [savingPassword, setSavingPassword] = useState(false);
   const passwordLock=useRef(false);
   const reload = useCallback(async () => {setData(await operation<ConfigurationList>('configuration_list'));}, [operation]);
@@ -154,6 +160,6 @@ export default function SettingsPage() {
   return <section className="settings-page">
     <Typography.Paragraph type="secondary">{t('按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。')}</Typography.Paragraph>
     {data?.gateway_unavailable&&<Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
-    {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} items={items}/>}
+    {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} renderTabBar={mobile?(props,DefaultTabBar)=> <><div hidden><DefaultTabBar {...props}/></div><div className="settings-category-picker"><label htmlFor="settings-category">{t('配置分类')}</label><Select id="settings-category" aria-label={t('配置分类')} value={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} virtual={false} options={items.map(item=>({value:item.key,label:item.label}))} optionRender={option=><span data-settings-choice={option.value}>{option.label}</span>}/></div></>:undefined} items={items}/>}
   </section>;
 }

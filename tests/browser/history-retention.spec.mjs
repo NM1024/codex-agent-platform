@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 import {navigate} from './navigation.mjs';
 
@@ -11,7 +12,7 @@ test.beforeEach(async({page})=>{
   const config=await operation(page,'configuration_get',{scope:'retention'});
   await operation(page,'configuration_update',{scope:'retention',revision:config.revision,patch:{enabled:false,days:60}});
   await navigate(page,'overview');await navigate(page,'settings');
-  await page.locator('[data-settings-tab="retention"]').click();
+  await selectSettingsCategory(page,'retention');
 });
 
 test('retention has an opt-in switch, 30/60 day presets and persisted custom age',async({page})=>{

@@ -1,7 +1,8 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import { test, expect } from "@playwright/test";
 import {navigate} from './navigation.mjs';
 import {chooseChatModel,chooseChatEffort} from './agent-picker.mjs';
-const settingsTab=(page,scope)=>page.locator(`[data-settings-tab="${scope}"]`).click();
+const settingsTab=selectSettingsCategory;
 const choiceLabel=value=>({'fixture-fast':'Fixture Fast','gpt-6.1-sol':'Fixture Default',en:'English','zh-CN':'简体中文',task:'Business task'}[value]??value);
 const selectRoot=(page,selector)=>page.locator('.ant-select').filter({has:page.locator(selector)});
 async function choose(page,selector,value){
@@ -862,8 +863,8 @@ test('complex settings are readable without JSON or prompt editors and Agent ope
   await navigate(page,'settings');
   await expect(page.locator('#setting-manager-instructions')).toHaveCount(0);
   await expect(page.locator('#setting-http-targets')).toHaveCount(0);
-  await page.locator('#configuration-manager').getByText('管理提示词',{exact:true}).click();
-  await expect(page.locator('#configuration-manager')).toContainText(text);
+  await page.getByRole('button',{name:'查看复杂配置：管理提示词',exact:true}).click();
+  const detail=page.getByRole('dialog',{name:'管理提示词',exact:false});await expect(detail).toContainText(text);await detail.getByRole('button',{name:'关闭',exact:true}).click();await expect(detail).toHaveCount(0);
   await expect(page.locator('#setting-manager-model')).toBeVisible();
   await expect(page.locator('[data-settings-tab="http"], [data-settings-tab="access"]')).toHaveCount(0);
   await expect(page.locator('#configuration-http, #configuration-access')).toHaveCount(0);

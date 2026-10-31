@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 
 test.beforeEach(async({page})=>{
@@ -114,12 +115,12 @@ test('configuration categories save independently and guard duplicate form submi
   const manager=page.locator('#configuration-manager'),managerSave=manager.getByRole('button',{name:/保存配置/});
   await managerSave.click();await expect(managerSave).toHaveClass(/ant-btn-loading/);
   await manager.dispatchEvent('submit');expect(saves).toBe(1);
-  await page.locator('[data-settings-tab="execution"]').click();
+  await selectSettingsCategory(page,'execution');
   const concurrency=page.locator('#setting-execution-concurrency');
   await concurrency.fill(String(Number(await concurrency.inputValue())+1));
   const executionSave=page.locator('#configuration-execution').getByRole('button',{name:/保存配置/});
   await executionSave.click();await expect(page.locator('#notice')).toContainText('已保存');
-  await page.locator('[data-settings-tab="manager"]').click();
+  await selectSettingsCategory(page,'manager');
   await expect(managerSave).toHaveClass(/ant-btn-loading/);
   release();await expect(managerSave).not.toHaveClass(/ant-btn-loading/);expect(saves).toBe(1);
 });

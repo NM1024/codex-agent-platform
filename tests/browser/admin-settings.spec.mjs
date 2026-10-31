@@ -1,3 +1,4 @@
+import {selectSettingsCategory} from './settings-navigation.mjs';
 import {test,expect} from '@playwright/test';
 import {overviewFixture,loginOverview} from './overview-fixture.mjs';
 import {navigate} from './navigation.mjs';
@@ -36,7 +37,7 @@ test('configuration sections pair short inputs and preserve drafts across catego
   const controls=form.getByRole('group',{name:'运行控制',exact:true});await expect(controls).toBeVisible();
   const timeout=page.locator('#setting-manager-timeoutMs'),tool=page.locator('#setting-manager-toolTimeoutMs');
   const [a,b]=await Promise.all([timeout.boundingBox(),tool.boundingBox()]);expect(Math.abs(a.y-b.y)).toBeLessThan(2);expect(b.x).toBeGreaterThan(a.x+a.width);
-  await timeout.fill('900001');await page.locator('[data-settings-tab="execution"]').click();await page.locator('[data-settings-tab="manager"]').click();await expect(timeout).toHaveValue('900001');
+  await timeout.fill('900001');await selectSettingsCategory(page,'execution');await selectSettingsCategory(page,'manager');await expect(timeout).toHaveValue('900001');
   const label=form.locator('label[for="setting-manager-timeoutMs"]');const labelBox=await label.boundingBox();const inputBox=await timeout.boundingBox();expect(labelBox.x+labelBox.width).toBeLessThanOrEqual(inputBox.x);
   await page.screenshot({path:'.tmp/admin-overlays/settings-desktop.png',fullPage:true});
 });

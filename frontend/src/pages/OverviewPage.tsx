@@ -98,7 +98,7 @@ export default function OverviewPage(){
         {concurrencyError&&<Alert showIcon type="error" title={concurrencyError}/>}
       </Form>
     </AdminModal>
-    <Modal title={t('重启 Runner')} open={restartOpen} okText={t('确认重启')} cancelText={t('取消')} onOk={()=>void restart()} onCancel={()=>{if(!restartLock.current)setRestartOpen(false);}} okButtonProps={{danger:true,loading:restarting,disabled:gateway!==true,'aria-busy':restarting}} cancelButtonProps={{disabled:restarting}} closable={!restarting} maskClosable={!restarting} keyboard={!restarting}>
+    <Modal className="admin-overlay admin-modal" title={t('重启 Runner')} open={restartOpen} okText={t('确认重启')} cancelText={t('取消')} onOk={()=>void restart()} onCancel={()=>{if(!restartLock.current)setRestartOpen(false);}} okButtonProps={{danger:true,loading:restarting,disabled:gateway!==true,'aria-label':t('确认重启'),'aria-busy':restarting}} cancelButtonProps={{disabled:restarting}} closable={!restarting} maskClosable={!restarting} keyboard={!restarting}>
       <Typography.Paragraph>{t('重启会中断 Runner 当前连接，正在执行的任务可能进入恢复流程。确定继续吗？')}</Typography.Paragraph>
       {restartError&&<Alert type="error" showIcon title={restartError}/>}
     </Modal>
