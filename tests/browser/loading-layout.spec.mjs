@@ -25,9 +25,11 @@ for(const view of ['overview','plugins','schedules','tasks','settings'])test(`${
   else await page.route(`**/admin/api/${view==='overview'?'overview':view==='tasks'?'tasks?*':view}`,async route=>{await gate.promise;await route.continue();});
   try{
     await page.locator(`[data-view="${view}"]`).click();
+    if(view==='tasks')await expect(page.locator('#view > .ant-tabs')).toHaveCount(0);
     await matrix(page,async label=>{await centered(page.locator('.page-loading'),page.locator('.console-content'),view+' '+label);if(label==='zh 1440x1000')await page.screenshot({path:`.tmp/loading-layout/${view}.png`,animations:'disabled'});});
   }finally{gate.release();}
   await expect(page.locator('.page-loading')).toHaveCount(0);
+  if(view==='tasks')for(const name of ['Plugin tasks','Scheduled tasks'])await expect(page.getByRole('tab',{name,exact:true})).toBeVisible();
 });
 
 test('lazy page loading is centered below the header',async({page})=>{
