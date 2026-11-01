@@ -94,8 +94,10 @@ export class OperationsService {
       targets:Object.keys(this.registry.catalog.targets ?? {}),
       compatibility_profiles:Object.entries(this.registry.catalog.profiles ?? {}).map(([type,module])=>({type,tools:Object.keys(module.tools),contract:'Input/output/callback are fixed for the existing integration. Instructions may be edited.'}))
     };
+    if(action==='schedule_runs')return this.schedules.runs(args);
+    if(action==='schedule_execution')return this.schedules.execution(args.id);
     if (action==='schedules') return this.schedules.list();
-    if (action==='schedule_save') return this.schedules.save(args.schedule,Date.now(),{revision:args.revision});
+    if (action==='schedule_save') return this.schedules.save(args.schedule,Date.now(),{revision:args.revision,notificationRevision:args.notification_revision});
     if (action==='schedule_enable') return this.schedules.setEnabled(args.id,args.enabled);
     if (action==='schedule_delete') return this.schedules.delete(args.id);
     if (action==='runtime_update') {

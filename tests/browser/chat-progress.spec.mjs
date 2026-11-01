@@ -50,7 +50,7 @@ test('running turns show partial replies, collapsed activity and FIFO pending me
   await expect(page.locator('.message-activity')).not.toContainText('Partial answer while working');
   await expect(page.locator('.message-progress').first()).toContainText('最近活动');
   await page.locator('#message-input').fill('Queue another request');
-  await expect(page.getByRole('button',{name:'发送',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'停止执行',exact:true})).toBeEnabled();
   conversation.messages[0].status='completed';conversation.messages[0].completed_at=Date.now();
   conversation.messages.push({id:'reply',role:'assistant',text:'Final answer',status:'completed',reply_to:'first',created_at:Date.now()});
   await expect(page.locator('.message-progress').first()).toContainText('执行完成');

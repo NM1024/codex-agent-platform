@@ -162,7 +162,7 @@ test('a late enqueue response cannot replace a message already running in the st
   });
   try {
     await emit(page,'conversation',first);
-    await page.locator('#message-input').fill(admitted.text);await page.locator('.composer-send').click();await posted;
+    await page.locator('#message-input').fill(admitted.text);await page.locator('#message-input').press('Enter');await posted;
     await emit(page,'conversation',streamed);
     await expect(page.locator('.assistant .message-partial')).toContainText('Live reply before admission returns');
     releasePost();await reading;
@@ -171,4 +171,14 @@ test('a late enqueue response cannot replace a message already running in the st
     await expect(page.locator('.message-progress').last()).toHaveAttribute('data-status','running');
     await expect(page.locator('.message.user').filter({hasText:admitted.text})).toHaveCount(1);
   } finally {releasePost();releaseRead();}
+});
+
+test('one icon button switches from stop to send and preserves the draft',async({page})=>{
+ await setup(page);const requests=[];
+ const finished={...first,running_count:0,messages:[{...turn,status:'failed',error:{code:'MANAGEMENT_STOPPED'},completed_at:Date.now()}]};let current=first;
+ await page.route(`**/admin/api/conversations/${first.id}`,route=>route.fulfill({json:current}));
+ await page.route(`**/admin/api/conversations/${first.id}/interrupt`,route=>{requests.push(route.request().postDataJSON());current=finished;return route.fulfill({json:{stopped:true}});});
+ await expect(page.locator('.composer-send')).toHaveCount(1);await expect(page.getByRole('button',{name:'发送',exact:true})).toHaveCount(0);await expect(page.locator('.composer-send')).toHaveText('');await expect(page.locator('.composer-send svg')).toBeVisible();
+ await page.locator('#message-input').fill('Synthetic unsent draft');await page.getByRole('button',{name:'停止执行',exact:true}).click();await expect.poll(()=>requests.length).toBe(1);expect(requests).toEqual([{message_id:turn.id}]);await expect(page.locator('#message-input')).toHaveValue('Synthetic unsent draft');
+ await expect(page.locator('.composer-send')).toHaveAccessibleName('发送');await expect(page.locator('.composer-send')).toBeEnabled();await expect(page.getByRole('button',{name:'停止执行',exact:true})).toHaveCount(0);
 });

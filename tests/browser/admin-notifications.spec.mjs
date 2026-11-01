@@ -17,6 +17,6 @@ test('binding dropdown loads concrete configurations on open and saves a new sam
  await navigate(page,'plugins');await page.getByRole('row').filter({hasText:type}).getByRole('button',{name:'配置接入',exact:true}).click();const modal=page.getByRole('dialog');await modal.getByRole('tab',{name:'通知渠道',exact:true}).click();
  const select=modal.getByRole('combobox',{name:'选择通知渠道',exact:true});await expect(select).toBeVisible();
  const second=await request(await page.request.post('/admin/api/notification-channels',{data:{channel:{name:'Synthetic live channel B',provider:'custom',url:'https://example.invalid/b'}}}));
- await select.click();await page.getByRole('option',{name:/Synthetic live channel A/}).click();await page.getByRole('option',{name:/Synthetic live channel B/}).click();await page.keyboard.press('Escape');await modal.getByRole('button',{name:'保存通知绑定',exact:true}).click();
+ await select.click();await page.getByRole('option',{name:/Synthetic live channel A/}).click();await page.getByRole('option',{name:/Synthetic live channel B/}).click();await page.keyboard.press('Escape');await modal.getByRole('button',{name:'保存通知渠道',exact:true}).click();
  await expect.poll(async()=>(await request(await page.request.get('/admin/api/plugins/'+type+'/notifications'))).notification_channels).toEqual([first.id,second.id]);
 });
