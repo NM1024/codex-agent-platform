@@ -45,3 +45,10 @@ test('an obsolete schedule can be disabled after its plugin contract changes',as
   await schedules.tick(plan.next_run_at+60000);assert.equal(store.queued().length,0);
   assert.throws(()=>schedules.setEnabled(plan.id,true),/INVALID_SCHEDULE/);
 });
+test('global history includes scheduled plugin tasks with current execution status',async t=>{
+ const {store,schedules}=await setup(t),start=Date.parse('2026-10-22T00:00:00Z');
+ const plan=schedules.save({name:'Synthetic plugin history',kind:'task',type:'text.generate',input:{},cron:'* * * * *',timezone:'Etc/UTC',enabled:true},start);
+ await schedules.tick(start+60000);const rows=schedules.runs({search:plan.name});assert.equal(rows.length,1);assert.equal(rows[0].kind,'task');assert.equal(rows[0].type,'text.generate');assert.equal(rows[0].status,'queued');
+ const run=store.claim(rows[0].id);store.fail(run.run_id,'SYNTHETIC_HISTORY_FAILURE');schedules.delete(plan.id);
+ assert.equal(schedules.runs({status:'failed'})[0].error.code,'SYNTHETIC_HISTORY_FAILURE');assert.equal(schedules.execution(rows[0].id).schedule_name,plan.name);
+});

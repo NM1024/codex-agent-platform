@@ -90,7 +90,7 @@ test('tabs preserve connection and model drafts and save only model overrides',a
   await modal.getByRole('tab',{name:'模型设置',exact:true}).click();
   await choose(page,'#plugin-execution-model','Fixture Fast');
   await modal.getByRole('tab',{name:'通知渠道',exact:true}).click();
-  await expect(modal.getByRole('button',{name:'保存通知绑定',exact:true})).toBeVisible();
+  await expect(modal.getByRole('button',{name:'保存通知渠道',exact:true})).toBeVisible();
   await modal.getByRole('tab',{name:'入口配置',exact:true}).click();
   await expect(page.locator('#plugin-entry-address')).toHaveValue('unsaved invalid connection draft');
   await modal.getByRole('tab',{name:'模型设置',exact:true}).click();

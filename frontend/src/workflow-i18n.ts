@@ -1,5 +1,24 @@
 import {registerEnglish} from './i18n.ts';
 registerEnglish({
+  '完成':'Done',
+  'Cron 选择器':'Cron picker','打开 Cron 选择器':'Open Cron picker','关闭 Cron 选择器':'Close Cron picker',
+
+  '执行编号':'Execution ID',
+  '显示最近 20 次执行。选择执行查看通知结果。':'Showing the latest 20 executions. Select an execution to view notification results.',
+
+  '已取消':'Cancelled','停止执行':'Stop execution','已停止执行':'Execution stopped','停止执行失败，请重试。':'Could not stop execution. Try again.',
+  '插件任务':'Plugin tasks','定时任务':'Scheduled tasks','定时任务执行记录':'Scheduled execution history','定时执行详情':'Scheduled execution details',
+  '搜索定时执行':'Search scheduled executions','搜索计划名称或执行编号':'Search plan name or execution ID','定时执行记录暂时无法读取，请重试。':'Could not load scheduled executions. Try again.',
+  '确认调查':'Confirm investigation','开始调查':'Start investigation','调查启动失败，请重试。':'Could not start investigation. Try again.',
+  '将创建管理对话，由 Agent 调查这条执行记录，可能消耗模型额度。是否继续？':'This creates a management conversation for the Agent to investigate this execution and may use model allowance. Continue?',
+  '保存通知渠道':'Save notification channels','计划的绑定只影响以后创建的执行。':'Plan bindings apply only to future executions.',
+  '执行频率':'Frequency','每天':'Daily','每周':'Weekly','每月':'Monthly','每 5 分钟':'Every 5 minutes','每 15 分钟':'Every 15 minutes','每 30 分钟':'Every 30 minutes','每小时':'Hourly','自定义 Cron':'Custom Cron',
+  '执行时间':'Execution time','执行日期':'Day of week','每月日期':'Day of month','可选 1–28 日，确保每月都执行。':'Choose day 1–28 to run every month.',
+  '星期日':'Sunday','星期一':'Monday','星期二':'Tuesday','星期三':'Wednesday','星期四':'Thursday','星期五':'Friday','星期六':'Saturday',
+  '中国标准时间':'China Standard Time','协调世界时':'Coordinated Universal Time',
+  '分 时 日 月 周；可直接编辑，复杂规则会显示为自定义。':'Minute hour day month weekday. Edit directly for a custom rule.',
+  '接下来执行':'Upcoming runs','请检查 Cron 规则和时区。':'Check the Cron rule and timezone.',
+
   "配置分类":"Settings category",
   "查看内容":"View content",
   "查看复杂配置：{name}":"View configuration: {name}",

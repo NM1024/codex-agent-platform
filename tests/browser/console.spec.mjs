@@ -770,6 +770,10 @@ test("task investigation uses the server-owned prompt and opens its existing con
     .filter({ hasText: task.task_id })
     .getByRole("button", { name: "调查", exact: true })
     .click();
+  const confirmation=page.getByRole('dialog',{name:'确认调查',exact:true});
+  await expect(confirmation).toBeVisible();
+  await expect(page.locator("#message-input")).toHaveCount(0);
+  await confirmation.getByRole('button',{name:'开始调查',exact:true}).click();
   await expect(page.locator("#message-input")).toBeVisible();
   await expect(page.locator("#messages .message.user")).toContainText(
     task.task_id,
@@ -783,6 +787,8 @@ test("task investigation uses the server-owned prompt and opens its existing con
     .filter({ hasText: task.task_id })
     .getByRole("button", { name: "调查", exact: true })
     .click();
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole('button',{name:'开始调查',exact:true}).click();
   await expect(page.locator("#message-input")).toBeVisible();
   await expect(page.locator("#messages .message.user")).toHaveCount(1);
 });

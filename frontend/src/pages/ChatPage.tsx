@@ -65,6 +65,7 @@ export default function ChatPage() {
   const [readFailure,setReadFailure]=useState<string|null>(null);
   const [streamStatus,setStreamStatus]=useState<'connecting'|'connected'|'reconnecting'|'fallback'>('connecting');
   const [deleteTarget,setDeleteTarget]=useState<Conversation>();
+  const [stopping,setStopping]=useState(false),stopLock=useRef(false);
   const [deleting,setDeleting]=useState<string|null>(null);
   const [deleteError,setDeleteError]=useState('');
   const deleteLock=useRef<string|null>(null);
@@ -98,6 +99,15 @@ export default function ChatPage() {
   const visibleConversation = conversation?.id === chatId ? conversation : undefined;
   const conversationRef=useRef(conversation);conversationRef.current=conversation;
   const messages=visibleConversation?.messages??[];
+  const activeMessage=messages.find(message=>message.role==='user'&&message.status==='running');
+  const stopExecution=async()=>{
+    if(!chatId||!activeMessage||stopLock.current)return;
+    const id=chatId;stopLock.current=true;setStopping(true);
+    try{await api('/conversations/'+id+'/interrupt',{message_id:activeMessage.id});if(mounted.current&&currentId.current===id)setLoadRetry(value=>value+1);}
+    catch(error){if(mounted.current&&currentId.current===id)notify(error instanceof Error?error.message:t('停止执行失败，请重试。'));}
+    finally{stopLock.current=false;if(mounted.current)setStopping(false);}
+  };
+
   const queued=messages.filter(message=>message.role==='user'&&message.status==='queued');
   const queue=visibleConversation?.queue??messages.filter(message=>['queued','draft','steering','steer_unknown'].includes(message.status));
   const unconfirmedIds=unconfirmedRoots.id===chatId?unconfirmedRoots.ids:[];
@@ -520,7 +530,7 @@ export default function ChatPage() {
               {tail&&source&&chatId&&<SandboxAttachments conversationId={chatId} files={(source.files??[]).filter(file=>file.origin==='sandbox'&&!message.files?.some(existing=>existing.file_id===file.file_id))}/>}
               {!!message.attachments?.length && <MessageImages images={message.attachments}/>}
               {tail&&!!source?.generated_images?.length&&<MessageImages images={source.generated_images} generated/>}
-              {message.error && <div className="danger-text">{message.error.code}</div>}</div>
+              {message.error && <div className="danger-text">{message.error.code==='MANAGEMENT_STOPPED'?t('已停止执行'):message.error.code}</div>}</div>
             {message.role==='assistant' && <div className="message-footer">
               {!live && <CopyButton text={message.text} label={t('复制回复')}/>}
               {source && tail && <><SandboxActivity messageId={source.id} existingFileIds={[...(source.files??[]),...(message.files??[])].map(file=>file.file_id)}/>{source.questions?.map(request=><QuestionCard key={request.id} request={request} conversationId={chatId!}/>)}<MessageProgress message={source} connection={messageConnection} actions={visibleConversation?.actions?.filter(action=>action.message_id===source.id)}/></>}
@@ -556,7 +566,7 @@ export default function ChatPage() {
           <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
           <input ref={genericFileInput} id="chat-file-input" type="file" multiple hidden onChange={event=>{addFiles(Array.from(event.target.files??[]));event.target.value='';}}/>
           <Button className="chat-file-picker" icon={<Icon name="box"/>} title={t('添加文件')} aria-label={t('添加文件')} disabled={files.length>=5} onClick={()=>genericFileInput.current?.click()}/>
-          <Button type="primary" className="composer-send" icon={<Icon name="send"/>} title={t('发送')} aria-label={t('发送')} loading={busy} disabled={compressing||(!draft.trim()&&!images.length&&!files.length)||draft.length>20000} onClick={() => {void send();}}/>
+          <Button type="primary" className="composer-send" icon={<Icon name={activeMessage?'stop':'send'}/>} title={t(activeMessage?'停止执行':'发送')} aria-label={t(activeMessage?'停止执行':'发送')} loading={activeMessage?stopping:busy} disabled={activeMessage?stopping:compressing||(!draft.trim()&&!images.length&&!files.length)||draft.length>20000} onClick={()=>{void (activeMessage?stopExecution():send());}}/>
         </div>
         </div>
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>

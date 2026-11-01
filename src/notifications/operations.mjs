@@ -22,11 +22,8 @@ export class NotificationOperations {
     assertNotificationCapability(this.store.moduleFor(row),ids);this.notifications.setBinding({kind:'task',id:taskId},ids,{revision});return this.task(taskId,options);
   }
   schedule(id){
-    const plan=this.schedules.get(id);
-    const executions=this.store.db.prepare('SELECT task_id AS id,triggered_at AS created_at FROM platform_schedule_runs WHERE schedule_id=? ORDER BY triggered_at DESC,id DESC LIMIT 20').all(id).map(row=>{
-      const task=this.store.raw(row.id),inspection=task?null:this.store.db.prepare('SELECT * FROM platform_inspections WHERE id=?').get(row.id);
-      return {...row,kind:task?'task':inspection?'inspection':plan.kind,status:task?.status??(inspection?.status==='cancelled'?'cancelled':inspection?.execution_state)??'unknown'};
-    });
+    this.schedules.get(id);
+    const executions=this.schedules.runs({schedule_id:id,limit:20});
     return {...this.view({kind:'schedule',id}),executions};
   }
   updateSchedule(id,ids,revision){

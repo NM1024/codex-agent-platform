@@ -65,9 +65,9 @@ export default function NotificationChannelsPanel() {
     finally{if(alive.current){lock.current=false;setBusy(false);}}
   };
   const rereadEditor=async()=>{if(lock.current||!editor)return;const id=editor.channel?.id,session=editorSession.current;const next=await load();if(!next||session!==editorSession.current)return;const latest=next.find(channel=>channel.id===id);if(!latest){setEditorError('渠道已删除，请关闭窗口后重新选择。');return;}open(latest);};
-  return <div className="notification-panel"><Panel title={t('通知渠道')} extra={<div className="notification-actions"><Button disabled={loading||busy||!!editor} onClick={()=>void load()}>{t('重新读取')}</Button><Button type="primary" disabled={loading||busy||conflict} onClick={()=>open()}>{t('新增通知渠道')}</Button></div>}>
+  return <div className="notification-panel"><Panel title={t('通知渠道')} extra={<div className="notification-actions"><Button type="primary" disabled={loading||busy||conflict} onClick={()=>open()}>{t('新增通知渠道')}</Button></div>}>
     <Typography.Paragraph>{t('独立管理 Agent 可使用的 Webhook 渠道。保存配置不发送消息；任务绑定后由 Agent 按要求决定发送时机。')}</Typography.Paragraph>
-    {error&&<Alert showIcon type="error" title={t(error)}/>}
+    {error&&<Alert showIcon type="error" title={t(error)} action={<Button disabled={loading||busy||!!editor} onClick={()=>void load()}>{t('重试')}</Button>}/>}
     {loading?<LoadingState/>:!channels.length?<Empty description={t('暂无通知渠道')}/>:<Table<NotificationChannel> className="notification-channel-list" rowKey="id" rowClassName="notification-channel" size="small" pagination={false} scroll={{x:760}} dataSource={channels} columns={[
       {title:t('渠道名称'),key:'name',width:240,render:(_,channel)=><div className="notification-channel-identity"><Typography.Text strong className="notification-channel-name" title={channel.name}>{channel.name}</Typography.Text>{channel.description&&<Typography.Text type="secondary" className="notification-channel-description" title={channel.description}>{channel.description}</Typography.Text>}</div>},
       {title:t('渠道类型'),key:'provider',width:140,render:(_,channel)=><Tag>{t(providerLabel[channel.provider])}</Tag>},

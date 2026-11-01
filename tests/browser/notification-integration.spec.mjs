@@ -80,7 +80,7 @@ test('task detail saves and reloads independent notification bindings through th
   await expect.poll(async()=>(await binding(page,'tasks',task.task_id)).notification_channels).toEqual([channel.id]);
 });
 
-test('inspection schedule preserves cron and next run while schedule and execution bindings change independently',async({page})=>{
+test('inspection schedule preserves timing and editable bindings while execution notifications remain read-only',async({page})=>{
   const channel=await createChannel(page,'schedule');
   const plan=await operation(page,'schedule_save',{schedule:{name:'Synthetic notification inspection plan',kind:'inspection',message:'Synthetic inspection only; no real remote actions.',cron:'15 8 * * *',timezone:'Etc/UTC',enabled:false,notification_channels:[channel.id]}});
   await page.setViewportSize({width:390,height:844});let detail=await openSchedule(page,plan);await detail.getByRole('tab',{name:'通知渠道',exact:true}).click();
@@ -92,9 +92,8 @@ test('inspection schedule preserves cron and next run while schedule and executi
   await expect.poll(async()=>(await binding(page,'schedules',plan.id)).notification_channels).toEqual([channel.id]);
   const execution=await json(await page.request.post('/admin/api/__fixture/notification-inspection',{data:{schedule_id:plan.id}}));
   await page.reload();detail=await openSchedule(page,plan);await detail.getByRole('tab',{name:'执行记录',exact:true}).click();await detail.getByRole('button',{name:`查看执行通知：${execution.id}`,exact:true}).click();
-  const executionPanel=page.locator('.notification-selected-execution');await expectNotificationChoice(page,executionPanel,channel.name,true);
-  await setNotificationChoice(page,executionPanel,channel.name,false);await executionPanel.getByRole('button',{name:'保存通知绑定',exact:true}).click();
-  await expect.poll(async()=>(await binding(page,'inspections',execution.id)).notification_channels).toEqual([]);
+  const executionPanel=page.locator('.notification-selected-execution');await expect(executionPanel).toContainText(channel.name);await expect(executionPanel).toContainText('自定义 JSON Webhook');await expect(executionPanel.getByRole('combobox')).toHaveCount(0);await expect(executionPanel.getByRole('button',{name:'保存通知绑定',exact:true})).toHaveCount(0);
+  expect((await binding(page,'inspections',execution.id)).notification_channels).toEqual([channel.id]);
   expect((await binding(page,'schedules',plan.id)).notification_channels).toEqual([channel.id]);
   await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:'Settled phone overlay and popup containment'}).toBeLessThanOrEqual(390);
 });
@@ -119,10 +118,10 @@ test('plugin notification defaults select individual Feishu configurations and p
  const type=await createPlugin(page,'defaults'),channels=[];
  for(const suffix of ['Operations','Engineering'])channels.push(await json(await page.request.post('/admin/api/notification-channels',{data:{channel:{name:`Synthetic Feishu ${suffix}`,provider:'feishu',url:`https://open.feishu.cn/open-apis/bot/v2/hook/synthetic-${suffix.toLowerCase()}`}}})));
  await navigate(page,'plugins');await page.getByRole('row').filter({hasText:type}).getByRole('button',{name:'配置接入',exact:true}).click();const modal=page.getByRole('dialog');await modal.getByRole('tab',{name:'通知渠道',exact:true}).click();
- for(const channel of channels)await setNotificationChoice(page,modal,channel.name,true);await modal.getByRole('button',{name:'保存通知绑定',exact:true}).click();
+ for(const channel of channels)await setNotificationChoice(page,modal,channel.name,true);await modal.getByRole('button',{name:'保存通知渠道',exact:true}).click();
  await expect.poll(async()=>(await json(await page.request.get(`/admin/api/plugins/${type}/notifications`))).notification_channels).toEqual(channels.map(channel=>channel.id));
  const created=await operation(page,'submit_task',{type,input:{text:'Synthetic plugin default task'}});expect(created.notification_channels).toEqual(channels.map(channel=>channel.id));
  const empty=await operation(page,'submit_task',{type,input:{text:'Synthetic no notification task'},notification_channels:[]});expect(empty.notification_channels).toEqual([]);
- await setNotificationChoice(page,modal,channels[0].name,false);await modal.getByRole('button',{name:'保存通知绑定',exact:true}).click();await expect.poll(async()=>(await json(await page.request.get(`/admin/api/plugins/${type}/notifications`))).notification_channels).toEqual([channels[1].id]);expect((await operation(page,'task',{task_id:created.task_id})).notification_channels).toEqual(channels.map(channel=>channel.id));
+ await setNotificationChoice(page,modal,channels[0].name,false);await modal.getByRole('button',{name:'保存通知渠道',exact:true}).click();await expect.poll(async()=>(await json(await page.request.get(`/admin/api/plugins/${type}/notifications`))).notification_channels).toEqual([channels[1].id]);expect((await operation(page,'task',{task_id:created.task_id})).notification_channels).toEqual(channels.map(channel=>channel.id));
  await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:'Settled phone overlay and popup containment'}).toBeLessThanOrEqual(390);
 });

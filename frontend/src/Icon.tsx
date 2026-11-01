@@ -18,6 +18,7 @@ const paths={
   check:'m5 12 4 4L19 6',
   download:'M12 3v12 m-5-5 5 5 5-5 M4 16v5h16v-5',
   image:'M3 3h18v18H3z M3 16l5-5 5 5 3-3 5 5 M15 7h.01',
+  stop:'M7 7h10v10H7z',
   send:'m4 4 17 8-17 8 3-8-3-8 M7 12h14',
   edit:'m15 4 5 5 M4 20l4-1L21 6l-4-4L4 15l-1 6Z',
   chevron:'m7 10 5 5 5-5',
@@ -28,5 +29,5 @@ const paths={
 } as const;
 
 export function Icon({name}:{name:keyof typeof paths}) {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]}/></svg>;
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill={name==='stop'?'currentColor':'none'} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]}/></svg>;
 }

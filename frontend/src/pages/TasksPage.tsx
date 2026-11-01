@@ -1,15 +1,22 @@
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {Alert,Button,Descriptions,Empty,Image,Input,Select,Space,Table,Tabs,Tooltip,Typography} from 'antd';
 import {useConsole} from '../context';
 import {AsyncButton,DataLoading,JsonView,LoadingState,Panel,Status,TableField,TableIdentifier,taskStatuses,time,useLoad} from '../components';
 import {NotificationBindingsPanel} from '../NotificationBindingsPanel';
 import {NotificationRetryDialog} from '../NotificationRetryDialog';
-import type {Conversation,Task} from '../types';
+import type {Task} from '../types';
 import {AdminDrawer} from '../AdminOverlays';
 import {Icon} from '../Icon';
 import {PluginActionIcon} from '../PluginActionIcon';
+import ScheduleRunsPage from './ScheduleRunsPage';
+import {InvestigationDialog} from '../InvestigationDialog';
 export default function TasksPage(){
-  const {api,operation,act,t,notify,setChatId,navigate}=useConsole();
+ const {t}=useConsole();const [tab,setTab]=useState('plugins');
+ const tabs=<Tabs activeKey={tab} onChange={setTab} items={[{key:'plugins',label:t('插件任务')},{key:'schedules',label:t('定时任务')}]}/>;
+ return tab==='plugins'?<PluginTasksPage tabs={tabs}/>:<>{tabs}<ScheduleRunsPage/></>;
+}
+function PluginTasksPage({tabs}:{tabs:ReactNode}){
+  const {api,operation,act,t,notify}=useConsole();
   const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
   const [retryOpen,setRetryOpen]=useState(false),[detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(''),[detailTab,setDetailTab]=useState('summary'),[artifactsLoading,setArtifactsLoading]=useState(false);
   const retryLock=useRef(false),[retrying,setRetrying]=useState(false),detailRequest=useRef(0),alive=useRef(true);
@@ -33,7 +40,8 @@ export default function TasksPage(){
     catch{if(alive.current&&request===detailRequest.current)setDetailError(t('任务详情暂时无法读取，请重试。'));}
     finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
   };
-  const investigate=async(task_id:string)=>{const value=await api<Conversation>('/conversations',{title:t('调查 ')+task_id.slice(0,8),task_id,investigate:true});if(alive.current){setChatId(value.id);navigate('chat');}};
+  const [investigation,setInvestigation]=useState<string>();
+  const investigate=async(id:string)=>{setInvestigation(id);};
   const submit=()=>{closeDetail();setOffset(0);setFilter({search,status});};
   const retry=async(notification_channels?:string[])=>{
     if(retryLock.current||!detail)return;
@@ -42,9 +50,9 @@ export default function TasksPage(){
     finally{retryLock.current=false;if(alive.current)setRetrying(false);}
   };
   if(loading&&loadedRows===undefined)return <DataLoading/>;
-  return <Space orientation="vertical" size="large" className="full-width">
+  return <>{tabs}<Space orientation="vertical" size="large" className="full-width">
     <Typography.Paragraph type="secondary">{t('执行完成不等于所有业务项都成功。查看详情可区分最终结果、具体错误与交付状态。')}</Typography.Paragraph>
-    <div className="task-filters"><Select id="task-status" aria-label={t('任务状态')} value={status} options={[{value:'',label:t('全部状态')},...taskStatuses.map(value=>({value,label:<Status value={value}/>}))]} onChange={setStatus}/><Input id="task-search" aria-label={t('搜索任务')} placeholder={t('搜索请求编号或输入内容')} value={search} onChange={event=>setSearch(event.target.value)} onPressEnter={()=>{if(!loading)submit();}}/><Button type="primary" loading={loading} onClick={submit}>{t('查询')}</Button></div>
+    <div className="task-filters"><Select id="task-status" aria-label={t('任务状态')} value={status} options={[{value:'',label:t('全部状态')},...taskStatuses.map(value=>({value,label:<Status value={value}/>}))]} onChange={setStatus}/><Input id="task-search" aria-label={t('搜索任务')} placeholder={t('搜索请求编号或输入内容')} value={search} onChange={event=>setSearch(event.target.value)} onPressEnter={()=>{if(!loading)submit();}}/><Button type="primary" aria-label={t('查询')} aria-busy={loading} loading={loading} onClick={submit}>{t('查询')}</Button></div>
     <Panel title={t('执行记录')}><Table<Task> loading={loading} rowKey="task_id" dataSource={rows} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
       {title:t('业务类型'),key:'type',width:'10%',className:'table-name-cell',render:(_,row)=><TableField label={t('业务类型')}><span className="table-summary" title={row.type}>{row.type}</span></TableField>},
       {title:t('任务编号'),key:'task',width:'18%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('任务编号')}><TableIdentifier value={row.task_id}/></TableField>},
@@ -72,6 +80,7 @@ export default function TasksPage(){
         ]}/>}
       </div>
     </AdminDrawer>
+    {investigation&&<InvestigationDialog key={investigation} id={investigation} onClose={()=>setInvestigation(undefined)}/>}
     {detail&&retryOpen&&<NotificationRetryDialog key={detail.task_id} task={detail} open={retryOpen} onCancel={()=>setRetryOpen(false)} onSubmit={ids=>retry(ids)}/> }
-  </Space>;
+  </Space></>;
 }

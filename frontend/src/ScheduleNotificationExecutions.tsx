@@ -1,8 +1,8 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {Alert,Button,Empty,Space,Tooltip,Typography} from 'antd';
-import {LoadingState,Panel,Status,time} from './components';
+import {Alert,Button,Descriptions,Empty,Tooltip,Typography} from 'antd';
+import {LoadingState,Panel,Status,TableIdentifier,time} from './components';
 import {useConsole} from './context';
-import {NotificationBindingsPanel} from './NotificationBindingsPanel';
+import {ExecutionNotifications} from './ExecutionNotifications';
 import {AdminDrawer} from './AdminOverlays';
 import {PluginActionIcon} from './PluginActionIcon';
 import './notification-i18n';
@@ -20,9 +20,9 @@ export function ScheduleNotificationExecutions({scheduleId}:{scheduleId:string})
   },[api,scheduleId]);
   useEffect(()=>{setExecutions([]);setSelected(null);setError('');void load();return()=>{reads.current++;};},[load]);
   const execution=loadedOwner===scheduleId?executions.find(item=>`${item.kind}:${item.id}`===selected):undefined;
-  return <div className="notification-panel"><Panel title={t('执行通知记录')} extra={<Button disabled={loading} onClick={()=>void load()}>{t('重新读取')}</Button>}>
-    <Typography.Paragraph type="secondary">{t('显示最近 20 次执行。选择执行查看通知结果；未结束执行可修改绑定。')}</Typography.Paragraph>
-    {error&&<Alert type="error" showIcon title={t(error)}/>}
+  return <div className="notification-panel"><Panel title={t('执行通知记录')}>
+    <Typography.Paragraph type="secondary">{t('显示最近 20 次执行。选择执行查看通知结果。')}</Typography.Paragraph>
+    {error&&<Alert type="error" showIcon title={t(error)} action={<Button disabled={loading} onClick={()=>void load()}>{t('重试')}</Button>}/>}
     {loading?<LoadingState/>:!executions.length?<Empty description={t('暂无计划执行记录')}/>:<div className="notification-execution-list">{executions.map(item=><article className="notification-execution" key={`${item.kind}:${item.id}`}><div><Typography.Text strong>{t(item.kind==='inspection'?'巡检执行':'业务任务执行')}</Typography.Text><Status value={item.status}/><Typography.Text type="secondary">{time(item.created_at)}</Typography.Text><Typography.Paragraph code>{item.id}</Typography.Paragraph></div><Tooltip title={t('查看通知')} trigger={['hover','focus']}><Button type="text" icon={<PluginActionIcon name="eye"/>} aria-label={t('查看执行通知：{id}',{id:item.id})} aria-pressed={selected===`${item.kind}:${item.id}`} onClick={()=>setSelected(`${item.kind}:${item.id}`)}/></Tooltip></article>)}</div>}
-  </Panel><AdminDrawer open={!!execution} title={t('执行通知记录')} subtitle={execution?.id} onClose={()=>setSelected(null)} width={760}>{execution&&<div className="notification-selected-execution"><Space wrap><Typography.Text strong>{t(execution.kind==='inspection'?'巡检执行':'业务任务执行')}</Typography.Text><Status value={execution.status}/><Typography.Text type="secondary">{time(execution.created_at)}</Typography.Text></Space><NotificationBindingsPanel key={`${scheduleId}:${execution.kind}:${execution.id}`} kind={execution.kind} id={execution.id} readOnly={['completed','failed','cancelled','canceled'].includes(execution.status)}/></div>}</AdminDrawer></div>;
+  </Panel><AdminDrawer open={!!execution} title={t('执行通知记录')} subtitle={execution?.id} onClose={()=>setSelected(null)} width={760}>{execution&&<div className="notification-selected-execution"><Descriptions column={{xs:1,sm:2}} items={[{key:'kind',label:t('计划类型'),children:t(execution.kind==='inspection'?'管理巡检':'业务任务')},{key:'id',label:t('执行编号'),children:<TableIdentifier value={execution.id}/>},{key:'status',label:t('执行状态'),children:<Status value={execution.status}/>},{key:'created',label:t('创建时间'),children:time(execution.created_at)}]}/><ExecutionNotifications key={`${scheduleId}:${execution.kind}:${execution.id}`} kind={execution.kind} id={execution.id}/></div>}</AdminDrawer></div>;
 }

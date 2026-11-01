@@ -127,13 +127,18 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
           const body=await readJson(req);
           store.validateExecution(body.execution ?? {});
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
+          let scheduled;
+          if(body.schedule_execution_id!==undefined){if(typeof body.schedule_execution_id!=='string'||!/^[a-f0-9-]{36}$/.test(body.schedule_execution_id))throw new HttpError(400,'INVALID_INPUT','执行编号不正确。');scheduled=await operations.execute('schedule_execution',{id:body.schedule_execution_id});}
           const conversation=store.createConversation(body.title,body.task_id?'task:'+body.task_id:null);
+          if(body.investigate===true&&scheduled)agent.enqueue(conversation.id,'请调查这条定时执行记录，说明执行状态、错误和通知结果。先调用 schedule_execution 读取当前事实，再按 kind 使用 task 或 inspection_notifications_get；不要自动重试任务或发送通知。以下为记录标识数据：'+JSON.stringify({id:scheduled.id,kind:scheduled.kind,schedule_id:scheduled.schedule_id}));
           if(body.execution)store.setConversationExecution(conversation.id,body.execution);
           if(body.investigate===true&&body.task_id&&!conversation.messages.length&&!conversation.queue?.length)
             agent.enqueue(conversation.id,renderSystemPrompt('task-investigation',{task_id:body.task_id}));
           return json(res,201,store.getConversationPage(conversation.id));
         }
       }
+      const interrupt=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})\/interrupt$/);
+      if(req.method==='POST'&&interrupt){const body=await readJson(req);if(typeof body.message_id!=='string'||!/^[a-f0-9-]{36}$/.test(body.message_id))throw new HttpError(400,'INVALID_INPUT','消息编号不正确。');return json(res,200,await agent.interrupt(interrupt[1],body.message_id));}
       const conversation=path.match(/^\/admin\/api\/conversations\/([a-f0-9-]{36})(\/messages)?$/);
       if(conversation) {
         if(req.method==='GET'&&conversation[2])return json(res,200,store.messageGroups(conversation[1],(url.searchParams.get('ids')??'').split(',')));
@@ -156,9 +161,9 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         res.writeHead(response.status,{'content-type':response.headers.get('content-type') ?? 'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff'});
         return res.end(Buffer.from(await response.arrayBuffer()));
       }
-      const lists={'/admin/api/tasks':'tasks','/admin/api/plugins':'plugins','/admin/api/capabilities':'capabilities','/admin/api/resources':'capabilities','/admin/api/schedules':'schedules'};
+      const lists={'/admin/api/tasks':'tasks','/admin/api/plugins':'plugins','/admin/api/capabilities':'capabilities','/admin/api/resources':'capabilities','/admin/api/schedules':'schedules','/admin/api/schedule-runs':'schedule_runs'};
       if(req.method==='GET'&&lists[path]) {
-        const args=path==='/admin/api/tasks'?Object.fromEntries([...url.searchParams].filter(([key])=>['status','type','search','limit','offset','after','before'].includes(key)).map(([key,value])=>[key,['limit','offset','after','before'].includes(key)?Number(value):value])):{};
+        const args=['/admin/api/tasks','/admin/api/schedule-runs'].includes(path)?Object.fromEntries([...url.searchParams].filter(([key])=>['status','type','search','schedule_id','limit','offset','after','before'].includes(key)).map(([key,value])=>[key,['limit','offset','after','before'].includes(key)?Number(value):value])):{};
         return json(res,200,await operations.execute(lists[path],args));
       }
       throw new HttpError(404,'NOT_FOUND','找不到接口。');

@@ -18,6 +18,7 @@ export class ScheduleStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS platform_schedules(id TEXT PRIMARY KEY,definition TEXT NOT NULL,enabled INTEGER NOT NULL,next_run_at INTEGER NOT NULL,blocked_reason TEXT,updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS platform_schedule_runs(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,due_at INTEGER NOT NULL,triggered_at INTEGER NOT NULL,task_id TEXT NOT NULL,UNIQUE(schedule_id,due_at));
+      CREATE INDEX IF NOT EXISTS platform_schedule_run_history ON platform_schedule_runs(triggered_at DESC,task_id DESC);
       CREATE TABLE IF NOT EXISTS platform_inspections(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,conversation_id TEXT,created_at INTEGER NOT NULL);
     `);
     if(!this.db.prepare('PRAGMA table_info(platform_schedules)').all().some(column=>column.name==='revision'))this.db.exec('ALTER TABLE platform_schedules ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
@@ -39,9 +40,26 @@ export class ScheduleStore {
     return {...JSON.parse(row.definition),revision:row.revision,next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at,...(binding?{notification_channels:binding.notification_channels,notification_revision:binding.notification_revision}:{})};
   }
   list() {return this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
-  save(raw,now=Date.now(),{revision}={}) {
+  runs({status,search,schedule_id,limit=50,offset=0,id}={}) {
+    if(!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0)throw invalid('执行记录分页不正确。');
+    const query=`SELECT r.task_id AS id,r.schedule_id,r.due_at,r.triggered_at AS created_at,
+      json_extract(s.definition,'$.name') AS schedule_name,json_extract(s.definition,'$.timezone') AS timezone,
+      CASE WHEN q.task_id IS NOT NULL THEN 'task' WHEN i.id IS NOT NULL THEN 'inspection' ELSE json_extract(s.definition,'$.kind') END AS kind,
+      COALESCE(q.status,CASE WHEN i.status='cancelled' THEN 'cancelled' WHEN i.status='queued' THEN 'queued' WHEN i.status='claimed' THEN 'dispatching' WHEN i.execution_state='pending' THEN 'queued' ELSE i.execution_state END,'unknown') AS status,
+      q.type,q.error,i.conversation_id,i.message
+      FROM platform_schedule_runs r LEFT JOIN platform_schedules s ON s.id=r.schedule_id
+      LEFT JOIN agent_requests q ON q.task_id=r.task_id LEFT JOIN platform_inspections i ON i.id=r.task_id`;
+    const clauses=[],values=[];
+    if(status){clauses.push('status=?');values.push(status);}
+    if(schedule_id){clauses.push('schedule_id=?');values.push(schedule_id);}
+    if(id){clauses.push('id=?');values.push(id);}
+    if(search){clauses.push("(instr(lower(COALESCE(schedule_name,'')),lower(?))>0 OR instr(lower(id),lower(?))>0)");values.push(search,search);}
+    return this.db.prepare(`SELECT * FROM (${query}) ${clauses.length?'WHERE '+clauses.join(' AND '):''} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`).all(...values,limit,offset).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+  }
+  execution(id){const row=this.runs({id,limit:1})[0];if(!row)throw new HttpError(404,'SCHEDULE_EXECUTION_NOT_FOUND','找不到定时执行记录。');return row;}
+  save(raw,now=Date.now(),{revision,notificationRevision}={}) {
     if (!raw || typeof raw!=='object' || !['task','inspection'].includes(raw.kind) || typeof raw.name!=='string' || !raw.name.trim()) throw invalid('name 和 kind 不正确。');
-    const timezone=raw.timezone ?? 'Asia/Shanghai',next_run_at=nextAt(raw.cron,timezone,now);
+    const timezone=raw.timezone ?? 'Asia/Shanghai';let next_run_at=nextAt(raw.cron,timezone,now);
     const id=raw.id ?? randomUUID();if (!/^[a-f0-9-]{36}$/.test(id)) throw invalid('id 不正确。');
     if(this.db.prepare('SELECT deleted_at FROM platform_schedules WHERE id=?').get(id)?.deleted_at!=null)throw new HttpError(409,'SCHEDULE_DELETED','定时计划已删除，不能通过保存重新启用。');
     if (raw.enabled!==undefined && typeof raw.enabled!=='boolean') throw invalid('enabled 必须为布尔值。');
@@ -58,9 +76,11 @@ export class ScheduleStore {
       definition.message=raw.message;
     }
     return this.store.transaction(()=>{
+      const existing=this.db.prepare('SELECT definition,next_run_at FROM platform_schedules WHERE id=?').get(id);
+      if(existing){const previous=JSON.parse(existing.definition);if(previous.cron===raw.cron&&previous.timezone===timezone&&previous.enabled===definition.enabled)next_run_at=existing.next_run_at;}
       if(revision!==undefined){const current=this.db.prepare('SELECT revision FROM platform_schedules WHERE id=?').get(id);if((current?.revision??0)!==revision)throw new HttpError(409,'SCHEDULE_REVISION_CONFLICT','定时计划已被修改，请重新读取后再保存。');}
       this.db.prepare('INSERT INTO platform_schedules(id,definition,enabled,next_run_at,blocked_reason,updated_at,revision) VALUES(?,?,?,?,NULL,?,1) ON CONFLICT(id) DO UPDATE SET definition=excluded.definition,enabled=excluded.enabled,next_run_at=excluded.next_run_at,blocked_reason=NULL,updated_at=excluded.updated_at,revision=revision+1').run(id,JSON.stringify(definition),Number(definition.enabled),next_run_at,now);
-      if(ids.length||raw.notification_channels!==undefined){if(!this.store.notifications)throw invalid('通知渠道暂不可用。');this.store.notifications.setBinding({kind:'schedule',id},ids);}
+      if(raw.notification_channels!==undefined){if(!this.store.notifications)throw invalid('通知渠道暂不可用。');this.store.notifications.setBinding({kind:'schedule',id},ids,{revision:notificationRevision});}
       return this.get(id);
     });
   }
