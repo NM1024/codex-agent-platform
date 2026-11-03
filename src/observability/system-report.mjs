@@ -15,13 +15,33 @@ function sensitiveAssignment(key) {
  const words=key.replace(/([A-Z])([A-Z][a-z])/g,'$1_$2').replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split(/[_-]+/);
  return credentialWords.has(words.at(-1))||compactCredentialKeys.has(key.toLowerCase());
 }
+function scrubCredentialAssignments(value) {
+ // Scan only key prefixes until a sensitive assignment is found: consuming a
+ // harmless label's value would skip any credential embedded in that value.
+ const keys=/(?:\\*["'])?([\p{L}][\p{L}\p{N}_-]*)(?:\\*["'])?\s*[=:]\s*/gu;
+ let match,from=0,result='';
+ while((match=keys.exec(value))){
+  if(!sensitiveAssignment(match[1]))continue;
+  const start=keys.lastIndex,opening=/^(\\*)(["'])/.exec(value.slice(start));let end=start;
+  if(opening){
+   const escapes=opening[1].length,quote=opening[2];let slashes=0;end+=opening[0].length;
+   // JSON string wrappers encode delimiter quotes with 0, 1, 3, ... slashes;
+   // escaped quotes inside the value have the other parity at that depth.
+   while(end<value.length){const char=value[end++];if(char===quote&&slashes%(2*(escapes+1))===escapes)break;slashes=char==='\\'?slashes+1:0;}
+  }else{
+   end+=(/^[^\s;,}\]"']+/.exec(value.slice(start))?.[0].length??0);
+   if(value[end]==='"'||value[end]==="'")while(end>start&&value[end-1]==='\\')end--;
+  }
+  result+=value.slice(from,match.index)+'[redacted credential]';from=end;keys.lastIndex=end;
+ }
+ return result+value.slice(from);
+}
 /** Caller prose is untrusted and never persisted in the journal. Remove deployment
  * locators and credential-like content before producing an in-conversation draft. */
 export function sanitizeSystemNote(value='') {
- return value.replace(/```[\s\S]*?```/g,'[redacted block]')
-  .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g,'[redacted key]')
+ return scrubCredentialAssignments(value.replace(/```[\s\S]*?```/g,'[redacted block]')
+  .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g,'[redacted key]'))
   .replace(/\b(?:Bearer|Basic)\s+[^\s;,]+/gi,'[redacted credential]')
-  .replace(/["']?([\p{L}][\p{L}\p{N}_-]*)["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s;,}\]]+)/gu,(assignment,key)=>sensitiveAssignment(key)?'[redacted credential]':assignment)
   .replace(/["']?\b(?:password|passwd|(?:access[_-]?|refresh[_-]?)?token|(?:client[_-]?)?secret|authorization|api[_-]?key|cookie|credential|entrykey|signingsecret|deployment|hostname|host|server|container|(?:run|task|conversation|job)[_-]?id)\b["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s;,]+)/gi,'[redacted credential or deployment]')
   .replace(/\b(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]+/g,'[redacted credential]')
   .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,'[redacted credential]')

@@ -74,3 +74,24 @@ test('in-flight notification completion preserves drafted code-defect evidence u
  const reviewed=await ops.review({id:before.id,revision:completed.revision});assert.equal(reviewed.work.classification,'unknown');assert.equal(reviewed.work.completed_at,200);assert.equal(reviewed.work.resolved_at,200);
  now=2000;journal.prune({cutoff:1500,limit:100});assert.equal(journal.detail(before.id),null);assert.equal(journal.detail(evidence.id),null);assert.equal(sends,1);
 });
+
+test('final drafts inspect credential assignments inside harmless labels and nested diagnostic strings in every note',async t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());const journal=new SystemJournal({db,service:'manager'});
+ const work=journal.work({id:'nested-credentials',module:'api',state:'unknown'}),ops=createSystemOperations({local:()=>({journal})});
+ const cases=[
+  {name:'configuration label',input:'Configuration: RUNNER_TOKEN=rt1',secrets:['rt1'],context:'Configuration:'},
+  {name:'observation label',input:'Observed: signing_secret=ss2',secrets:['ss2'],context:'Observed:'},
+  {name:'diagnostic string',input:JSON.stringify({error:'RUNNER_TOKEN=rt1; Useful inner context.'}),secrets:['rt1'],context:'Useful inner context.'},
+  {name:'quoted labelled value',input:'Observed: signing_secret="ss2 whole value, with \\"quoted\\" tail"; Useful inner context.',secrets:['ss2','whole value','quoted','tail'],context:'Useful inner context.'},
+  {name:'quoted credential with bearer content',input:'Observed: private_key="Bearer bt5"; Useful inner context.',secrets:['bt5'],context:'Useful inner context.'},
+  {name:'escaped nested diagnostic',input:JSON.stringify({payload:JSON.stringify({error:'Observed: private_key="pk4 whole value, with \\"quoted\\" tail"; Useful inner context.'})}),secrets:['pk4','whole value','quoted','tail'],context:'Useful inner context.'},
+  {name:'escaped nested structured assignment',input:JSON.stringify({payload:JSON.stringify({error:JSON.stringify({entry_key:'ek3 whole value, with "quoted" tail'})})}),secrets:['ek3','whole value','quoted','tail'],context:'payload'},
+ ];
+ for(const scenario of cases){
+  const note=`Useful outer context. ${scenario.input}; attempts=2; Safe ending.`;
+  const result=await ops.execute('system_issue_draft',{id:work.id,revision:journal.detail(work.id).revision,...Object.fromEntries(['diagnosis','expected','actual','reproduction'].map(key=>[key,note]))});
+  for(const secret of scenario.secrets)assert.ok(!result.markdown.includes(secret),`${scenario.name}: credential value was retained`);
+  for(const text of ['Useful outer context.','attempts=2','Safe ending.'])assert.equal(result.markdown.split(text).length-1,4,`${scenario.name}: useful context was lost`);
+  assert.ok(result.markdown.split(scenario.context).length-1>=4,`${scenario.name}: useful inner context was lost`);
+ }
+});
