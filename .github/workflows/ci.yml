@@ -49,3 +49,11 @@ jobs:
         run: sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - name: Preserve browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-evidence
+          path: .tmp/browser-results
+          if-no-files-found: ignore
+          retention-days: 7

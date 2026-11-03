@@ -13,6 +13,7 @@ export default defineConfig({
     ["html", { outputFolder: ".tmp/browser-report", open: "never" }],
   ],
   use: {
+    screenshot: "only-on-failure",
     baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1440, height: 1000 },
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE

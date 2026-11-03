@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import {test,expect} from '@playwright/test';
 import {navigate} from './navigation.mjs';
 const op=async(page,action,args={})=>{const r=await page.request.post('/admin/api/operations',{data:{action,args}});expect(r.ok()).toBeTruthy();return r.json();};
-async function choose(page,id,text){await page.locator(id).click();const dropdown=page.locator('.ant-select-dropdown:visible');await dropdown.locator('.ant-select-dropdown-list-holder').evaluateAll(items=>items.forEach(item=>{item.scrollTop=0;}));await dropdown.getByText(text,{exact:true}).click();}
+async function choose(page,id,text){await page.locator(id).click();const dropdown=page.locator('.ant-select-dropdown:visible');await dropdown.getByText(text,{exact:true}).click();}
 async function search(page,text){await page.locator('#system-search').fill(text);await page.locator('#system-query').click();}
 const rows=page=>page.locator('#system-records .ant-table-tbody > tr.ant-table-row');
 const availability=async(page,service,available)=>{expect((await page.request.post('/admin/api/__fixture/system-source',{data:{service,available}})).ok()).toBeTruthy();};
