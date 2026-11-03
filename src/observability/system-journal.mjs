@@ -1,4 +1,4 @@
-import {SYSTEM_SERVICES,SYSTEM_MODULES,SYSTEM_STATES,SYSTEM_LEVELS,SYSTEM_CLASSIFICATIONS,SYSTEM_ACTIONS,SYSTEM_CODES,systemQueryProperties,systemIssueQueryProperties} from './system-contracts.mjs';
+import {SYSTEM_SERVICES,SYSTEM_MODULES,SYSTEM_STATES,SYSTEM_LEVELS,SYSTEM_CLASSIFICATIONS,SYSTEM_ACTIONS,SYSTEM_CODES,SYSTEM_SEARCH_ALIASES,systemQueryProperties,systemIssueQueryProperties} from './system-contracts.mjs';
 
 const titles={system:'System',cleanup:'Cleanup',sandbox:'Sandbox',retention:'History retention',configuration:'Configuration synchronization',events:'Internal events',runtime:'Runtime recovery',schedules:'Schedules',inspections:'Inspections',notifications:'Notifications',delivery:'Final callback delivery',health:'Service health',api:'Management operations',upgrade:'Upgrade'};
 const failureStates=new Set(['retrying','blocked','unknown']);
@@ -7,10 +7,11 @@ const time=value=>Number.isSafeInteger(value)&&value>=0;
 const fail=code=>{const error=new Error(code);error.code=code;return error;};
 const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
 const select=(value,values,fallback)=>values.includes(value)?value:fallback;
-const numericDetails=new Set(['plugin_revision','connection_revision','confirmed_revision','oldest_pending_at','pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code','gap_count','failed_operations','first_failed_at','last_failed_at','last_recovered_at','gap_started_at']);
+const numericDetails=new Set(['observed_progress_at','plugin_revision','connection_revision','confirmed_revision','oldest_pending_at','pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code','gap_count','failed_operations','first_failed_at','last_failed_at','last_recovered_at','gap_started_at']);
 const selectors={
+  classification:SYSTEM_CLASSIFICATIONS,previous_classification:SYSTEM_CLASSIFICATIONS,
   action:SYSTEM_ACTIONS,actor:['admin','agent','system'],
-  phase:['cleanup','scan','prune','compact','synchronize','sync','dispatch','claim','ack','handoff','reconcile','recovery','probe','send','verify','start','stop','complete','idle'],
+  phase:['cleanup','scan','prune','compact','synchronize','sync','dispatch','claim','ack','handoff','reconcile','recovery','probe','send','verify','start','stop','complete','idle','queued','checking','downloading','building','stopping','backing_up','validating','restarting','verifying','completed','failed','interrupted'],
   status:[...SYSTEM_STATES,'pending','failed','succeeded','unavailable','available','accepted','claimed','acknowledged','cancelled'],
   result:['success','failure','unknown','skipped','pending','partial'],source:[...SYSTEM_SERVICES,'local','remote','sandbox','codex','callback','notification','host'],
 };
@@ -18,6 +19,7 @@ const selectors={
 export function safeSystemDetails(details) {
   const result={};if(!details||typeof details!=='object'||Array.isArray(details))return result;
   for(const key of numericDetails)if(time(details[key]))result[key]=details[key];
+  for(const key of ['current_version','latest_version','installed_version','target_version'])if(typeof details[key]==='string'&&/^v?(0|[1-9][0-9]{0,7})\.(0|[1-9][0-9]{0,7})\.(0|[1-9][0-9]{0,7})$/.test(details[key]))result[key]=details[key];
   for(const [key,values] of Object.entries(selectors))if(values.includes(details[key]))result[key]=details[key];
   return result;
 }
@@ -233,8 +235,13 @@ export class SystemJournal {
       if(q.position){where.push(`(${column}<? OR (${column}=? AND id<?))`);params.push(q.position.time,q.position.time,q.position.id);}
       if(q.search!==undefined){
         const fields=['id','service','module','code','message','event','work_id','target_id','title','state','classification'];
-        where.push(`(${fields.map(key=>`json_extract(record,'$.${key}') LIKE ? ESCAPE '\\'`).join(' OR ')})`);
+        const terms=fields.map(key=>`json_extract(record,'$.${key}') LIKE ? ESCAPE '\\'`);
         const value=`%${q.search.replace(/[\\%_]/g,'\\$&')}%`;params.push(...fields.map(()=>value));
+        for(const [field,aliases] of [['module',SYSTEM_SEARCH_ALIASES.modules],['code',SYSTEM_SEARCH_ALIASES.codes]]){
+          const matched=Object.entries(aliases).filter(([,alias])=>alias.toLowerCase().includes(q.search.toLowerCase())).map(([key])=>key);
+          if(matched.length){terms.push(`${field} IN (${matched.map(()=>'?').join(',')})`);params.push(...matched);}
+        }
+        where.push(`(${terms.join(' OR ')})`);
       }
       const rows=this.db.prepare(`SELECT record FROM ${table} WHERE ${where.join(' AND ')} ORDER BY ${column} DESC,id DESC LIMIT ?`).all(...params,q.limit+1);
       const items=rows.slice(0,q.limit).map(row=>JSON.parse(row.record));
@@ -242,12 +249,14 @@ export class SystemJournal {
     });
   }
   detail(id) {const identity=parseSystemId(id);if(!identity)throw fail('SYSTEM_QUERY_INVALID');if(identity.service!==this.service)return null;return this.read(()=>this.getRecord(identity.kind==='event'?'system_events':'system_work',id));}
-  classify(id,classification,revision) {
-    if(!SYSTEM_CLASSIFICATIONS.includes(classification)||!Number.isSafeInteger(revision)||revision<1)throw fail('SYSTEM_QUERY_INVALID');
+  classify(id,classification,revision,{actor='system',review=false}={}) {
+    if(!SYSTEM_CLASSIFICATIONS.includes(classification)||!Number.isSafeInteger(revision)||revision<1||!['admin','agent','system'].includes(actor)||typeof review!=='boolean')throw fail('SYSTEM_QUERY_INVALID');
     const identity=parseSystemId(id);if(identity?.kind!=='work'||identity.service!==this.service)throw fail('SYSTEM_QUERY_INVALID');
     return this.read(()=>this.write(()=>{
       const record=this.getRecord('system_work',id);if(!record)throw fail('SYSTEM_WORK_NOT_FOUND');if(record.revision!==revision)throw fail('SYSTEM_REVISION_CONFLICT');
-      record.classification=classification;record.revision++;record.updated_at=this.now();this.putWork(record);return record;
+      const previous_classification=record.classification;
+      record.classification=classification;record.revision++;record.updated_at=this.now();this.putWork(record);
+      this.saveEvent({module:record.module,event:review?'classification_reviewed':'classification_changed',code:'WORK_UNKNOWN',work_id:id,details:{actor,revision:record.revision,previous_classification,classification}});return record;
     }));
   }
   summary() {
@@ -261,13 +270,14 @@ export class SystemJournal {
     }catch{this.unavailable();return {service:this.service,collected_at:this.now(),health:{...this.health},states:null,unresolved:null,recovered_24h:null};}
   }
   /** Caller MUST gate by existing retention.enabled/days; cutoff is explicit, no independent age default.
-   * A batch deletes at most limit rows total. All events linked to unfinished/unresolved work stay.
+   * A batch deletes at most limit rows total. All events linked to unfinished/unresolved or
+   * code_defect work stay, including after a health check records verified completion.
    * Work with newer linked evidence stays until that evidence becomes eligible, preserving history.
    */
   prune({cutoff,limit=50}={}) {
     if(!time(cutoff)||!Number.isSafeInteger(limit)||limit<1||limit>100)throw fail('SYSTEM_QUERY_INVALID');
     return this.read(()=>this.write(()=>{
-      const eligible="w.state IN ('completed','idle','disabled') AND (w.issue_opened_at IS NULL OR w.resolved_at IS NOT NULL)";
+      const eligible="w.state IN ('completed','idle','disabled') AND (w.issue_opened_at IS NULL OR w.resolved_at IS NOT NULL) AND json_extract(w.record,'$.classification')!='code_defect'";
       const events=this.db.prepare(`SELECT e.id FROM system_events e WHERE e.service=? AND e.last_seen_at<? AND NOT EXISTS(SELECT 1 FROM system_work w WHERE w.id=e.work_id AND NOT (${eligible})) ORDER BY e.created_at,e.id LIMIT ?`).all(this.service,cutoff,limit);
       for(const row of events)this.db.prepare('DELETE FROM system_events WHERE id=?').run(row.id);
       const works=this.db.prepare(`SELECT w.id FROM system_work w WHERE w.service=? AND w.updated_at<? AND ${eligible} AND NOT EXISTS(SELECT 1 FROM system_events e WHERE e.work_id=w.id) ORDER BY w.updated_at,w.id LIMIT ?`).all(this.service,cutoff,limit-events.length);

@@ -11,6 +11,8 @@ import {handleSandboxRoute} from './sandbox-routes.mjs';
 import {streamConversation} from './events.mjs';
 import {buildPluginIntegration} from './plugin-integration.mjs';
 import {createVersionService,createUpgradeClient} from './version.mjs';
+import {systemToolNames} from '../observability/system-operations.mjs';
+import {observeSystemApiError,observeSystemUpgrade,observeSystemVersion} from '../observability/system-report.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
@@ -48,13 +50,15 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       }
       if(!auth.authorize(req))throw new HttpError(401,'UNAUTHORIZED','请使用 Admin 密码登录。');
       if(await handleSandboxRoute({req,res,url,store,sandbox}))return;
-      if(req.method==='GET'&&path==='/admin/api/version')return json(res,200,{current:versionService.current});
-      if(req.method==='GET'&&path==='/admin/api/version/latest')return json(res,200,await versionService.latest());
-      if(req.method==='GET'&&path==='/admin/api/upgrade')return json(res,200,await upgradeClient.status());
+      if(req.method==='POST'&&path==='/admin/api/system/review')return json(res,200,await operations.reviewSystemWork(await readJson(req,2048)));
+      if(req.method==='GET'&&path==='/admin/api/version'){observeSystemVersion(operations.system?.journal,{current:versionService.current});return json(res,200,{current:versionService.current});}
+      if(req.method==='GET'&&path==='/admin/api/version/latest'){try{const value=await versionService.latest();observeSystemVersion(operations.system?.journal,value);return json(res,200,value);}catch(error){observeSystemVersion(operations.system?.journal,null,{failed:true});throw error;}}
+      if(req.method==='GET'&&path==='/admin/api/upgrade'){const value=await upgradeClient.status();observeSystemUpgrade(operations.system?.journal,value);return json(res,200,value);}
       if(req.method==='POST'&&path==='/admin/api/upgrade') {
         const body=await readJson(req,1024);
         if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length||url.search)throw new HttpError(400,'INVALID_INPUT','升级操作仅接受空对象。');
         const status=await upgradeClient.start();
+        observeSystemUpgrade(operations.system?.journal,status);
         return json(res,status.available&&status.job?202:503,status);
       }
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
@@ -149,6 +153,9 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {
         const body=await readJson(req);if(!managementTools.some(tool=>tool.name===body.action))throw new HttpError(400,'UNKNOWN_OPERATION','未知管理操作。');
+        // Owner journals are the retention-governed authoritative audit for these
+        // fixed system calls. Never duplicate drafts/polls in NULL-chat history.
+        if(systemToolNames.has(body.action))return json(res,200,await operations.execute(body.action,body.args??{}));
         const id=store.beginAction(null,body.action,body.args ?? {});
         try {const value=await operations.execute(body.action,body.args ?? {});store.finishAction(id,value);return json(res,200,value);}
         catch(error){store.finishAction(id,null,error);throw error;}
@@ -167,7 +174,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         return json(res,200,await operations.execute(lists[path],args));
       }
       throw new HttpError(404,'NOT_FOUND','找不到接口。');
-    }catch(error){if(!res.headersSent)errorResponse(res,error);else res.destroy();}
+    }catch(error){observeSystemApiError(operations.system?.journal,error,{status:error.status});if(!res.headersSent)errorResponse(res,error);else res.destroy();}
   });
   server.closeEventStreams=()=>{eventsClosed=true;for(const close of streams)close();streams.clear();};
   return server;

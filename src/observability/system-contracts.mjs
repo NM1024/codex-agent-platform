@@ -5,6 +5,11 @@ export const SYSTEM_STATES=Object.freeze(['running','retrying','blocked','unknow
 export const SYSTEM_LEVELS=Object.freeze(['debug','info','warn','error']);
 export const SYSTEM_CLASSIFICATIONS=Object.freeze(['unknown','transient','configuration','permission','code_defect']);
 export const SYSTEM_ACTIONS=Object.freeze(['cleanup_retry','inspection_reconcile','configuration_sync','runtime_reconcile','event_flush','history_sweep','health_check']);
+/** Fixed bilingual aliases shared by literal journal search and Admin consumers. */
+export const SYSTEM_SEARCH_ALIASES=Object.freeze({
+ modules:{cleanup:'cleanup 清理 删除',sandbox:'sandbox 沙箱',retention:'retention 历史 清理 保留',configuration:'configuration 同步 配置',events:'events 事件 投递',runtime:'runtime 运行 恢复',schedules:'schedules 定时 计划',inspections:'inspections 巡检',notifications:'notifications 通知',delivery:'delivery 回调',health:'health 健康 服务',api:'api 接口 请求',upgrade:'upgrade 升级 版本',system:'system 系统'},
+ codes:{EACCES:'permission 权限 拒绝',EPERM:'permission 权限 禁止',EROFS:'permission 权限 只读',UNSAFE_PATH:'permission 权限 路径',ENOSPC:'storage 空间 存储',AUTH_UNAVAILABLE:'authorization 授权 登录',CHATGPT_LOGIN_REQUIRED:'authorization 授权 登录'},
+});
 /** Only these fixed descriptions enter public records. Raw message/title/error text is discarded. */
 export const SYSTEM_CODES=Object.freeze({
   HOST_ACCESS_UNAVAILABLE:'Host service access is unavailable here; use the human deployment interface.',

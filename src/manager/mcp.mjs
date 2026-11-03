@@ -6,6 +6,7 @@ import {sandboxToolNames} from '../sandbox/contracts.mjs';
 import {notificationChannelWriteTools} from '../notifications/contracts.mjs';
 import { readJson,json,errorResponse } from '../http.mjs';
 import { HttpError } from '../errors.mjs';
+import {systemToolNames} from '../observability/system-operations.mjs';
 
 export function createManagementMcpHandler({store,operations,authorize,executionContext}) {
   const pending=new Set();
@@ -41,8 +42,8 @@ export function createManagementMcpHandler({store,operations,authorize,execution
         const id=store.beginAction(conversationId,name,args);
         const operation=(async()=>{
           try {
-            const scoped=(['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name)||sandboxToolNames.has(name)||notificationChannelWriteTools.has(name));
-            const context=currentContext()??(name==='conversation_execution'||notificationChannelWriteTools.has(name)?{conversationId}:undefined);
+            const scoped=(systemToolNames.has(name)||['conversation_execution','notification_context','send_notification','inspection_notifications_update'].includes(name)||sandboxToolNames.has(name)||notificationChannelWriteTools.has(name));
+            const context=currentContext()??(systemToolNames.has(name)||name==='conversation_execution'||notificationChannelWriteTools.has(name)?{conversationId}:undefined);
             const value=await (scoped?operations.execute(name,args,context):operations.execute(name,args));store.finishAction(id,value);
             return {content:[{type:'text',text:JSON.stringify(value)}],structuredContent:value&&typeof value==='object'&&!Array.isArray(value)?value:{result:value}};
           }catch(error){store.finishAction(id,null,error);return {isError:true,content:[{type:'text',text:JSON.stringify({error:{code:error.code ?? 'OPERATION_FAILED',message:error.message,operation_status:error.effectUnknown?'unknown':'failed',action:error.effectUnknown?'Inspect current records before deciding whether to retry.':'Correct the input or inspect service health.'}})}]};}

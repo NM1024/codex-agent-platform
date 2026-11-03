@@ -8,7 +8,9 @@ import {HttpError} from '../errors.mjs';
 // Deployment-owned source only. Never point this reader at a runtime volume.
 const directories=['src/manager','src/contracts','src/configuration','src/codex','src/notifications','src/sandbox','frontend/src','prompts','docs'];
 const files=['README.md','README.zh-CN.md','package.json','Dockerfile','Dockerfile.sandbox','frontend/vite.config.ts','frontend/tsconfig.json',
-  'src/main-manager.mjs','src/prompts.mjs','src/config.mjs','src/errors.mjs','src/files.mjs','src/http.mjs'];
+  'src/main-manager.mjs','src/prompts.mjs','src/config.mjs','src/errors.mjs','src/files.mjs','src/http.mjs',
+  'src/observability/system-contracts.mjs','src/observability/system-journal.mjs','src/observability/system-maintenance.mjs','src/observability/system-operations.mjs','src/observability/system-report.mjs',
+  'src/operations/service.mjs','src/operations/schedules.mjs','src/runtime/server.mjs','src/runtime/client.mjs','src/runtime/events.mjs','src/core/dispatcher.mjs','src/history/worker.mjs','src/api.mjs'];
 const extensions=new Set(['.mjs','.ts','.tsx','.css','.md']);
 const excluded=new Set(['node_modules','web-dist','dist','build','coverage']);
 const maxFileBytes=256*1024,maxSourceBytes=8*1024*1024,maxOutputChars=24000;

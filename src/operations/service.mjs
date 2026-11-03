@@ -1,4 +1,5 @@
 import {createSystemMaintenance,requireSystemTarget,systemFailure,systemDue,systemObserve,systemWork} from '../observability/system-maintenance.mjs';
+import {executeSystemOwner,SYSTEM_OWNER_OPERATIONS,systemToolNames} from '../observability/system-operations.mjs';
 import Ajv from 'ajv';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../errors.mjs';
@@ -44,7 +45,14 @@ export class OperationsService {
       }catch(error){systemFailure(this.journal,{...work,code:'CONFIGURATION_SYNC_FAILED'},error);return false;}
     })().finally(()=>{this.configurationSync=null;});return this.configurationSync;
   }
+  async systemOperation(service,operation,args,context) {
+    if(!['gateway','runner'].includes(service)||!SYSTEM_OWNER_OPERATIONS.includes(operation))throw fault('SYSTEM_QUERY_INVALID');
+    return service==='gateway'?executeSystemOwner(this.system,operation,args,context):this.runner.system(operation,args,context);
+  }
   async execute(action,args={}) {
+    // Federation is owned by Manager. Private classification/review routes cannot
+    // be selected through the generic management transport.
+    if(systemToolNames.has(action))throw fault('SYSTEM_SOURCE_MISMATCH');
     const pluginView=definition=>this.store.pluginConnections?{...definition,connection:this.store.pluginConnections.status(definition.type)}:definition;
     if(action==='inspection_list')return this.schedules.pendingInspections();
     if(action==='inspection_claim')return this.schedules.claimInspection(args.id);

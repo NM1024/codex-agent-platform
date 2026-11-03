@@ -5,6 +5,8 @@ import { createMcpHandler } from "./mcp/server.mjs";
 import {taskArtifacts} from "./core/task-results.mjs";
 import {HttpError} from './errors.mjs';
 import {NotificationOperations} from './notifications/operations.mjs';
+import {validateSystemEnvelope,SYSTEM_OWNER_OPERATIONS} from './observability/system-operations.mjs';
+import {observeSystemApiError} from './observability/system-report.mjs';
 
 function pluginPrincipal(req,connections) {
   const headers=[];
@@ -102,6 +104,7 @@ export function createTaskApi({
         if (await module.routes?.({ req, res, url, store, dispatcher, config, client })) return;
       throw fault("NOT_FOUND", 404);
     } catch (error) {
+      observeSystemApiError(store.journal,error,{status:error.status});
       errorResponse(res, error);
     }
   });
@@ -125,6 +128,8 @@ export function createPrivateApi({
     if (path === "/mcp") return mcp(req, res);
     try {
       requireAuth(req, config.runnerToken);
+      const systemOperation=path.startsWith('/internal/system/')?path.slice('/internal/system/'.length):null;
+      if(req.method==='POST'&&SYSTEM_OWNER_OPERATIONS.includes(systemOperation)&&operations){const {service,args,actor}=validateSystemEnvelope(await readJson(req),{gateway:true});return json(res,200,await operations.systemOperation(service,systemOperation,args,{actor}));}
       if(path==='/internal/notification-channels'&&req.method==='POST'&&operations){const body=await readJson(req);return json(res,200,await operations.notifications.channelOperation(body.action,body));}
       const keyClaim=path.match(/^\/internal\/plugin-connections\/([^/]+)\/entry-key\/claim$/);
       if(keyClaim&&req.method==='POST'&&store.pluginConnections)return json(res,200,store.pluginConnections.claimEntryKey(decodeURIComponent(keyClaim[1]),await readJson(req)));
@@ -159,6 +164,7 @@ export function createPrivateApi({
       }
       throw fault("NOT_FOUND", 404);
     } catch (error) {
+      observeSystemApiError(store.journal,error,{status:error.status});
       errorResponse(res, error);
     }
   });
