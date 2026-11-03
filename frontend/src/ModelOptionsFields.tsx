@@ -27,8 +27,8 @@ export function ModelOptionsFields({id,value,onChange,defaults={},inherit=false,
           {value:'auto',label:t('自动')},{value:'manual',label:t('手动')},
         ]} onChange={mode=>set(key,mode==='__inherit__'?mode:mode==='auto'?null:typeof current==='number'?current:settings.suggestion)}/>
       </Form.Item>
-      {mode==='manual'&&<Form.Item className="model-budget-input" label={t('Token 数')} htmlFor={id+'-'+key} extra={t('整数范围：{min}–{max}',{min:settings.minimum,max:tokenLimitMaximum})}>
-        <InputNumber id={id+'-'+key} aria-label={t(label)+' · '+t('Token 数')} min={settings.minimum} max={tokenLimitMaximum} precision={0} step={1} disabled={disabled} value={current??settings.suggestion} onChange={number=>{if(typeof number==='number'&&Number.isInteger(number)&&number>=settings.minimum&&number<=tokenLimitMaximum)set(key,number);}}/>
+      {mode==='manual'&&<Form.Item className="model-budget-input" label={t('数量')} htmlFor={id+'-'+key} extra={t('整数范围：{min}–{max}',{min:settings.minimum,max:tokenLimitMaximum})}>
+        <InputNumber id={id+'-'+key} aria-label={t(label)+' · '+t('Token 数')} aria-describedby={id+'-'+key+'-unit'} suffix={<span id={id+'-'+key+'-unit'} className="input-unit">Tokens</span>} min={settings.minimum} max={tokenLimitMaximum} precision={0} step={1} disabled={disabled} value={current??settings.suggestion} onChange={number=>{if(typeof number==='number'&&Number.isInteger(number)&&number>=settings.minimum&&number<=tokenLimitMaximum)set(key,number);}}/>
       </Form.Item>}
     </div>;
   };

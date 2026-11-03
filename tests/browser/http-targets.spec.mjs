@@ -11,7 +11,7 @@ test.beforeEach(async({page})=>{
 test('HTTP targets can be configured without JSON editing and tokens stay private across edits and reloads',async({page})=>{
   await page.getByRole('button',{name:'新增 HTTP 目标',exact:true}).click();const modal=page.getByRole('dialog');
   await modal.getByLabel('目标名称',{exact:true}).fill('browser_health');await modal.getByLabel('目标地址',{exact:true}).fill('https://example.invalid/health');
-  await modal.getByLabel('访问凭证',{exact:true}).fill('synthetic-browser-http-secret');await modal.getByLabel('超时（毫秒）',{exact:true}).fill('10000');
+  await modal.getByLabel('访问凭证',{exact:true}).fill('synthetic-browser-http-secret');await modal.getByLabel('超时',{exact:true}).fill('10000');
   await modal.getByRole('button',{name:'保存目标',exact:true}).click();await expect(modal).toHaveCount(0);
   const row=page.getByRole('row').filter({hasText:'browser_health'});await expect(row).toContainText('已配置');await expect(row).not.toContainText('synthetic-browser-http-secret');
   const saved=await operation(page,'configuration_get',{scope:'http_targets'});expect(saved.configured_secrets).toContain('/targets/browser_health/token');expect(JSON.stringify(saved)).not.toContain('synthetic-browser-http-secret');

@@ -39,12 +39,39 @@ test('version dialog keeps header and actions reachable at 320px in both languag
   }
 });
 
+test('an already installed successful upgrade is hidden when reopening and reloading the dialog',async({page})=>{
+  await setup(page,{available:true,current:'1.3.0'});
+  await page.route('**/admin/api/version/latest',route=>route.fulfill({json:{...latest,current:'1.3.0',update_available:false}}));
+  await page.route('**/admin/api/upgrade',route=>route.fulfill({json:{available:true,job:job('succeeded','completed')}}));
+  for(let attempt=0;attempt<2;attempt++){
+    await page.locator('#version-entry').click();const panel=dialog(page);
+    await expect(panel).toContainText('升级服务已就绪');await expect(panel).not.toContainText('升级完成');await expect(panel.locator('#version-reload')).toHaveCount(0);
+    await panel.locator('#version-check').click();await expect(panel).toContainText('当前已是最新稳定版本');
+    await panel.getByRole('button',{name:'关闭',exact:true}).last().click();
+    await page.reload();await expect(page.locator('#workspace')).toBeVisible();
+  }
+});
+
+test('a completed upgrade keeps the refresh action while the page still runs the previous version',async({page})=>{
+  await setup(page,{available:true});
+  await page.route('**/admin/api/upgrade',route=>route.fulfill({json:{available:true,job:job('succeeded','completed')}}));
+  await page.locator('#version-entry').click();const panel=dialog(page);
+  await expect(panel).toContainText('升级完成');await expect(panel.locator('#version-reload')).toBeVisible();
+});
+
+test('failed historical upgrades remain visible even when the target version is installed',async({page})=>{
+  await setup(page,{available:true,current:'1.3.0'});
+  await page.route('**/admin/api/upgrade',route=>route.fulfill({json:{available:true,job:job('failed','failed')}}));
+  await page.locator('#version-entry').click();await expect(dialog(page)).toContainText('升级失败');
+});
+
 test('real upgrade requires checking and maintenance confirmation then reconnects to durable status through 503 and network failure',async({page})=>{
   await setup(page,{available:true});let polls=0,started=false;
   await page.route('**/admin/api/upgrade',async route=>{
     if(route.request().method()==='POST'){expect(route.request().postDataJSON()).toEqual({});started=true;return route.fulfill({status:202,json:{available:true,job:job('queued','queued')}});}
     if(!started)return route.fulfill({json:{available:true,job:null}});
     polls++;if(polls===1)return route.fulfill({status:503,json:{error:{message:'Manager restarting'}}});if(polls===2)return route.abort('connectionrefused');
+    await page.route('**/admin/api/version',versionRoute=>versionRoute.fulfill({json:{current:'1.3.0'}}));
     return route.fulfill({json:{available:true,job:job('succeeded','completed')}});
   });
   await page.locator('#version-entry').click();const panel=dialog(page);await expect(panel.locator('#version-upgrade')).toBeDisabled();
@@ -54,6 +81,7 @@ test('real upgrade requires checking and maintenance confirmation then reconnect
   await expect(panel).toContainText('1.3.0');expect(polls).toBeGreaterThanOrEqual(3);
   const refreshed=page.waitForEvent('framenavigated',frame=>frame===page.mainFrame());
   await panel.getByRole('button',{name:'刷新界面',exact:true}).click();await refreshed;await expect(page.locator('#workspace')).toBeVisible();
+  await page.locator('#version-entry').click();await expect(dialog(page)).toContainText('升级服务已就绪');await expect(dialog(page)).not.toContainText('升级完成');
 });
 
 test('closing the dialog and signing out stop status polling and a 401 signs out instead of reconnecting',async({page})=>{

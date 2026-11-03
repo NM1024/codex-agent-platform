@@ -55,7 +55,7 @@ export default function HttpTargetsPanel({group,onSaved,reload}:{group:ConfigGro
     <Modal className="admin-overlay admin-modal" width={880} open={!!editor} title={t(editor?.name?'编辑 HTTP 目标':'新增 HTTP 目标')} okText={t('保存目标')} cancelText={t('取消')} onOk={()=>void save()} onCancel={close} okButtonProps={{loading:busy,disabled:conflict,'aria-label':t('保存目标'),'aria-busy':busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} maskClosable={!busy} forceRender>
       <Form name="http-target-editor" form={form} layout="horizontal" colon={false} className="admin-editor-form http-target-form" disabled={busy}><div className="admin-form-grid">
         <Form.Item name="name" label={t('目标名称')} rules={[{required:true,message:t('请输入目标名称。')},{pattern:/^[a-zA-Z0-9_-]+$/,message:t('名称只能包含英文字母、数字、下划线和短横线。')}]}><Input disabled={busy||!!editor?.name} maxLength={128}/></Form.Item>
-        <Form.Item name="timeoutMs" label={t('超时（毫秒）')} rules={[{required:true,message:t('请输入超时时间。')}]}><InputNumber min={1} max={2147483647} precision={0}/></Form.Item>
+        <Form.Item name="timeoutMs" label={t('超时')} rules={[{required:true,message:t('请输入超时时间。')}]}><InputNumber aria-describedby="http-target-timeout-unit" suffix={<span id="http-target-timeout-unit" className="input-unit">{t('毫秒')}</span>} min={1} max={2147483647} precision={0}/></Form.Item>
         <Form.Item className="admin-form-wide" name="url" label={t('目标地址')} rules={[{required:true,message:t('请输入目标地址。')},{validator:async(_,value:string)=>{
           if(!value)return;
           let url;try{url=new URL(value);}catch{throw new Error(t('请填写完整的 HTTPS 地址，或本机 HTTP 地址。'));}

@@ -41,8 +41,8 @@ export default function RetentionPanel({group,onSaved,reload}:{group:ConfigGroup
     {error&&<Alert type="error" showIcon title={t(error)} action={conflict?<Button disabled={saving} onClick={()=>{void reread();}}>{t('重新读取')}</Button>:undefined}/>}
     <Form className="settings-form configuration-form admin-editor-form retention-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}><div className="form-grid admin-form-grid">
       <Form.Item label={t('自动清理历史数据')} htmlFor="retention-enabled"><Switch id="retention-enabled" aria-label={t('自动清理历史数据')} checked={value} disabled={saving||conflict} onChange={setEnabled}/></Form.Item>
-      <Form.Item label={t('保留天数')} htmlFor="retention-days">
-        <InputNumber id="retention-days" aria-label={t('保留天数')} min={1} max={3650} precision={0} value={age} disabled={saving||conflict} onChange={setDays}/>
+      <Form.Item label={t('保留时长')} htmlFor="retention-days">
+        <InputNumber id="retention-days" aria-label={t('保留时长')} aria-describedby="retention-days-unit" suffix={<span id="retention-days-unit" className="input-unit">{t('天')}</span>} min={1} max={3650} precision={0} value={age} disabled={saving||conflict} onChange={setDays}/>
         <div className="retention-presets">{[30,60].map(preset=><Button key={preset} size="small" aria-pressed={age===preset} disabled={saving||conflict} onClick={()=>setDays(preset)}>{t('{days} 天',{days:preset})}</Button>)}</div>
       </Form.Item>
       </div>
