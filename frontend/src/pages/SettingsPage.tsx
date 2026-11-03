@@ -77,12 +77,14 @@ function ConfigurationForm({group, reload}:{group:ConfigGroup; reload:()=>Promis
   const renderFields=(fields:[string,Schema][])=>fields.map(([key,schema])=>{
     const id = 'setting-' + group.scope + '-' + key;
     const value = Object.hasOwn(drafts, key) ? drafts[key] : fieldValue(schema, group.values[key]);
-    const label = t(schema.title ?? key);
+    const milliseconds=schema.type==='integer'&&key.endsWith('Ms');
+    const title=schema.title??key;
+    const label = t(milliseconds?title.replace(/（毫秒）$/,''):title);
     return <Form.Item key={key} label={label} htmlFor={id}>
       {schema.type === 'boolean'
         ? <Checkbox id={id} checked={value === true} disabled={saving} onChange={event => update(key, event.target.checked)}/>
         : schema.type === 'integer'
-            ? <InputNumber id={id} value={typeof value === 'number' ? value : null} min={schema.minimum} max={schema.maximum} precision={0} disabled={saving} onChange={number => update(key, number)}/>
+            ? <InputNumber id={id} aria-describedby={milliseconds?id+'-unit':undefined} suffix={milliseconds?<span id={id+'-unit'} className="input-unit">{t('毫秒')}</span>:undefined} value={typeof value === 'number' ? value : null} min={schema.minimum} max={schema.maximum} precision={0} disabled={saving} onChange={number => update(key, number)}/>
             : schema.writeOnly
               ? <Input.Password id={id} autoComplete="new-password" value={String(value ?? '')} disabled={saving || clears[key]} placeholder={t(group.configured_secrets.includes('/' + key) ? '已配置，留空保持原值' : '尚未配置')} onChange={event => update(key, event.target.value)}/>
               : <Input id={id} value={String(value ?? '')} disabled={saving} onChange={event => update(key, event.target.value)}/>}

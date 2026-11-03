@@ -8,7 +8,7 @@ import type {AgentSettings} from './types';
 export const pretty=(value:unknown)=>JSON.stringify(value,null,2);
 export const time=(value?:number|string)=>value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(value)):'—';
 export const bytes=(value?:number)=>value===undefined?'—':value>=1073741824?(value/1073741824).toFixed(1)+' GB':(value/1048576).toFixed(1)+' MB';
-const labels:Record<string,string>={queued:'排队中',dispatching:'启动中',running:'运行中',completing:'提交中',suspended:'等待恢复',completed:'执行完成',failed:'执行失败',accepted:'接口已接收',unknown:'结果未知',cancelled:'已取消',canceled:'已取消',not_required:'无需交付',pending:'等待交付',interrupted:'等待继续',executing:'操作中'};
+const labels:Record<string,string>={queued:'排队中',dispatching:'启动中',running:'运行中',completing:'提交中',suspended:'等待恢复',completed:'执行完成',failed:'执行失败',accepted:'接口已接收',unknown:'结果未知',cancelled:'已取消',canceled:'已取消',not_required:'无需交付',pending:'等待交付',interrupted:'等待继续',executing:'操作中',retrying:'等待重试',blocked:'需要处理',idle:'空闲',disabled:'未启用',debug:'调试',info:'信息',warn:'警告',error:'错误'};
 export const taskStatuses=['queued','dispatching','running','completing','suspended','completed','failed'];
 export {AsyncButton,LoadingState,DataLoading} from './shell-components';
 export function DeleteAction({label,name,description,onDelete}:{label:string;name:string;description:string;onDelete:()=>Promise<unknown>}) {
@@ -31,10 +31,10 @@ export function DeleteAction({label,name,description,onDelete}:{label:string;nam
 }
 export function Status({value,id}:{value:string;id?:string}) {
   const {t}=useConsole();
-  const tone=['failed','执行失败'].includes(value)?'error'
+  const tone=['failed','error','执行失败'].includes(value)?'error'
     :['completed','accepted','已就绪','已启用','程序可用','接入已就绪','已配置'].includes(value)?'success'
-    :['running','dispatching','completing','executing'].includes(value)?'processing'
-    :['unknown','suspended','interrupted','未就绪','待配置接入','待领取入口密钥','未配置'].includes(value)?'warning':'neutral';
+    :['running','retrying','dispatching','completing','executing'].includes(value)?'processing'
+    :['需要核验','blocked','warn','unknown','suspended','interrupted','未就绪','待配置接入','待领取入口密钥','未配置'].includes(value)?'warning':'neutral';
   return <Tag id={id} className={'status-tag status-tag--'+tone}><span className="status-dot" aria-hidden="true"/><span className="status-tag-text">{t(labels[value]??value)}</span></Tag>;
 }
 export function Panel({title,children,extra}:{title:string;children:ReactNode;extra?:ReactNode}){return <Card className="console-panel" title={<Typography.Title level={2}>{title}</Typography.Title>} extra={extra}>{children}</Card>;}

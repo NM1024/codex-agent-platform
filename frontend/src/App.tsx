@@ -8,8 +8,8 @@ import {AsyncButton,LoadingState} from './shell-components';
 import {Icon} from './Icon';
 import {consoleTheme} from './theme';
 import {useVisualViewport} from './useVisualViewport';
-const titles:Record<View,string>={overview:'运行概览',chat:'管理对话',tasks:'任务记录',plugins:'业务插件',schedules:'定时计划',settings:'系统配置'};
-const icons:Record<View,string>={overview:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',chat:'M21 11a8 8 0 0 1-8 8H7l-4 3V11a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z',tasks:'M8 5h13 M8 12h13 M8 19h13 M3 5h.01 M3 12h.01 M3 19h.01',plugins:'m8 8-5 4 5 4 M16 8l5 4-5 4 M14 4l-4 16',schedules:'M12 8v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',settings:'M4 6h16 M4 12h16 M4 18h16 M9 3v6 M15 9v6 M9 15v6'};
+const titles:Record<View,string>={overview:'运行概览',chat:'管理对话',tasks:'任务记录',plugins:'业务插件',schedules:'定时计划',system:'系统运维',settings:'系统配置'};
+const icons:Record<View,string>={overview:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',chat:'M21 11a8 8 0 0 1-8 8H7l-4 3V11a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z',tasks:'M8 5h13 M8 12h13 M8 19h13 M3 5h.01 M3 12h.01 M3 19h.01',plugins:'m8 8-5 4 5 4 M16 8l5 4-5 4 M14 4l-4 16',schedules:'M12 8v5l3 2 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',system:'M4 3h16v18H4z M8 7h8 M8 12h8 M8 17h5',settings:'M4 6h16 M4 12h16 M4 18h16 M9 3v6 M15 9v6 M9 15v6'};
 function NavIcon({view}:{view:View}){return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={icons[view]}/></svg>;}
 const pages={
   overview:lazy(()=>import('./pages/OverviewPage')),
@@ -17,6 +17,7 @@ const pages={
   tasks:lazy(()=>import('./pages/TasksPage')),
   plugins:lazy(()=>import('./pages/PluginsPage')),
   schedules:lazy(()=>import('./pages/SchedulesPage')),
+  system:lazy(()=>import('./pages/SystemPage')),
   settings:lazy(()=>import('./pages/SettingsPage')),
 };
 const DeferredDropdown=lazy(()=>import('antd/es/dropdown'));

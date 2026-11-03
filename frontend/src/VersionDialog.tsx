@@ -14,7 +14,7 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
   const [checking,setChecking]=useState(false),[latestError,setLatestError]=useState(false),[reconnecting,setReconnecting]=useState(false);
   const [confirming,setConfirming]=useState(false),[starting,setStarting]=useState(false),[requestError,setRequestError]=useState(false),[copyState,setCopyState]=useState('');
   const alive=useRef(true),startLock=useRef(false),checkLock=useRef(false),kick=useRef(()=>{}),updated=useRef(onUpdated);
-  const trackedJob=useRef<UpgradeJob|null>(null);
+  const trackedJob=useRef<UpgradeJob|null>(null),observedJob=useRef('');
   updated.current=onUpdated;
   useEffect(()=>{
     alive.current=true;let stopped=false,inFlight=false,again=false,timer:ReturnType<typeof setTimeout>|undefined,terminalJob='';
@@ -24,6 +24,7 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
       try{
         const value=await api<UpgradeStatus>('/upgrade');if(stopped)return;
         if(!value.job&&activeUpgrade(trackedJob.current)){setStatus({...value,job:trackedJob.current});setReconnecting(true);schedule();return;}
+        if(activeUpgrade(value.job))observedJob.current=value.job!.id;
         trackedJob.current=value.job;
         setStatus(value);setReconnecting(false);
         if(value.job&&!activeUpgrade(value.job)&&value.job.id!==terminalJob){terminalJob=value.job.id;setLatest(null);updated.current();}
@@ -43,11 +44,15 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
   const canUpgrade=Boolean(latest?.update_available&&status?.available&&!activeUpgrade(status.job)&&!reconnecting&&!checking&&!starting);
   const start=async()=>{
     if(startLock.current||!canUpgrade)return;startLock.current=true;setStarting(true);setRequestError(false);setConfirming(false);
-    try{const value=await api<UpgradeStatus>('/upgrade',{});if(!alive.current)return;trackedJob.current=value.job;setStatus(value);kick.current();}
+    try{const value=await api<UpgradeStatus>('/upgrade',{});if(!alive.current)return;if(value.job)observedJob.current=value.job.id;trackedJob.current=value.job;setStatus(value);kick.current();}
     catch(error){if(!alive.current||expired(error))return;setRequestError(true);setReconnecting(true);kick.current();}
     finally{startLock.current=false;if(alive.current)setStarting(false);}
   };
-  const job=status?.job,busy=activeUpgrade(job);
+  const savedJob=status?.job;
+  // Keep a completion observed in this dialog until it closes. An older result
+  // needs no refresh prompt once this page already runs its installed version.
+  const alreadyInstalled=savedJob?.state==='succeeded'&&savedJob.installed_version===current&&observedJob.current!==savedJob.id;
+  const job=alreadyInstalled?null:savedJob,busy=activeUpgrade(job);
   return <Modal open title={t('版本与更新')} className="console-modal version-modal" width={570} onCancel={onClose} footer={<>
     {confirming?<><Button onClick={()=>setConfirming(false)}>{t('取消')}</Button><Button id="version-confirm-upgrade" type="primary" disabled={!canUpgrade} loading={starting} onClick={()=>{void start();}}>{t('确认开始升级')}</Button></>:<Button id="version-upgrade" type="primary" disabled={!canUpgrade} loading={starting} onClick={()=>setConfirming(true)}>{t('升级到最新稳定版本')}</Button>}
     {job?.state==='succeeded'&&<Button id="version-reload" onClick={()=>window.location.reload()}>{t('刷新界面')}</Button>}

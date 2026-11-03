@@ -9,10 +9,16 @@ import {createProjectSourceReader} from './project-source.mjs';
 import {conversationExecution} from './model-configuration.mjs';
 import {sandboxToolNames} from '../sandbox/contracts.mjs';
 import {notificationChannelWriteTools} from '../notifications/contracts.mjs';
+import {createSystemOperations,systemToolNames} from '../observability/system-operations.mjs';
+import {readFileSync} from 'node:fs';
+const version=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url),'utf8')).version;
 const ajv=new Ajv({strict:true}),checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
-export function createManagerOperations({client,store,metrics,configuration,auth,sandbox,models=createModelCatalog({env:{...filteredCodexEnv(),CODEX_HOME:process.env.CODEX_LOGIN_HOME ?? '/codex',HOME:process.env.CODEX_LOGIN_HOME ?? '/codex'}})}) {
+export function createManagerOperations({client,store,metrics,configuration,auth,sandbox,system,models=createModelCatalog({env:{...filteredCodexEnv(),CODEX_HOME:process.env.CODEX_LOGIN_HOME ?? '/codex',HOME:process.env.CODEX_LOGIN_HOME ?? '/codex'}})}) {
   const projectSource=createProjectSourceReader();
-  return {
+  const federation=createSystemOperations({local:()=>operations.system,remote:(...args)=>client.system(...args),version});
+  const operations={
+    system,
+    reviewSystemWork:args=>federation.review(args),
     artifact:(...args)=>client.artifact(...args),
     // Browser-only transport: deliberately absent from execute/tool contracts.
     pluginConnection:(...args)=>client.pluginConnection(...args),
@@ -21,6 +27,7 @@ export function createManagerOperations({client,store,metrics,configuration,auth
     async execute(action,args={},context={}) {
       const check=checks.get(action);
       if(!check||!check(args))throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','管理操作或参数不正确。');
+      if(systemToolNames.has(action))return federation.execute(action,args,{actor:context.conversationId?'agent':'admin'});
       if(notificationChannelWriteTools.has(action)&&context.conversationId&&/^[a-f0-9-]{36}$/.test(store.metadata(context.conversationId).source_id??''))throw new HttpError(403,'INSPECTION_CHANNEL_UPDATE_DENIED','定时巡检对话不能修改全局通知渠道；请在独立管理对话中维护。');
       if(sandboxToolNames.has(action)){if(!sandbox)throw new HttpError(503,'SANDBOX_UNAVAILABLE','代码沙箱暂不可用。');return sandbox.execute(action,args,context);}
       if(action==='models')return models();
@@ -50,5 +57,5 @@ export function createManagerOperations({client,store,metrics,configuration,auth
       catch(error){value={unavailable:true,error:{code:error.code ?? 'GATEWAY_UNAVAILABLE',message:error.message},last_known:store.observation('last_platform')};}
       return {...value,manager:{alive:true},resources:await metrics.sample(),investigations:store.investigations()};
     },
-  };
+  };return operations;
 }

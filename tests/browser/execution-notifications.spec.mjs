@@ -22,7 +22,7 @@ test('scheduled history uses the shared responsive table with filters, paginatio
  await page.getByRole('button',{name:'上一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('0');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeEnabled();
  await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:'执行失败',exact:true}).click();await page.getByRole('textbox',{name:'搜索定时执行',exact:true}).fill('Synthetic plan 1');await page.getByRole('button',{name:'查询',exact:true}).click();
  await expect.poll(()=>queries.at(-1)).toMatchObject({search:'Synthetic plan 1',status:'failed',offset:'0',limit:'50'});await expect(table.getByRole('row').filter({hasText:runs[1].id})).toBeVisible();
- await page.setViewportSize({width:390,height:844});await expect(row.getByRole('button',{name:'详情',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);await page.screenshot({path:'.tmp/agent-tab-cron/scheduled-history-mobile.png',animations:'disabled'});
+ await page.setViewportSize({width:390,height:844});await expect(row.getByRole('button',{name:'详情',exact:true})).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:'Responsive history layout settles after viewport resize'}).toBeLessThanOrEqual(390);await page.screenshot({path:'.tmp/agent-tab-cron/scheduled-history-mobile.png',animations:'disabled'});
 });
 
 test('execution notifications show bound metadata and history without editing or channel catalogue requests',async({page})=>{

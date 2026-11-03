@@ -1,10 +1,12 @@
 import {sandboxTools} from '../sandbox/contracts.mjs';
+import {systemManagementTools} from '../observability/system-contracts.mjs';
 import {agentOverridesSchema} from '../configuration/agent-settings.mjs';
 import {channelIdsSchema,notificationContextSchema,notificationSendSchema,notificationChannelSchema} from '../notifications/contracts.mjs';
 const string={type:'string'},id={type:'string',pattern:'^[a-f0-9-]{36}$'};
 const object=(properties={},required=[])=>({type:'object',properties,required,additionalProperties:false});
 const tool=(name,description,properties={},required=[])=>({name,description,inputSchema:object(properties,required)});
 export const managementTools=[
+  ...systemManagementTools,
   ...sandboxTools,
   tool('overview','Read current gateway/runner health, execution queue, failures and delivery statistics.'),
   tool('models','List available Codex models, supported reasoning efforts and serviceTiers. priority is Fast with increased usage; Standard is the platform default. Does not start a model turn.'),

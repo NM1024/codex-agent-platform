@@ -1,3 +1,4 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import {renderSystemPrompt} from '../prompts.mjs';
 import { DEFAULT_TOOL_TIMEOUT_MS, DEFAULT_CONCURRENCY } from "../config.mjs";
 import { join, resolve, parse } from "node:path";
@@ -32,6 +33,7 @@ export function lifecycleDetails(record) {
 export class AgentRuntime {
   constructor({
     workspace,
+    journal,
     codexHome = "/codex",
     mcpUrl = "http://gateway:3006/mcp",
     model = "gpt-6.1-sol",
@@ -45,6 +47,7 @@ export class AgentRuntime {
   } = {}) {
     Object.assign(this, {
       workspace,
+      journal,
       codexHome,
       mcpUrl,
       model,
@@ -355,6 +358,41 @@ export class AgentRuntime {
     state.endPromise = this.closeRun(state, code);
     return state.endPromise;
   }
+  async cleanupTransient(runId,{force=false,ending=false}={}) {
+    if(!validId(runId))throw new Error('INVALID_RUN');
+    if(!ending&&(this.launches.has(runId)||this.purges.has(runId)||this.active.has(runId)))return false;
+    const work={id:'transient-cleanup.'+runId,module:'cleanup',target_id:runId,allowed_actions:['cleanup_retry'],pending_count:1};
+    if(!systemDue(this.journal,work.id,{force}))return false;
+    try {
+      const owned=join(this.workspace,'.agent-runs',runId),marker=JSON.parse(await readRegular(this.workspace,join(owned,'launch.json'),1024*1024));
+      if(marker.run_id!==runId||(!ending&&marker.status!=='ended'))return false;
+      this.journal?.work({...work,state:'running'});
+      const paths=[[this.codexHome,join(this.codexHome,'runs',runId)],[this.workspace,join(owned,'work')]];
+      for(const [base,target] of paths){await containedPath(parse(resolve(base)).root,base,{allowMissing:true});await containedPath(base,target,{allowMissing:true});}
+      for(const [,target] of paths)await rm(target,{recursive:true,force:true});
+      this.journal?.work({...work,state:'completed',code:'CLEANUP_COMPLETED',pending_count:0,attempted:false});return true;
+    }catch(error){systemFailure(this.journal,{...work,code:'CLEANUP_FAILED',attempted:false},error);return false;}
+  }
+  async retryTransientCleanup({limit=50}={}) {
+    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new Error('INVALID_LIMIT');
+    const seen=new Set();
+    try {
+      const page=this.journal?.issues({module:'cleanup',limit,...(this.cleanupCursor?{cursor:this.cleanupCursor}:{})});this.cleanupCursor=page?.next_cursor;
+      for(const work of page?.items??[])if(work.id.startsWith('runner:work:transient-cleanup.')&&['retrying','blocked','unknown'].includes(work.state)){seen.add(work.target_id);await this.cleanupTransient(work.target_id);}
+    }catch{this.cleanupCursor=undefined;}
+    // Owner launch markers remain authoritative even if observation writes were lost.
+    const root=join(this.workspace,'.agent-runs');let entries;
+    try{await containedPath(this.workspace,root,{allowMissing:true});entries=await readdir(root,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
+    const ids=entries.filter(entry=>entry.isDirectory()&&validId(entry.name)).map(entry=>entry.name).sort();
+    let batch=ids.filter(id=>!this.cleanupFallbackCursor||id>this.cleanupFallbackCursor).slice(0,limit);
+    if(!batch.length){this.cleanupFallbackCursor=undefined;batch=ids.slice(0,limit);}
+    for(const id of batch){
+      this.cleanupFallbackCursor=id;if(seen.has(id))continue;
+      const paths=[join(root,id,'work'),join(this.codexHome,'runs',id)];let pending=false;
+      for(const path of paths)try{await lstat(path);pending=true;}catch(error){if(error.code!=='ENOENT')pending=true;}
+      if(pending)await this.cleanupTransient(id);
+    }
+  }
   async closeRun(state, code) {
     const runId = state.run.run_id;
     clearTimeout(state.timer);
@@ -374,8 +412,7 @@ export class AgentRuntime {
       await state.client?.close().catch(() => {});
       await Promise.allSettled([...(state.processors ?? [])]);
       if (code !== "SUSPENDED" || state.completed) {
-        await rm(state.home, { recursive: true, force: true }).catch(() => {});
-        await rm(state.workDir, { recursive: true, force: true }).catch(() => {});
+        await this.cleanupTransient(runId,{force:true,ending:true});
       }
       if (state.completed) code = "COMPLETED";
       try {
@@ -398,6 +435,7 @@ export class AgentRuntime {
     if (this.active.size || this.launches.size || this.purges.size)
       throw new Error("RUNNER_ACTIVE");
     this.recovering = true;
+    this.journal?.work({id:'runtime-recovery',module:'runtime',state:'running',allowed_actions:[]});
     try {
       const root = join(this.workspace, ".agent-runs");
       await safeDirectory(root);
@@ -411,7 +449,7 @@ export class AgentRuntime {
           if (error.code === "ENOENT") continue;
           throw error;
         }
-        if (saved.status === "ended") continue;
+        if (saved.status === "ended") {await this.cleanupTransient(saved.run_id);continue;}
         const endedAt = new Date().toISOString();
         const code = saved.completed ? "COMPLETED" : "SUSPENDED";
         const recovered = {
@@ -423,9 +461,10 @@ export class AgentRuntime {
         };
         await atomicJson(marker, recovered);
         await this.onExit(saved.run_id, code, lifecycleDetails(recovered));
-        if (saved.completed) await rm(join(this.codexHome, "runs", saved.run_id), { recursive: true, force: true }).catch(() => {});
+        if (saved.completed) await this.cleanupTransient(saved.run_id);
       }
-    } finally {
+      systemObserve(this.journal,{id:'runtime-recovery',module:'runtime',state:'completed',code:'RECOVERY_COMPLETED',allowed_actions:[]});
+    } catch(error) {systemFailure(this.journal,{id:'runtime-recovery',module:'runtime',code:'RECOVERY_FAILED',allowed_actions:[]},error);throw error;} finally {
       this.recovering = false;
     }
   }

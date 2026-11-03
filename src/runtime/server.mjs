@@ -1,3 +1,7 @@
+import {compactHistoryDatabase} from '../history/worker.mjs';
+import {systemObserve,systemFailure} from '../observability/system-maintenance.mjs';
+import {executeSystemOwner,validateSystemEnvelope,SYSTEM_OWNER_OPERATIONS} from '../observability/system-operations.mjs';
+import {observeSystemApiError} from '../observability/system-report.mjs';
 import { createServer } from "node:http";
 import { requireAuth, readJson, json, errorResponse } from "../http.mjs";
 import { fault } from "../core/registry.mjs";
@@ -37,6 +41,19 @@ export function createRuntimeServer({ runtime, registry, config, probe, onRestar
         });
       if (req.method !== "POST") throw fault("NOT_FOUND", 404);
       const body = await readJson(req);
+      const systemOperation=path.startsWith('/internal/system/')?path.slice('/internal/system/'.length):null;
+      if(systemOperation&&SYSTEM_OWNER_OPERATIONS.includes(systemOperation)) {
+        const {args,actor}=validateSystemEnvelope(body);
+        return json(res,200,await executeSystemOwner(runtime.system,systemOperation,args,{actor}));
+      }
+      if(path==='/internal/history/system') {
+        const {policy,cutoff,limit}=body;
+        if(Object.keys(body).sort().join(',')!=='cutoff,limit,policy'||!policy||Object.keys(policy).sort().join(',')!=='days,enabled,revision'||typeof policy.enabled!=='boolean'||!Number.isSafeInteger(policy.days)||policy.days<1||policy.days>3650||!Number.isSafeInteger(policy.revision)||policy.revision<0||!Number.isSafeInteger(cutoff)||cutoff<0||cutoff>Date.now()-policy.days*86400000||!Number.isSafeInteger(limit)||limit<1||limit>100)throw fault('INVALID_INPUT',400);
+        if(!runtime.journal)throw fault('SYSTEM_JOURNAL_UNAVAILABLE',503);
+        const result=policy.enabled?runtime.journal.prune({cutoff,limit}):{deleted:0};
+        if(policy.enabled)try{const compact=compactHistoryDatabase(runtime.journal.db,{idle:!runtime.active.size&&!runtime.launches.size&&!runtime.purges.size});systemObserve(runtime.journal,{id:'history-compact',module:'retention',state:compact.skipped?'idle':'completed',details:{phase:'compact',result:compact.skipped?'skipped':'success'},allowed_actions:[]});}catch(error){systemFailure(runtime.journal,{id:'history-compact',module:'retention',code:'RETENTION_FAILED',allowed_actions:[]},error);}
+        return json(res,200,{...result,hasMore:result.deleted===limit});
+      }
       if (path==='/internal/history/purge') {
         if (!checkHistoryIdentity(body)) throw fault('INVALID_RUN',400);
         await runtime.purgeHistory(body);
@@ -101,6 +118,7 @@ export function createRuntimeServer({ runtime, registry, config, probe, onRestar
       }
       throw fault("NOT_FOUND", 404);
     } catch (error) {
+      observeSystemApiError(runtime.journal,error,{status:error.status});
       if (["RUNNER_BUSY", "RUNNER_RECOVERING", "RUNNER_STOPPING", "CODEX_SESSION_UNAVAILABLE", "CODEX_RESUME_FAILED"].includes(error.message))
         error = fault(error.message, 503);
       else if (error.message === "RUN_CONFLICT") error = fault("RUN_CONFLICT");

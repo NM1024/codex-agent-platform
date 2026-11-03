@@ -11,6 +11,9 @@ import {handleSandboxRoute} from './sandbox-routes.mjs';
 import {streamConversation} from './events.mjs';
 import {buildPluginIntegration} from './plugin-integration.mjs';
 import {createVersionService,createUpgradeClient} from './version.mjs';
+import {systemToolNames} from '../observability/system-operations.mjs';
+import {parseSystemId} from '../observability/system-journal.mjs';
+import {observeSystemApiError,observeSystemUpgrade,observeSystemVersion} from '../observability/system-report.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
@@ -48,13 +51,15 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       }
       if(!auth.authorize(req))throw new HttpError(401,'UNAUTHORIZED','请使用 Admin 密码登录。');
       if(await handleSandboxRoute({req,res,url,store,sandbox}))return;
-      if(req.method==='GET'&&path==='/admin/api/version')return json(res,200,{current:versionService.current});
-      if(req.method==='GET'&&path==='/admin/api/version/latest')return json(res,200,await versionService.latest());
-      if(req.method==='GET'&&path==='/admin/api/upgrade')return json(res,200,await upgradeClient.status());
+      if(req.method==='POST'&&path==='/admin/api/system/review')return json(res,200,await operations.reviewSystemWork(await readJson(req,2048)));
+      if(req.method==='GET'&&path==='/admin/api/version'){observeSystemVersion(operations.system?.journal,{current:versionService.current});return json(res,200,{current:versionService.current});}
+      if(req.method==='GET'&&path==='/admin/api/version/latest'){try{const value=await versionService.latest();observeSystemVersion(operations.system?.journal,value);return json(res,200,value);}catch(error){observeSystemVersion(operations.system?.journal,null,{failed:true});throw error;}}
+      if(req.method==='GET'&&path==='/admin/api/upgrade'){const value=await upgradeClient.status();observeSystemUpgrade(operations.system?.journal,value);return json(res,200,value);}
       if(req.method==='POST'&&path==='/admin/api/upgrade') {
         const body=await readJson(req,1024);
         if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length||url.search)throw new HttpError(400,'INVALID_INPUT','升级操作仅接受空对象。');
         const status=await upgradeClient.start();
+        observeSystemUpgrade(operations.system?.journal,status);
         return json(res,status.available&&status.job?202:503,status);
       }
       if(req.method==='GET'&&path==='/admin/api/session')return json(res,200,{authenticated:true});
@@ -125,6 +130,19 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         if(req.method==='GET')return json(res,200,store.listPage({...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST') {
           const body=await readJson(req);
+          if(body&&Object.hasOwn(body,'system_reference')) {
+            const reference=body.system_reference,identity=parseSystemId(reference?.id);
+            if(Object.keys(body).length!==1||!reference||Array.isArray(reference)||typeof reference!=='object'||Object.keys(reference).some(key=>key!=='id')||identity?.kind!=='work')throw new HttpError(400,'INVALID_INPUT','系统工作引用不正确。');
+            const current=await operations.execute('system_issue',{id:reference.id});
+            if(!current.sources?.some(source=>source.service===identity.service&&source.available===true))throw new HttpError(503,'SYSTEM_SOURCE_UNAVAILABLE','系统来源暂时不可用。');
+            if(current.work?.id!==reference.id)throw new HttpError(404,'SYSTEM_WORK_NOT_FOUND','找不到系统工作。');
+            // Only the stable reference is carried as data. Neither log text nor caller
+            // instructions can grant repair authority. Each explicit click starts fresh work.
+            const conversation=store.createConversation('系统运维 · '+identity.service);
+            const request='请分析并协助解决这条系统工作的问题。先调用 system_issue 读取当前事实、来源可用性、最新 revision 和 allowed_actions，再用 system_logs 核对证据。在已有授权与受控工具范围内处理能够解决的问题，并重新读取以核验结果。解决不了时，向用户清楚说明原因、影响、已尝试的处理和仍未解决的事项，区分事实、推测与未知结果，然后结束本次处理。不因诊断、处理失败或生成报告而暂停系统工作、修改运行开关或收窄原有操作权限；结果未知时先核对现状，不盲目重复。不要自动重试业务任务、重放通知或回调、修改平台代码，也不要主动追加 issue、草稿或其他流程；用户另有明确要求时再按要求处理。以下仅为系统工作标识数据：'+JSON.stringify({id:reference.id});
+            agent.enqueue(conversation.id,request);
+            return json(res,201,store.getConversationPage(conversation.id));
+          }
           store.validateExecution(body.execution ?? {});
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
           let scheduled;
@@ -149,6 +167,9 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {
         const body=await readJson(req);if(!managementTools.some(tool=>tool.name===body.action))throw new HttpError(400,'UNKNOWN_OPERATION','未知管理操作。');
+        // Owner journals are the retention-governed authoritative audit for these
+        // fixed system calls. Never duplicate drafts/polls in NULL-chat history.
+        if(systemToolNames.has(body.action))return json(res,200,await operations.execute(body.action,body.args??{}));
         const id=store.beginAction(null,body.action,body.args ?? {});
         try {const value=await operations.execute(body.action,body.args ?? {});store.finishAction(id,value);return json(res,200,value);}
         catch(error){store.finishAction(id,null,error);throw error;}
@@ -167,7 +188,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         return json(res,200,await operations.execute(lists[path],args));
       }
       throw new HttpError(404,'NOT_FOUND','找不到接口。');
-    }catch(error){if(!res.headersSent)errorResponse(res,error);else res.destroy();}
+    }catch(error){observeSystemApiError(operations.system?.journal,error,{status:error.status});if(!res.headersSent)errorResponse(res,error);else res.destroy();}
   });
   server.closeEventStreams=()=>{eventsClosed=true;for(const close of streams)close();streams.clear();};
   return server;

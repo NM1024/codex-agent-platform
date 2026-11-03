@@ -1,3 +1,4 @@
+import {systemFailure,systemDue,systemWork} from '../observability/system-maintenance.mjs';
 import { CronExpressionParser } from 'cron-parser';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../errors.mjs';
@@ -12,8 +13,8 @@ function nextAt(cron,timezone,now) {
   } catch {throw invalid('请提供有效的五字段 cron 和 IANA 时区。');}
 }
 export class ScheduleStore {
-  constructor(store,{clientId='default'}={}) {
-    this.store=store;this.db=store.db;
+  constructor(store,{clientId='default',journal}={}) {
+    this.store=store;this.db=store.db;this.journal=journal;
     this.clientId=clientId;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS platform_schedules(id TEXT PRIMARY KEY,definition TEXT NOT NULL,enabled INTEGER NOT NULL,next_run_at INTEGER NOT NULL,blocked_reason TEXT,updated_at INTEGER NOT NULL);
@@ -132,6 +133,7 @@ export class ScheduleStore {
     return this.store.transaction(()=>{
       this.db.prepare("UPDATE platform_inspections SET status='claimed' WHERE id=? AND status='queued'").run(id);
       const row=this.db.prepare('SELECT id,message,status,message_id FROM platform_inspections WHERE id=?').get(id);
+      if(row)this.journal?.event({module:'inspections',event:'inspection_claim',target_id:id,code:'HANDOFF_COMPLETED',details:{phase:'claim'}});
       return row&&(row.status==='claimed'||row.status==='accepted'&&row.message_id===null&&row.execution_state==='pending')?{accepted:true,id:row.id,message:row.message,status:row.status}:{accepted:false};
     });
   }
@@ -143,12 +145,22 @@ export class ScheduleStore {
       if(row.status==='accepted'&&row.conversation_id===conversationId&&row.message_id===messageId)return {accepted:true};
       if(row.status!=='claimed'&&!(row.status==='accepted'&&row.message_id===null&&row.conversation_id===conversationId))return {accepted:false};
       const terminal=['completed','failed'].includes(messageStatus),state=messageId===undefined?'completed':terminal?messageStatus:messageStatus==='running'?'running':messageStatus==='interrupted'?'interrupted':'pending';
-      this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=?,message_id=?,execution_state=?,finished_at=? WHERE id=?").run(conversationId,messageId??null,state,terminal||messageId===undefined?Date.now():null,id);return {accepted:true};
+      this.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=?,message_id=?,execution_state=?,finished_at=? WHERE id=?").run(conversationId,messageId??null,state,terminal||messageId===undefined?Date.now():null,id);this.journal?.event({module:'inspections',event:'inspection_ack',target_id:id,code:'HANDOFF_COMPLETED',details:{phase:'ack'}});return {accepted:true};
     });
   }
   async tick(now=Date.now()) {
     const rows=this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL AND enabled=1 AND next_run_at<=? ORDER BY next_run_at,id').all(now);
     for (const {id} of rows) {
+      const plan=this.get(id),details={phase:'dispatch',revision:plan.revision};
+      if(plan.kind==='task') {
+        details.plugin_revision=this.db.prepare('SELECT revision FROM platform_plugins WHERE type=?').get(plan.type)?.revision??0;
+        details.connection_revision=this.store.pluginConnections?this.db.prepare('SELECT revision FROM platform_plugin_connections WHERE type=?').get(plan.type)?.revision??0:0;
+      }
+      const work={id:'schedule-trigger.'+id,module:'schedules',target_id:id,details},previous=systemWork(this.journal,work.id);
+      // A human configuration change permits one fresh admission check. Unchanged
+      // blocked dependencies never cause repeated admissions; diagnostic tags do not veto recovery.
+      const force=previous?.state==='blocked'&&['revision','plugin_revision','connection_revision'].some(key=>previous.details[key]!==details[key]);
+      if(!systemDue(this.journal,work.id,{now,force}))continue;
       try {this.store.transaction(()=>{
         const plan=this.get(id);if (!plan.enabled || plan.next_run_at>now) return;
         const event=randomUUID();let task_id;
@@ -159,7 +171,7 @@ export class ScheduleStore {
         }
         this.db.prepare('INSERT INTO platform_schedule_runs VALUES(?,?,?,?,?)').run(event,id,plan.next_run_at,now,task_id);
         this.db.prepare('UPDATE platform_schedules SET next_run_at=?,blocked_reason=NULL,updated_at=? WHERE id=?').run(nextAt(plan.cron,plan.timezone,now),now,id);
-      });} catch(error) {this.db.prepare('UPDATE platform_schedules SET blocked_reason=? WHERE id=?').run(error.code ?? 'SCHEDULE_TRIGGER_FAILED',id);}
+      });this.journal?.work({...work,state:'completed',code:'HANDOFF_COMPLETED'});} catch(error) {systemFailure(this.journal,{...work,code:'HANDOFF_FAILED'},error);this.db.prepare('UPDATE platform_schedules SET blocked_reason=? WHERE id=?').run(error.code ?? 'SCHEDULE_TRIGGER_FAILED',id);}
     }
   }
 }

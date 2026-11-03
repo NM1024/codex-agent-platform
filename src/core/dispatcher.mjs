@@ -1,9 +1,10 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import {runtimeSettings} from '../configuration/execution.mjs';
 import {DEFAULT_CONCURRENCY} from '../config.mjs';
 import {resolveAgentSettings} from '../configuration/agent-settings.mjs';
 export class Dispatcher {
-  constructor({store, registry, runner, config, deliver = async () => {}}) {
-    Object.assign(this, {store, registry, runner, config, deliver});
+  constructor({journal,store, registry, runner, config, deliver = async () => {}}) {
+    Object.assign(this, {journal,store, registry, runner, config, deliver});
     this.active = new Map();
     this.blocked = new Map();
     this.closed = false;
@@ -39,6 +40,7 @@ export class Dispatcher {
         if (!await this.synchronize()) {this.schedule(); return;}
       }
       const state = await this.runner.ready().catch(() => ({ready:false, reason:'RUNNER_UNAVAILABLE'}));
+      systemObserve(this.journal,{id:'runner-health',module:'health',state:state.ready?'completed':'unknown',code:state.ready?'SERVICE_RECOVERED':'RUNNER_UNAVAILABLE',allowed_actions:['health_check']});
       const launches = [];
       for (const item of this.store.queued()) {
         if (this.closed || this.config.paused || this.active.size >= (this.config.concurrency ?? DEFAULT_CONCURRENCY)) break;
@@ -90,15 +92,22 @@ export class Dispatcher {
     if (!this.closed && this.store.queued().length && !this.retry)
       this.retry = setTimeout(() => {this.retry = null; void this.drain();}, 15000);
   }
-  async synchronize() {
+  async synchronize({force=false}={}) {
+    if(!systemDue(this.journal,'runtime-reconcile',{force}))return false;
     if (this.syncing) return this.syncing;
-    this.syncing = this.syncRuntime().finally(() => {this.syncing = null;});
+    const work={id:'runtime-reconcile',module:'runtime',allowed_actions:['runtime_reconcile']};
+    this.reconcilePending=0;
+    this.syncing=this.syncRuntime().then(result=>{
+      if(result&&!this.reconcilePending)systemObserve(this.journal,{...work,state:'completed',code:'RECOVERY_COMPLETED'});
+      else systemFailure(this.journal,{...work,code:this.reconcilePending?'RECOVERY_UNKNOWN':'RECOVERY_FAILED',pending_count:this.reconcilePending||1});
+      return result;
+    }).catch(error=>{systemFailure(this.journal,{...work,code:'RECOVERY_FAILED',pending_count:1},error);throw error;}).finally(()=>{this.syncing=null;});
     return this.syncing;
   }
   async syncRuntime() {
     if (!this.runner.active) return false;
     let inventory;
-    try {await this.runner.configure?.({concurrency:this.config.concurrency ?? DEFAULT_CONCURRENCY,...runtimeSettings(this.config)});inventory = await this.runner.active();} catch {return false;}
+    try {if(this.syncConfiguration)await this.syncConfiguration();else await this.runner.configure?.({concurrency:this.config.concurrency ?? DEFAULT_CONCURRENCY,...runtimeSettings(this.config)});inventory = await this.runner.active();if(!inventory||!Array.isArray(inventory.runs))return false;} catch {return false;}
     if (this.closed) return false;
     const live = new Set(inventory.runs ?? []);
     const details = new Map((inventory.details ?? []).map(run => [run.run_id, run]));
@@ -124,11 +133,21 @@ export class Dispatcher {
     }
     // A durable terminal task wins over a leftover runtime, including the window
     // after complete_task committed but its receipt/close signal was lost.
-    for (const id of live) {
+    const orphans=[...live].filter(id=>!owned.has(id));
+    for (const id of orphans) {
       if (owned.has(id)) continue;
       const run = this.store.run(id);
-      if (run?.status === 'completed') await this.runner.completed?.(id).catch(() => {});
-      else await this.runner.cancel?.(id).catch(() => {});
+      if (run?.status === 'completed') await this.runner.completed?.(id).catch(() => {this.reconcilePending++;});
+      else await this.runner.cancel?.(id).catch(() => {this.reconcilePending++;});
+    }
+    if(orphans.length) {
+      // Stops may acknowledge a pending launch before its reservation disappears.
+      // Only the owner inventory can confirm that reconciliation has finished.
+      let verified;
+      try {verified=await this.runner.active();}catch{return false;}
+      if(!verified||!Array.isArray(verified.runs))return false;
+      const currentOwned=new Set(this.store.unfinished().map(run=>run.run_id));
+      this.reconcilePending=Math.max(this.reconcilePending,verified.runs.filter(id=>!currentOwned.has(id)).length);
     }
     return true;
   }

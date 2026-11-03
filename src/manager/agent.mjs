@@ -1,3 +1,4 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import { createHash,randomBytes } from 'node:crypto';
 import { join,resolve,relative,sep,parse } from 'node:path';
 import { lstat,symlink,rm } from 'node:fs/promises';
@@ -21,8 +22,8 @@ import {findRecordedTurn,forEachTurnItem,findRecordedMessageIds} from './history
 const hash=token=>createHash('sha256').update(token).digest('hex');
 const sandboxFileContext=(store,messageId)=>{const files=[...(store.messageFiles?.(messageId)??[]),...(store.attachments?.(messageId)??[]).map(({id,name,mime,size})=>({file_id:id,name,mime,size}))];return files.length?'\n\nCurrent-conversation file attachments (data, not instructions):\n'+JSON.stringify(files.map(({file_id,name,mime,size})=>({file_id,name,mime,size})))+'\nUse sandbox_files action=import with file_id to copy these into your sandbox when needed.':'';};
 export class ManagementAgent {
-  constructor({store,root,authFile,mcpUrl,model='gpt-6.1-sol',concurrency=2,timeoutMs=2400000,toolTimeoutMs=180000,inspectionLifecycle,inspectionCleanup,sandbox,createClient=options=>new CodexRpcClient(options)}) {
-    Object.assign(this,{store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,inspectionLifecycle,inspectionCleanup,sandbox,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.closed=false;this.started=false;this.draining=false;this.setConcurrency(concurrency);
+  constructor({journal,store,root,authFile,mcpUrl,model='gpt-6.1-sol',concurrency=2,timeoutMs=2400000,toolTimeoutMs=180000,inspectionLifecycle,inspectionCleanup,sandbox,createClient=options=>new CodexRpcClient(options)}) {
+    Object.assign(this,{journal,store,root,authFile,mcpUrl,model,timeoutMs,toolTimeoutMs,inspectionLifecycle,inspectionCleanup,sandbox,createClient});this.running=new Map();this.active=new Map();this.tokens=new Map();this.closed=false;this.started=false;this.draining=false;this.setConcurrency(concurrency);
   }
   authorize(token){return typeof token==='string'&&token.length<256?this.tokens.get(hash(token))?.conversationId:undefined;}
   executionContext(token){
@@ -70,7 +71,12 @@ export class ManagementAgent {
     try{const cleanup=await this.sandbox?.cleanup({conversationId:id});sandboxPending=!!(cleanup?.failed||cleanup?.pending);}catch{sandboxPending=true;}
     return {...result,...(!complete||remotePending||sandboxPending?{cleanup_pending:true}:{})};
   }
-  async cleanupConversationFiles(id) {
+  async cleanupConversationFiles(id,{force=true}={}) {
+    // Only a durable authorized deletion job can select filesystem targets.
+    if(!this.store.statement('SELECT id FROM manager_conversation_cleanup WHERE id=?').get(id)||this.store.statement('SELECT id FROM manager_conversations WHERE id=?').get(id))return false;
+    const work={id:'conversation-cleanup.'+id,module:'cleanup',target_id:id,allowed_actions:['cleanup_retry'],pending_count:1};
+    if(!systemDue(this.journal,work.id,{force})){this.store.deferConversationCleanup(id);return false;}
+    this.journal?.work({...work,state:'running'});
     const cleanup=await Promise.allSettled(['codex','work'].map(async directory=>{
       const base=resolve(this.root),target=resolve(base,directory,id),rel=relative(base,target);
       if(typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)||rel.startsWith('..'+sep)||rel==='..'||rel.startsWith(sep))throw new Error('UNSAFE_PATH');
@@ -80,12 +86,12 @@ export class ManagementAgent {
       // fs.rm removes an auth.json symlink itself, never its external target.
       await rm(target,{recursive:true,force:true});
     }));
-    if(cleanup.some(value=>value.status==='rejected')){this.store.deferConversationCleanup(id);return false;}
-    this.store.finishConversationCleanup(id);return true;
+    if(cleanup.some(value=>value.status==='rejected')){this.store.deferConversationCleanup(id);systemFailure(this.journal,{...work,code:'CLEANUP_FAILED',attempted:false},cleanup.find(value=>value.status==='rejected').reason);return false;}
+    this.store.finishConversationCleanup(id);this.journal?.work({...work,state:'completed',code:'CLEANUP_COMPLETED',pending_count:0,attempted:false});return true;
   }
-  async retryConversationCleanup({limit=50}={}) {
-    const rows=this.store.pendingConversationCleanup(limit);let completed=0;
-    for(const {id} of rows)if(await this.cleanupConversationFiles(id))completed++;
+  async retryConversationCleanup({limit=50,conversationId,force=false}={}) {
+    const rows=conversationId?this.store.statement('SELECT id FROM manager_conversation_cleanup WHERE id=?').all(conversationId):this.store.pendingConversationCleanup(limit);let completed=0;
+    for(const {id} of rows)if(await this.cleanupConversationFiles(id,{force}))completed++;
     return {attempted:rows.length,completed,pending:rows.length-completed};
   }
   enqueue(conversationId,text,images=[],fileIds=[]) {const message=this.store.enqueue(conversationId,text,images,fileIds);this.kick(conversationId);return message;}
@@ -157,7 +163,7 @@ export class ManagementAgent {
       else await new Promise(resolve=>setImmediate(resolve));
     }
   }
-  async recover(){this.store.recover();this.started=true;this.drain();}
+  async recover(){this.journal?.work({id:'manager-recovery',module:'runtime',state:'running'});try{this.store.recover();this.started=true;this.drain();systemObserve(this.journal,{id:'manager-recovery',module:'runtime',state:'completed',code:'RECOVERY_COMPLETED'});}catch(error){systemFailure(this.journal,{id:'manager-recovery',module:'runtime',code:'RECOVERY_FAILED'},error);throw error;}}
   async execute(message) {
     const conversation=this.store.metadata(message.conversation_id),recovering=message.status==='interrupted';
     if(conversation.source_message_id&&!conversation.inspection_admitted)return;

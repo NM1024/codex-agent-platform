@@ -1,6 +1,7 @@
 import { DEFAULT_TOOL_TIMEOUT_MS } from "../config.mjs";
 import { publicDescription } from "../mcp/errors.mjs";
 import { HttpError } from "../errors.mjs";
+import {SYSTEM_OWNER_OPERATIONS} from '../observability/system-operations.mjs';
 
 export class RuntimeClient {
   constructor({ url, token, toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS }) {
@@ -40,6 +41,10 @@ export class RuntimeClient {
   ready() {
     return this.request("/readyz");
   }
+  system(operation,args={}, {actor='system'}={}) {
+    if(!SYSTEM_OWNER_OPERATIONS.includes(operation)||!['admin','agent','system'].includes(actor))throw new HttpError(400,'SYSTEM_QUERY_INVALID','SYSTEM_QUERY_INVALID');
+    return this.request('/internal/system/'+operation,{args,actor},20000);
+  }
   models() {return this.request('/internal/models',undefined,30000);}
   configure(settings) {return this.request('/internal/config',settings);}
   metrics() {return this.request('/internal/metrics');}
@@ -67,6 +72,7 @@ export class RuntimeClient {
   cancel(run_id) {
     return this.request("/internal/cancel", { run_id });
   }
+  pruneSystemHistory(args) {return this.request('/internal/history/system',args,30000);}
   purgeHistory(identity) {
     return this.request("/internal/history/purge", identity, 30000);
   }

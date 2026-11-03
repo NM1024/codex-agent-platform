@@ -18,7 +18,7 @@ test('Admin entry defers pages and keeps the initial gzip graph below 300 kB',as
   const root=new URL('../src/manager/web-dist/',import.meta.url);
   const manifest=JSON.parse(await readFile(new URL('.vite/manifest.json',root),'utf8'));
   const entry=Object.values(manifest).find(item=>item.isEntry);
-  assert.ok(entry.dynamicImports.length>=6,'all six pages load on demand');
+  assert.ok(entry.dynamicImports.length>=7,'all seven pages load on demand');
   const seen=new Set();let bytes=0;
   async function visit(item){if(seen.has(item.file))return;seen.add(item.file);bytes+=gzipSync(await readFile(new URL(item.file,root))).length;for(const key of item.imports??[])await visit(manifest[key]);}
   await visit(entry);

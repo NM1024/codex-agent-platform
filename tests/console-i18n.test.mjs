@@ -10,6 +10,7 @@ test("console interface copy has English translations; business data remains lit
   await import('../frontend/src/http-targets-i18n.ts');
   await import('../frontend/src/chat-status-i18n.ts');
   await import('../frontend/src/workflow-i18n.ts');
+  const system=await import('../frontend/src/system-i18n.ts');
   const directory=new URL('../frontend/src/',import.meta.url);
   const files=(await readdir(directory,{recursive:true})).filter(file=>/\.tsx?$/.test(file));
   const source=(await Promise.all(files.filter(file=>!/^Version(?:Entry|Dialog)\.tsx$/.test(file)).map(file=>readFile(new URL(file.replaceAll('\\','/'),directory),'utf8')))).join('\n');
@@ -22,6 +23,7 @@ test("console interface copy has English translations; business data remains lit
     ...html.matchAll(/data-i18n(?:-placeholder)?="([^"]*)"/g),
   ].map((match) => match[1]);
   // Dynamic status/name lookups use these source keys rather than t() literals.
+  keys.push(...Object.values(system.systemModules),...Object.values(system.systemActions),...Object.values(system.systemClassifications),...Object.values(system.systemCodes));
   keys.push(
     "排队中",
     "启动中",

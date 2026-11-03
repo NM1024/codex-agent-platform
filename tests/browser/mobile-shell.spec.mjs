@@ -9,7 +9,7 @@ test('phone top bar keeps platform title and icon controls on one row with dismi
   await expect(page.locator('#page-title')).toHaveText('Codex Agent Platform');
   await expect(page.locator('#navigation-toggle')).toHaveAttribute('aria-expanded','false');
   await page.locator('#navigation-toggle').click();
-  await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);await page.screenshot({path:'.tmp/mobile-shell/menu-phone.png',animations:'disabled'});
+  await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(7);await page.screenshot({path:'.tmp/mobile-shell/menu-phone.png',animations:'disabled'});
   await page.keyboard.press('Escape');await expect(page.locator('.mobile-navigation')).not.toBeVisible();
   await openChat(page);await page.locator('#message-input').fill('保留草稿');
   await page.locator('#navigation-toggle').click();await page.locator('#messages').click();

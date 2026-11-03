@@ -10,7 +10,7 @@ registerEnglish({
   '保留天数须为 1 至 3650 的整数。':'Retention days must be an integer from 1 to 3650.',
   '历史清理设置保存失败，请重试。':'Could not save retention settings. Please retry.',
   '历史清理配置暂时无法读取，请重试。':'Could not load retention settings. Please retry.',
-  '默认关闭。开启后每天分批永久删除到期的管理对话、任务记录及关联图片和文件；保留未结束的工作、插件、定时计划和账号配置。':'Off by default. When enabled, expired management chats, task history and associated images/files are permanently deleted in daily batches. Unfinished work, plugins, schedules and account settings are retained.',
+  '默认关闭。开启后每天分批永久删除到期的管理对话、任务记录及关联图片和文件。系统日志、已完成后台工作和已恢复问题的历史记录遵循同一启用开关与保留天数；未完成工作、未恢复问题及必要证据受保护，保留插件、定时计划和账号配置。':'Off by default. When enabled, expired management chats, task history and associated images/files are permanently deleted in daily batches. System logs, completed background work and recovered issue history follow the same switch and retention days. Unfinished work, unresolved issues and necessary evidence are protected; plugins, schedules and account settings are retained.',
   '删除不可恢复。开启或缩短保留天数后，已到期数据会从下一次后台检查开始清理。':'Deletion cannot be undone. Enabling cleanup or shortening retention makes expired data eligible from the next background check.',
   '对话按最后活动时间，任务按结束时间计算。排队、运行、等待恢复、未发送草稿和未完成回调暂不清理。关闭后不再开始新的清理批次。':'Chats expire from their last activity; tasks expire from completion. Queued, running or recovering work, unsent drafts and unfinished callbacks are kept. Disabling stops new cleanup batches.',
 });

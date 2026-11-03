@@ -1,6 +1,15 @@
 import { HttpError } from '../errors.mjs';
+import {SYSTEM_OWNER_OPERATIONS} from '../observability/system-operations.mjs';
 export class OperationsClient {
   constructor({url,token}){Object.assign(this,{url,token});}
+  async system(service,operation,args={}, {actor='system'}={}) {
+    if(!['gateway','runner'].includes(service)||!SYSTEM_OWNER_OPERATIONS.includes(operation)||!['admin','agent','system'].includes(actor))throw new HttpError(400,'SYSTEM_QUERY_INVALID','SYSTEM_QUERY_INVALID');
+    let response,body;
+    try{response=await fetch(new URL('/internal/system/'+operation,this.url),{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:JSON.stringify({service,args,actor}),redirect:'error',signal:AbortSignal.timeout(25000)});body=await response.json();}
+    catch{throw Object.assign(new HttpError(503,'SYSTEM_SOURCE_UNAVAILABLE','SYSTEM_SOURCE_UNAVAILABLE'),{effectUnknown:['maintain','classify','review'].includes(operation)});}
+    if(!response.ok)throw new HttpError(response.status,/^SYSTEM_[A-Z_]+$/.test(body.error?.code)?body.error.code:'SYSTEM_SOURCE_UNAVAILABLE','System owner rejected the request.');
+    return body;
+  }
   async notificationChannels(action,args={}) {
     let response,body;
     try{

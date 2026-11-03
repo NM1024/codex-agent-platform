@@ -448,7 +448,7 @@ export default function ChatPage() {
       const result=await serialize(id,()=>api<{deleted:boolean;cleanup_pending?:boolean}>('/conversations/'+id,undefined,'DELETE'));
       if(!mounted.current)return;
       forgetConversation(id);setDeleteTarget(undefined);
-      if(result.cleanup_pending)notify(t('对话记录已删除，但工作目录未能完全清理。'));
+      if(result.cleanup_pending)notify(t('对话记录已删除，部分关联资源尚未清理完成，系统会在后台重试。'));
     }catch(error){if(mounted.current)setDeleteError(error instanceof Error?error.message:String(error));}
     finally{deleteLock.current=null;if(mounted.current)setDeleting(null);}
   };
