@@ -39,12 +39,11 @@ test('federation merges equal-time global pages and literal localized searches w
  const status=await partial.execute('system_status',{});assert.equal(status.summary.complete,false);assert.equal(status.work[0].state,'retrying');assert.equal(status.work[0].verification_required,true);assert.equal(journals.manager.detail(ids[1]).state,'retrying');
 });
 
-test('owner selection and revision guards reject arbitrary targets and code-defect repairs; human review preserves state',async t=>{
+test('owner selection and revision guards reject arbitrary targets independently of diagnostic metadata; human review preserves state',async t=>{
  const j=journal(t,'runner'),facade=owner(j),w=work(j);
  for(const args of [{id:w.id,revision:w.revision,action:'shell'},{id:w.id,revision:w.revision,action:'cleanup_retry',path:'/tmp'},{id:w.id,revision:w.revision,action:'cleanup_retry',actor:'admin'}])await assert.rejects(system.executeSystemOwner(facade,'maintain',args),{code:'SYSTEM_QUERY_INVALID'});
  await assert.rejects(system.executeSystemOwner(facade,'maintain',{id:'gateway:work:cleanup',revision:1,action:'cleanup_retry'}),{code:'SYSTEM_SOURCE_MISMATCH'});
  const defect=await system.executeSystemOwner(facade,'classify',{id:w.id,revision:w.revision},{actor:'agent'});
- await assert.rejects(system.executeSystemOwner(facade,'maintain',{id:w.id,revision:defect.revision,action:'cleanup_retry'}),{code:'SYSTEM_CODE_DEFECT'});
  await assert.rejects(system.executeSystemOwner(facade,'review',{id:w.id,revision:defect.revision},{actor:'agent'}),{code:'SYSTEM_HUMAN_REQUIRED'});
  await assert.rejects(system.executeSystemOwner(facade,'review',{id:w.id,revision:1},{actor:'admin'}),{code:'SYSTEM_REVISION_CONFLICT'});
  const reviewed=await system.executeSystemOwner(facade,'review',{id:w.id,revision:defect.revision},{actor:'admin'});assert.equal(reviewed.classification,'unknown');assert.equal(reviewed.state,'retrying');assert.equal(reviewed.resolved_at,null);
@@ -72,7 +71,7 @@ test('Admin system reads and mutations use owner retention audit and human-only 
  for(let n=0;n<3;n++)assert.equal((await post('/admin/api/operations',{action:'system_status',args:{}})).status,200);
  const draft=await post('/admin/api/operations',{action:'system_issue_draft',args:{id:w.id,revision:w.revision}});assert.equal(draft.status,200);
  assert.equal(store.db.prepare('SELECT count(*) AS n FROM manager_actions WHERE conversation_id IS NULL').get().n,0);
- const current=j.detail(w.id),route='/admin/api/system/review';
+ j.classify(w.id,'code_defect',w.revision);const current=j.detail(w.id),route='/admin/api/system/review';
  assert.equal((await post(route,{id:w.id,revision:current.revision},'')).status,401);
  assert.equal((await post(route,{id:w.id,revision:current.revision,classification:'unknown'})).status,400);
  assert.equal((await post(route,{id:w.id,revision:1})).status,409);
@@ -105,18 +104,15 @@ test('MCP derives the agent actor and retains scoped conversation evidence witho
  const rpc=async(method,params)=>{const response=await fetch(base+'/mcp',{method:'POST',headers:{authorization:'Bearer scope','content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});assert.equal(response.status,200);return response.json();};
  const listed=await rpc('tools/list',{});assert.ok(listed.result.tools.some(x=>x.name==='system_issue_draft'));assert.ok(!listed.result.tools.some(x=>/system_(review|classify)/.test(x.name)));
  const response=await rpc('tools/call',{name:'system_issue_draft',arguments:{id:w.id,revision:w.revision}});assert.equal(response.result.isError,undefined);
- assert.ok(j.logs({work_id:w.id}).items.some(e=>e.event==='classification_changed'&&e.details.actor==='agent'));
+ assert.deepEqual(j.detail(w.id),w);assert.ok(!j.logs({work_id:w.id}).items.some(e=>e.event==='classification_changed'));
  assert.equal(store.db.prepare('SELECT count(*) AS n FROM manager_actions WHERE conversation_id=?').get(conversation.id).n,1);
- const denied=await rpc('tools/call',{name:'system_review',arguments:{id:w.id,revision:2}});assert.equal(denied.result.isError,true);assert.equal(j.detail(w.id).classification,'code_defect');
+ const denied=await rpc('tools/call',{name:'system_review',arguments:{id:w.id,revision:2}});assert.equal(denied.result.isError,true);assert.equal(j.detail(w.id).classification,w.classification);
 });
 
-test('code-defect evidence survives retention after verified health until a human reviews classification',async t=>{
+test('completed diagnostic evidence follows retention without a human release step',async t=>{
  let at=1000;const j=journal(t,'manager',()=>at),facade=owner(j),w=work(j);
  const defect=await system.executeSystemOwner(facade,'classify',{id:w.id,revision:w.revision},{actor:'agent'});
- const completed=j.work({...defect,state:'completed',attempted:false});at=10000;
- j.prune({cutoff:5000,limit:100});assert.ok(j.detail(w.id));assert.ok(j.logs({work_id:w.id}).items.length);
- await system.executeSystemOwner(facade,'review',{id:w.id,revision:completed.revision},{actor:'admin'});at=20000;
- j.prune({cutoff:15000,limit:100});assert.equal(j.detail(w.id),null);
+ j.work({...defect,state:'completed',attempted:false});at=10000;j.prune({cutoff:5000,limit:100});assert.equal(j.detail(w.id),null);assert.equal(j.logs({work_id:w.id}).items.length,0);
 });
 
 test('a lost mutation response reports unknown and fresh evidence never repeats the owner action',async t=>{

@@ -374,9 +374,24 @@ export class AgentRuntime {
     }catch(error){systemFailure(this.journal,{...work,code:'CLEANUP_FAILED',attempted:false},error);return false;}
   }
   async retryTransientCleanup({limit=50}={}) {
-    if(!this.journal)return;
-    const page=this.journal.issues({module:'cleanup',limit,...(this.cleanupCursor?{cursor:this.cleanupCursor}:{})});this.cleanupCursor=page.next_cursor;
-    for(const work of page.items)if(work.id.startsWith('runner:work:transient-cleanup.')&&['retrying','blocked','unknown'].includes(work.state))await this.cleanupTransient(work.target_id);
+    if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new Error('INVALID_LIMIT');
+    const seen=new Set();
+    try {
+      const page=this.journal?.issues({module:'cleanup',limit,...(this.cleanupCursor?{cursor:this.cleanupCursor}:{})});this.cleanupCursor=page?.next_cursor;
+      for(const work of page?.items??[])if(work.id.startsWith('runner:work:transient-cleanup.')&&['retrying','blocked','unknown'].includes(work.state)){seen.add(work.target_id);await this.cleanupTransient(work.target_id);}
+    }catch{this.cleanupCursor=undefined;}
+    // Owner launch markers remain authoritative even if observation writes were lost.
+    const root=join(this.workspace,'.agent-runs');let entries;
+    try{await containedPath(this.workspace,root,{allowMissing:true});entries=await readdir(root,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
+    const ids=entries.filter(entry=>entry.isDirectory()&&validId(entry.name)).map(entry=>entry.name).sort();
+    let batch=ids.filter(id=>!this.cleanupFallbackCursor||id>this.cleanupFallbackCursor).slice(0,limit);
+    if(!batch.length){this.cleanupFallbackCursor=undefined;batch=ids.slice(0,limit);}
+    for(const id of batch){
+      this.cleanupFallbackCursor=id;if(seen.has(id))continue;
+      const paths=[join(root,id,'work'),join(this.codexHome,'runs',id)];let pending=false;
+      for(const path of paths)try{await lstat(path);pending=true;}catch(error){if(error.code!=='ENOENT')pending=true;}
+      if(pending)await this.cleanupTransient(id);
+    }
   }
   async closeRun(state, code) {
     const runId = state.run.run_id;

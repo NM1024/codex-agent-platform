@@ -12,7 +12,7 @@ import {ManagerStore} from '../src/manager/store.mjs';
 import {ManagementAgent} from '../src/manager/agent.mjs';
 const base=tmpdir();
 function journal(t,service='manager'){const db=new DatabaseSync(':memory:');t.after(()=>db.close());return new SystemJournal({db,service});}
-test('maintenance authorizes revision and code-defect boundaries, coalesces duplicates and rereads state',async t=>{
+test('maintenance authorizes revisions and owner actions independently of diagnostic tags, coalesces duplicates and rereads state',async t=>{
  const j=journal(t);let release,calls=0;const gate=new Promise(r=>release=r);
  const w=j.work({id:'cleanup.a',module:'cleanup',state:'retrying',allowed_actions:['cleanup_retry','health_check']});
  const maintain=createSystemMaintenance({journal:j,actions:{cleanup_retry:async({work})=>{calls++;await gate;j.work({...work,state:'completed',attempted:false});},health_check:async()=>({accepted:true})}});
@@ -20,7 +20,7 @@ test('maintenance authorizes revision and code-defect boundaries, coalesces dupl
  const a=maintain(args),b=maintain(args);release();const [one,two]=await Promise.all([a,b]);assert.equal(calls,1);assert.equal(one.work.state,'completed');assert.deepEqual(one,two);
  await assert.rejects(maintain(args),{code:'SYSTEM_REVISION_CONFLICT'});
  let defect=j.classify(w.id,'code_defect',one.work.revision);
- await assert.rejects(maintain({...args,revision:defect.revision}),{code:'SYSTEM_CODE_DEFECT'});
+ const retried=await maintain({...args,revision:defect.revision});assert.equal(calls,2);assert.equal(retried.work.state,'completed');defect=retried.work;
  const checked=await maintain({id:w.id,revision:defect.revision,action:'health_check'});assert.equal(checked.work.revision,defect.revision);
  await assert.rejects(maintain({id:w.id,revision:defect.revision,action:'health_check',path:'/tmp'}),{code:'SYSTEM_QUERY_INVALID'});
  await assert.rejects(maintain({...args,id:'runner:work:cleanup.a'}),{code:'SYSTEM_SOURCE_MISMATCH'});
@@ -118,8 +118,8 @@ test('configured callback loopback failure records safe terminal evidence and ne
  const delivery=configuredDelivery({url:`http://127.0.0.1:${server.address().port}/hook?secret=private`});await delivery.execute({store,task});assert.equal(observed,'unknown');const work=j.issues({module:'delivery'}).items[0];assert.equal(work.state,'blocked');assert.equal(work.details.status_code,503);assert.deepEqual(work.allowed_actions,[]);await delivery.execute({store,task});assert.equal(calls,1);assert.ok(!JSON.stringify(j.logs()).includes('private'));
 });
 import {systemDue,systemFailure,systemObserve} from '../src/observability/system-maintenance.mjs';
-test('code defect classification survives later observations and cannot authorize automatic repair',t=>{
- const j=journal(t);let work=j.work({id:'cleanup.defect',module:'cleanup',state:'retrying',allowed_actions:['cleanup_retry']});j.classify(work.id,'code_defect',work.revision);assert.equal(systemDue(j,'cleanup.defect'),false);assert.equal(systemDue(j,'cleanup.defect',{force:true}),false);systemFailure(j,{id:'cleanup.defect',module:'cleanup',code:'CLEANUP_FAILED'},new Error('offline'));assert.equal(j.detail(work.id).classification,'code_defect');systemObserve(j,{id:'cleanup.defect',module:'cleanup',state:'unknown',classification:'transient'});assert.equal(j.detail(work.id).classification,'code_defect');
+test('diagnostic classification preserves observations without disabling normal scheduling',t=>{
+ const j=journal(t);let work=j.work({id:'cleanup.defect',module:'cleanup',state:'retrying',allowed_actions:['cleanup_retry']});j.classify(work.id,'code_defect',work.revision);assert.equal(systemDue(j,'cleanup.defect'),true);assert.equal(systemDue(j,'cleanup.defect',{force:true}),true);systemFailure(j,{id:'cleanup.defect',module:'cleanup',code:'CLEANUP_FAILED'},new Error('offline'));assert.equal(j.detail(work.id).classification,'code_defect');systemObserve(j,{id:'cleanup.defect',module:'cleanup',state:'unknown',classification:'transient'});assert.equal(j.detail(work.id).classification,'code_defect');
 });
 test('sandbox helper unavailability is truthful and recovery is observed without host log access',async t=>{
  const root=await mkdtemp(join(base,'helper-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=new ManagerStore(':memory:');t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'manager'});let offline=true;
@@ -151,19 +151,19 @@ test('runtime reconciliation does not claim completion while an orphan stop rema
 test('notification reservation exposes unresolved outcome before remote acknowledgement',async t=>{
  const j=journal(t,'gateway');let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);t.after(()=>release());const store=new NotificationStore({db:j.db,journal:j,fetchImpl:async()=>{entered();await gate;return new Response('ok');}});const channel=store.saveChannel({name:'Synthetic',provider:'custom',url:'https://example.invalid/hook',enabled:true}),owner={kind:'task',id:'task-a'};store.setBinding(owner,[channel.id]);const sending=store.send(owner,{notification_key:'one',deliveries:[{channel_id:channel.id,body:{text:'private'}}]});await started;assert.equal(j.issues({module:'notifications'}).items[0]?.state,'unknown');release();await sending;assert.equal(j.issues({module:'notifications'}).items.length,0);assert.equal(j.works({module:'notifications'}).items[0].attempts,1);
 });
-for(const correction of ['schedule','plugin'])test(`corrected ${correction} releases schedule configuration blocking without replaying terminal tasks or code defects`,async t=>{
+for(const correction of ['schedule','plugin'])test(`corrected ${correction} releases schedule configuration blocking without replaying terminal tasks or letting diagnostic tags block future schedules`,async t=>{
  const registry=new BusinessRegistry(),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});
  store.plugins.save({type:'test.schedule',name:'Synthetic',instructions:'Synthetic',input_schema:{type:'object'},result_schema:{type:'object'},capabilities:{tools:[]},delivery:{mode:'none'}});
  const service=new OperationsService({store,journal:j,config:{concurrency:1},runner:{},dispatcher:{}}),start=Date.now();
  const plan=service.schedules.save({name:'Synthetic',kind:'task',type:'test.schedule',input:{},cron:'* * * * *',timezone:'UTC'},start);
  store.plugins.setEnabled('test.schedule',false);await service.schedules.tick(plan.next_run_at);const id='gateway:work:schedule-trigger.'+plan.id;
  assert.equal(j.detail(id).state,'blocked');assert.equal(store.queued().length,0);
- const failed=j.detail(id);await service.schedules.tick(plan.next_run_at+1000);assert.equal(j.detail(id).revision,failed.revision);
+ const failed=j.detail(id);j.classify(id,'code_defect',failed.revision);const tagged=j.detail(id);await service.schedules.tick(plan.next_run_at+1000);assert.equal(j.detail(id).revision,tagged.revision);
  store.plugins.setEnabled('test.schedule',true);if(correction==='schedule')service.schedules.save({...plan},start);await service.schedules.tick(plan.next_run_at);
  assert.equal(store.queued().length,1);assert.equal(j.detail(id).state,'completed');
  const run=store.claim(store.queued()[0].task_id);store.fail(run.run_id,'SYNTHETIC_FAILURE');
  const work=j.detail(id);j.classify(id,'code_defect',work.revision);service.schedules.save({...plan},start);await service.schedules.tick(plan.next_run_at+60000);
- assert.equal(store.queued().length,0);assert.equal(store.unfinished().length,0);assert.equal(j.detail(id).classification,'code_defect');
+ assert.equal(store.queued().length,1);assert.equal(store.unfinished().length,0);assert.equal(j.detail(id).classification,'code_defect');
 });
 test('human connection repair releases a blocked schedule without a schedule or plugin revision change',async t=>{
  const registry=new BusinessRegistry([],{requirePluginConnections:true}),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});

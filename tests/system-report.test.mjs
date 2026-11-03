@@ -6,14 +6,14 @@ import {createSystemOperations,executeSystemOwner} from '../src/observability/sy
 import {NotificationStore} from '../src/notifications/store.mjs';
 import {observeSystemUpgrade,observeSystemVersion,observeSystemApiError} from '../src/observability/system-report.mjs';
 
-test('code-defect draft is bounded sanitized current evidence and guarded escalation without external submission',async t=>{
+test('code-defect draft is bounded sanitized current evidence without changing execution state without external submission',async t=>{
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());const j=new SystemJournal({db,service:'manager'}),w=j.work({id:'cleanup',module:'cleanup',state:'blocked',code:'EACCES',allowed_actions:['cleanup_retry']});
  const ops=createSystemOperations({local:()=>({journal:j}),version:'1.0.4'});
  const draft=await ops.execute('system_issue_draft',{id:w.id,revision:w.revision,diagnosis:'Bearer abcdef123456; token=private-token; "password":"quoted-private"; server=private-deployment; https://private.example.test/a?key=secret /data/deployment/secret user@example.test 192.0.2.8',expected:'Directory cleared',actual:'Still pending',reproduction:'Run the allowed cleanup',source_refs:['src/observability/system-journal.mjs:10','/etc/shadow','https://internal.example.test/secret','src/private-deployment/secret-token.mjs']},{actor:'agent'});
  assert.equal(draft.classification,'code_defect');assert.equal(draft.submitted,false);assert.equal(draft.repository_url,'https://github.com/NM1024/codex-agent-platform');
  for(const secret of ['abcdef123456','private-token','private.example.test','/data/deployment','user@example.test','192.0.2.8','/etc/shadow','internal.example.test','quoted-private','private-deployment','secret-token'])assert.ok(!draft.markdown.includes(secret),secret);
  for(const fact of ['1.0.4','EACCES','Directory cleared','Still pending','Run the allowed cleanup','Uncertainty','src/observability/system-journal.mjs:10'])assert.ok(draft.markdown.includes(fact),fact);
- assert.ok(draft.evidence_ids.includes(w.id));assert.equal(j.detail(w.id).classification,'code_defect');assert.equal(j.detail(w.id).resolved_at,null);
+ assert.ok(draft.evidence_ids.includes(w.id));assert.deepEqual(j.detail(w.id),w);assert.equal(j.detail(w.id).resolved_at,null);j.work({...w,state:'unknown'});
  await assert.rejects(ops.execute('system_issue_draft',{id:w.id,revision:w.revision}),{code:'SYSTEM_REVISION_CONFLICT'});
  await assert.rejects(ops.execute('system_issue_draft',{id:w.id,revision:j.detail(w.id).revision,actual:'x'.repeat(2001)}));
 });
@@ -56,7 +56,7 @@ test('final issue drafts scrub complete short credential assignments across nami
  }
 });
 
-test('in-flight notification completion preserves drafted code-defect evidence until revision-checked human review',async t=>{
+test('drafting during notification delivery does not change work or delay completed evidence retention',async t=>{
  const db=new DatabaseSync(':memory:');t.after(()=>db.close());let now=100,entered,release,sends=0;
  const started=new Promise(resolve=>entered=resolve),journal=new SystemJournal({db,service:'gateway',now:()=>now});
  const store=new NotificationStore({db,journal,now:()=>now,fetchImpl:async()=>{sends++;entered();await new Promise(resolve=>release=resolve);return new Response('ok');}});
@@ -64,15 +64,11 @@ test('in-flight notification completion preserves drafted code-defect evidence u
  store.setBinding(owner,[channel.id]);const sending=store.send(owner,{notification_key:'synthetic-race',deliveries:[{channel_id:channel.id,body:{text:'synthetic'}}]});await started;
  const ops=createSystemOperations({remote:(service,operation,args,context)=>executeSystemOwner({journal},operation,args,context)});
  const before=journal.works().items[0],evidence=journal.logs({work_id:before.id}).items[0];assert.equal(before.state,'unknown');
- try{await ops.execute('system_issue_draft',{id:before.id,revision:before.revision});assert.equal(journal.detail(before.id).classification,'code_defect');}
+ try{await ops.execute('system_issue_draft',{id:before.id,revision:before.revision});assert.deepEqual(journal.detail(before.id),before);}
  finally{now=200;release();await sending;}
  const completed=journal.detail(before.id);assert.equal(store.history(owner).items[0].status,'accepted');assert.equal(sends,1);
- assert.equal(completed.classification,'code_defect');assert.equal(completed.state,'completed');assert.equal(completed.completed_at,200);assert.equal(completed.resolved_at,200);
- now=1000;journal.prune({cutoff:500,limit:100});assert.ok(journal.detail(before.id));assert.ok(journal.detail(evidence.id));
- await assert.rejects(ops.review({id:before.id,revision:before.revision}),{code:'SYSTEM_REVISION_CONFLICT'});
- await assert.rejects(executeSystemOwner({journal},'review',{id:before.id,revision:completed.revision},{actor:'agent'}),{code:'SYSTEM_HUMAN_REQUIRED'});
- const reviewed=await ops.review({id:before.id,revision:completed.revision});assert.equal(reviewed.work.classification,'unknown');assert.equal(reviewed.work.completed_at,200);assert.equal(reviewed.work.resolved_at,200);
- now=2000;journal.prune({cutoff:1500,limit:100});assert.equal(journal.detail(before.id),null);assert.equal(journal.detail(evidence.id),null);assert.equal(sends,1);
+ assert.equal(completed.classification,before.classification);assert.equal(completed.state,'completed');assert.equal(completed.completed_at,200);assert.equal(completed.resolved_at,200);
+ now=1000;journal.prune({cutoff:500,limit:100});assert.equal(journal.detail(before.id),null);assert.equal(journal.detail(evidence.id),null);assert.equal(sends,1);
 });
 
 test('final drafts inspect credential assignments inside harmless labels and nested diagnostic strings in every note',async t=>{

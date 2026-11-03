@@ -64,22 +64,6 @@ test('initial all-source HTTP 200 outage shows unavailable evidence and recovery
  await expect(page.locator('#system-metrics strong').first()).toHaveText('1');await availability(page,'all',true);await page.locator('#system-refresh').click();await expect(rows(page)).toHaveCount(20);
 });
 
-for(const outage of ['runner','all'])test(`real HTTP 200 ${outage} outage after human review preserves page-two evidence and fresh owner facts`,async({page})=>{
- await navigate(page,'system');await page.getByRole('tab',{name:'后台工作',exact:true}).click();await expect(rows(page)).toHaveCount(20);await page.getByRole('button',{name:'下一页',exact:true}).click();await expect(rows(page).filter({hasText:'runner:work:stale'})).toHaveCount(1);const beforeCount=await rows(page).count();
- const id='manager:work:defect';await rows(page).filter({hasText:id}).getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail')).toContainText(id);
- let mutations=0;await page.route('**/admin/api/system/review',async route=>{mutations++;const response=await route.fetch();expect(response.ok()).toBeTruthy();await availability(page,outage,false);await route.fulfill({response});});
- await page.locator('#system-detail').getByRole('button',{name:'重新开放维护',exact:true}).click();await page.getByRole('dialog',{name:'重新开放维护',exact:true}).getByRole('button',{name:'确认重新开放',exact:true}).click();
- if(outage==='all'){
-  await expect(page.locator('#system-detail')).toContainText('数据可能过期');await expect(page.locator('#system-detail')).toContainText('记录版本');
-  await expect(page.locator('#system-detail').getByRole('button',{name:'交给管理 Agent',exact:true})).toBeDisabled();
- }else await expect(page.locator('#system-detail')).toContainText('已解除代码缺陷分类');
- expect(mutations).toBe(1);await page.getByRole('button',{name:'关闭',exact:true}).click();
- await expect(rows(page).filter({hasText:'runner:work:stale'})).toContainText('数据可能过期');await expect(page.locator('#system-page')).toContainText('暂停分页');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'上一页',exact:true})).toBeDisabled();
- if(outage==='all'){await expect(rows(page)).toHaveCount(beforeCount);await expect(page.locator('#system-metrics strong')).toHaveText(['—','—','—','—']);}
- await availability(page,'all',true);await page.locator('#system-refresh').click();await expect(rows(page)).toHaveCount(20);await expect(page.locator('#system-page')).not.toContainText('暂停分页');
- await openWork(page,id);await expect(page.locator('#system-detail')).not.toContainText('数据可能过期');expect(mutations).toBe(1);
-});
-
 test('one management entry locks duplicate clicks and does not execute maintenance or classify on handoff',async({page})=>{
  let starts=0,mutations=0;
  await page.route('**/admin/api/operations',async route=>{if(['system_maintain','system_issue_draft'].includes(route.request().postDataJSON()?.action))mutations++;await route.continue();});
@@ -91,14 +75,12 @@ test('one management entry locks duplicate clicks and does not execute maintenan
  const {age_ms,progress_age_ms,...storedBefore}=before;expect((await op(page,'system_issue',{id:before.id})).work).toMatchObject(storedBefore);
 });
 
-test('human review reopens code-defect classification without claiming recovery',async({page})=>{
- await navigate(page,'system');await openWork(page,'manager:work:defect');
- await expect(page.locator('#system-detail .system-detail-actions button')).toHaveCount(3);
- let calls=0;await page.route('**/admin/api/system/review',async route=>{calls++;await new Promise(r=>setTimeout(r,150));await route.continue();});
- await page.locator('#system-detail').getByRole('button',{name:'重新开放维护',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'重新开放维护',exact:true});await expect(dialog).toContainText('不代表已经恢复');await expect(dialog).toContainText('开发者');
- await dialog.getByRole('button',{name:'确认重新开放',exact:true}).evaluate(el=>{el.click();el.click();});await expect(dialog).toHaveCount(0);expect(calls).toBe(1);
- await expect(page.locator('#system-detail')).toContainText('已解除代码缺陷分类');const detail=await op(page,'system_issue',{id:'manager:work:defect'});expect(detail.work.classification).toBe('unknown');expect(detail.work.resolved_at).toBeNull();expect(detail.work.state).toBe('blocked');
+test('diagnostic work has the same two actions and related logs remain a read-only view',async({page})=>{
+ await navigate(page,'system');await openWork(page,'manager:work:defect');await expect(page.locator('#system-detail .system-detail-actions button')).toHaveCount(2);
+ const before=(await op(page,'system_issue',{id:'manager:work:defect'})).work;
+ await page.locator('#system-detail').getByRole('button',{name:'查看关联日志',exact:true}).click();await expect(page.getByRole('tab',{name:'系统日志',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(rows(page)).not.toHaveCount(0);for(const row of await rows(page).all())await expect(row).toContainText('HANDOFF_FAILED');
+ const after=(await op(page,'system_issue',{id:before.id})).work;expect(after.revision).toBe(before.revision);expect(after.state).toBe(before.state);expect(after.classification).toBe(before.classification);
 });
 
 test('explicit Agent management creates a fresh conversation and preserves unrelated composer text and image',async({page})=>{
@@ -138,26 +120,8 @@ test('refresh failure on a later page retains its evidence and never presents an
  await page.locator('#system-refresh').click();await expect(page.locator('#system-page')).toContainText('数据可能过期');expect(await rows(page).allTextContents()).toEqual(ids);
 });
 
-test('current revision conflicts reload authority and delayed closed details do not overwrite another owner',async({page})=>{
- await navigate(page,'system');await openWork(page,'manager:work:defect');
- const current=await op(page,'system_issue',{id:'manager:work:defect'});await op(page,'system_issue_draft',{id:current.work.id,revision:current.work.revision});
- await page.locator('#system-detail').getByRole('button',{name:'重新开放维护',exact:true}).click();await page.getByRole('dialog',{name:'重新开放维护',exact:true}).getByRole('button',{name:'确认重新开放',exact:true}).click();await expect(page.locator('#system-detail')).toContainText('操作未完成');await expect(page.locator('#system-detail')).toContainText('候选代码缺陷');
- await page.getByRole('dialog',{name:'重新开放维护',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await expect(page.getByRole('dialog',{name:'重新开放维护',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'关闭',exact:true}).click();
- await page.route('**/admin/api/operations',async route=>{const body=route.request().postDataJSON();if(body?.action==='system_issue'&&body.args.id==='manager:work:permissions')await new Promise(r=>setTimeout(r,300));await route.continue();});
+test('delayed closed details do not overwrite another owner',async({page})=>{
+ await navigate(page,'system');await page.route('**/admin/api/operations',async route=>{const body=route.request().postDataJSON();if(body?.action==='system_issue'&&body.args.id==='manager:work:permissions')await new Promise(r=>setTimeout(r,300));await route.continue();});
  await search(page,'manager:work:permissions');await rows(page).first().getByRole('button',{name:'详情',exact:true}).click();await page.getByRole('button',{name:'关闭',exact:true}).click();
- await openWork(page,'gateway:work:configuration');await expect(page.locator('#system-detail')).toContainText('Runner 不可用');await expect(page.locator('#system-detail')).not.toContainText('候选代码缺陷');
-});
-
-test('post-review refresh retains page-two evidence and disables unsafe actions after unavailable follow-ups',async({page})=>{
- await navigate(page,'system');await expect(rows(page)).toHaveCount(20);await page.getByRole('button',{name:'下一页',exact:true}).click();await expect(rows(page)).toHaveCount(5);
- await expect(page.locator('#system-pagination')).toContainText('第 2 页');const before=await rows(page).allTextContents();const id='manager:work:defect';
- await rows(page).filter({hasText:id}).getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail')).toContainText(id);
- let failFollowups=false,mutations=0;
- await page.route('**/admin/api/operations',async route=>failFollowups?route.fulfill({status:503,json:{error:{code:'SYSTEM_SOURCE_UNAVAILABLE'}}}):route.continue());
- await page.route('**/admin/api/system/review',async route=>{mutations++;expect(route.request().postDataJSON()).toEqual({id,revision:1});const response=await route.fetch();expect(response.ok()).toBeTruthy();failFollowups=true;await route.fulfill({response});});
- await page.locator('#system-detail').getByRole('button',{name:'重新开放维护',exact:true}).click();await page.getByRole('dialog',{name:'重新开放维护',exact:true}).getByRole('button',{name:'确认重新开放',exact:true}).click();
- await expect(page.locator('#system-detail')).toContainText('详情暂时无法读取');await expect(page.locator('#system-detail').getByRole('button',{name:'交给管理 Agent',exact:true})).toBeDisabled();await expect(page.locator('#system-detail').getByRole('button',{name:'重新开放维护',exact:true})).toBeDisabled();
- expect(mutations).toBe(1);await page.getByRole('button',{name:'关闭',exact:true}).click();await expect(page.locator('#system-page')).toContainText('数据可能过期');
- await expect(rows(page)).toHaveCount(5);expect(await rows(page).allTextContents()).toEqual(before);await expect(page.locator('#system-pagination')).toContainText('第 2 页');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeDisabled();
- failFollowups=false;await page.locator('#system-refresh').click();await expect(rows(page)).toHaveCount(20);await expect(page.locator('#system-pagination')).toContainText('第 1 页');await expect(page.locator('#system-page')).not.toContainText('数据可能过期');expect(mutations).toBe(1);
+ await openWork(page,'gateway:work:configuration');await expect(page.locator('#system-detail')).toContainText('Runner 不可用');await expect(page.locator('#system-detail')).not.toContainText('权限问题');
 });

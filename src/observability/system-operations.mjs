@@ -56,7 +56,7 @@ function recordProjection(raw,service,kind,now) {
   return {...base,event:raw.event,level:raw.level,state:raw.state,work_id:raw.work_id,first_seen_at:raw.first_seen_at,last_seen_at:raw.last_seen_at,count:raw.count};
  }
  if(!SYSTEM_STATES.includes(raw.state)||!SYSTEM_CLASSIFICATIONS.includes(raw.classification)||!Array.isArray(raw.allowed_actions)||raw.allowed_actions.some(x=>!SYSTEM_ACTIONS.includes(x))||raw.allowed_actions.length>SYSTEM_ACTIONS.length||!Number.isSafeInteger(raw.revision)||raw.revision<1||['updated_at','last_progress_at','attempts','consecutive_failures','pending_count','issue_count'].some(k=>!time(raw[k]))||optionalTimes.some(k=>raw[k]!==null&&!time(raw[k])))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
- const work={...base,title:raw.module,state:raw.state,classification:raw.classification,allowed_actions:[...new Set(raw.allowed_actions)].filter(x=>raw.classification!=='code_defect'||x==='health_check'),revision:raw.revision};
+ const work={...base,title:raw.module,state:raw.state,classification:raw.classification,allowed_actions:[...new Set(raw.allowed_actions)],revision:raw.revision};
  for(const key of ['updated_at','last_progress_at','attempts','consecutive_failures','pending_count','issue_count',...optionalTimes])work[key]=raw[key];
  // Three trusted owner wake intervals plus request slack. This is only a read
  // annotation; it never modifies state/timestamps or admits duplicate work.
@@ -126,7 +126,6 @@ export function createSystemOperations({local,remote,now=Date.now,version='unkno
    if(name==='system_issue_draft') {
     const fresh=await detail(args.id);if(!fresh.sources[0].available)throw fault('SYSTEM_SOURCE_UNAVAILABLE');if(!fresh.work)throw fault('SYSTEM_WORK_NOT_FOUND');if(fresh.work.revision!==args.revision)throw fault('SYSTEM_REVISION_CONFLICT');
     const related=await query('logs',{work_id:args.id,limit:20},[fresh.work.service]);if(!related.sources[0].available)throw fault('SYSTEM_SOURCE_UNAVAILABLE');
-    await mutate('classify',{id:args.id,revision:args.revision},{actor});
     return buildSystemIssueDraft({work:fresh.work,events:related.results[0].value.items,notes:args,version});
    }
    const operation={system_logs:'logs',system_work:'work',system_issue:'issue'}[name];

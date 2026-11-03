@@ -272,14 +272,14 @@ export class SystemJournal {
     }catch{this.unavailable();return {service:this.service,collected_at:this.now(),health:{...this.health},states:null,unresolved:null,recovered_24h:null};}
   }
   /** Caller MUST gate by existing retention.enabled/days; cutoff is explicit, no independent age default.
-   * A batch deletes at most limit rows total. All events linked to unfinished/unresolved or
-   * code_defect work stay, including after a health check records verified completion.
+   * A batch deletes at most limit rows total. All events linked to unfinished/unresolved work stay.
+   * Diagnostic classifications do not extend retention after verified completion.
    * Work with newer linked evidence stays until that evidence becomes eligible, preserving history.
    */
   prune({cutoff,limit=50}={}) {
     if(!time(cutoff)||!Number.isSafeInteger(limit)||limit<1||limit>100)throw fail('SYSTEM_QUERY_INVALID');
     return this.read(()=>this.write(()=>{
-      const eligible="w.state IN ('completed','idle','disabled') AND (w.issue_opened_at IS NULL OR w.resolved_at IS NOT NULL) AND json_extract(w.record,'$.classification')!='code_defect'";
+      const eligible="w.state IN ('completed','idle','disabled') AND (w.issue_opened_at IS NULL OR w.resolved_at IS NOT NULL)";
       const events=this.db.prepare(`SELECT e.id FROM system_events e WHERE e.service=? AND e.last_seen_at<? AND NOT EXISTS(SELECT 1 FROM system_work w WHERE w.id=e.work_id AND NOT (${eligible})) ORDER BY e.created_at,e.id LIMIT ?`).all(this.service,cutoff,limit);
       for(const row of events)this.db.prepare('DELETE FROM system_events WHERE id=?').run(row.id);
       const works=this.db.prepare(`SELECT w.id FROM system_work w WHERE w.service=? AND w.updated_at<? AND ${eligible} AND NOT EXISTS(SELECT 1 FROM system_events e WHERE e.work_id=w.id) ORDER BY w.updated_at,w.id LIMIT ?`).all(this.service,cutoff,limit-events.length);

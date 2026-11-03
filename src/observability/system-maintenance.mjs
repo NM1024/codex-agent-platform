@@ -3,8 +3,8 @@ import {parseSystemId,safeSystemDetails} from './system-journal.mjs';
 const fault=code=>Object.assign(new Error(code),{code});
 export function systemWork(journal,id){try{return journal?.detail(`${journal.service}:work:${id}`);}catch{return null;}}
 export function systemDue(journal,id,{force=false,now=Date.now()}={}){
- let work;try{work=journal?.detail(`${journal.service}:work:${id}`);}catch{return false;}
- return work?.classification!=='code_defect'&&(force||!work||work.state!=='blocked'&&(!work.next_retry_at||work.next_retry_at<=now));
+ let work;try{work=journal?.detail(`${journal.service}:work:${id}`);}catch{return true;}
+ return force||!work||work.state!=='blocked'&&(!work.next_retry_at||work.next_retry_at<=now);
 }
 export function systemFailure(journal,input,error){
  const candidate=error?.code??error?.message,code=Object.hasOwn(SYSTEM_CODES,candidate)?candidate:input.code??'SYSTEM_ERROR';
@@ -31,7 +31,6 @@ export function createSystemMaintenance({journal,actions={}}){
   const identity=parseSystemId(args.id);if(identity?.kind!=='work')throw fault('SYSTEM_QUERY_INVALID');if(identity.service!==journal.service)throw fault('SYSTEM_SOURCE_MISMATCH');
   const key=args.id,existing=active.get(key);if(existing){if(existing.action===args.action&&existing.revision===args.revision)return existing.promise;throw fault('SYSTEM_WORK_BUSY');}
   const work=journal.detail(args.id);if(!work)throw fault('SYSTEM_WORK_NOT_FOUND');if(work.revision!==args.revision)throw fault('SYSTEM_REVISION_CONFLICT');
-  if(work.classification==='code_defect'&&args.action!=='health_check')throw fault('SYSTEM_CODE_DEFECT');
   if(!work.allowed_actions.includes(args.action)||!Object.hasOwn(actions,args.action))throw fault('SYSTEM_ACTION_UNSUPPORTED');
   const promise=Promise.resolve().then(async()=>{
    journal.event({module:work.module,event:'maintenance_requested',work_id:work.id,target_id:work.target_id,details:{phase:'verify',revision:work.revision,actor,action:args.action},code:'WORK_RUNNING'});

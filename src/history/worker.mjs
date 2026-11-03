@@ -43,24 +43,28 @@ export class HistoryRetentionWorker {
       this.save(state);
     }
     if(state.completed_at!==null){await this.reclaim(state,{force});return state;}
+    let journalUnavailable=false;
     for(let batch=0;batch<this.maxBatches&&!this.closed;batch++) {
       const current=validatePolicy(await this.readPolicy());
       if(!current.enabled||current.revision!==policy.revision||current.days!==policy.days)break;
       const result=state.history_done?{hasMore:false}:await this.runBatch({cutoff:state.cutoff,now,cursor:state.cursor,limit:this.batchSize});
       state.history_done=!result.hasMore;
-      const local=state.journal_done?{deleted:0}:this.journal?.prune({cutoff:Math.max(0,state.cutoff),limit:this.batchSize});
-      state.journal_done=!local||local.deleted<this.batchSize;
-      const remote=state.remote_done?{hasMore:false}:await this.pruneRemote?.({policy,cutoff:Math.max(0,state.cutoff),limit:this.batchSize});
-      state.remote_done=!remote?.hasMore;
+      let local;
+      try{local=state.journal_done?{deleted:0}:this.journal?.prune({cutoff:Math.max(0,state.cutoff),limit:this.batchSize});state.journal_done=!local||local.deleted<this.batchSize;}
+      catch{journalUnavailable=true;state.journal_done=false;}
+      let remote;
+      try{remote=state.remote_done?{hasMore:false}:await this.pruneRemote?.({policy,cutoff:Math.max(0,state.cutoff),limit:this.batchSize});state.remote_done=!remote?.hasMore;}
+      catch{journalUnavailable=true;state.remote_done=false;}
       result.deleted=(result.deleted??0)+(local?.deleted??0)+(remote?.deleted??0);
       state.cursor=result.cursor??state.cursor;state.deleted+=result.deleted??0;state.failed+=result.failed??0;
       if(result.deleted)state.compaction_pending=true;
       if(state.history_done&&state.journal_done&&state.remote_done)state.completed_at=now;
       this.save(state);
       if(state.completed_at!==null){await this.reclaim(state,{force});this.onSweep(state);break;}
+      if(journalUnavailable)break;
       await new Promise(resolve=>setImmediate(resolve));
     }
-    systemObserve(this.journal,{id:'history-sweep',module:'retention',state:state.completed_at===null?'running':state.failed?'unknown':'completed',code:state.failed?'RETENTION_FAILED':'RETENTION_COMPLETED',allowed_actions:['history_sweep'],details:{deleted:state.deleted,failed:state.failed,phase:'scan'}});
+    systemObserve(this.journal,{id:'history-sweep',module:'retention',state:journalUnavailable?'unknown':state.completed_at===null?'running':state.failed?'unknown':'completed',code:state.failed||journalUnavailable?'RETENTION_FAILED':'RETENTION_COMPLETED',allowed_actions:['history_sweep'],details:{deleted:state.deleted,failed:state.failed,phase:'scan'}});
     return state;
   }
   async stop(){this.closed=true;await this.current?.catch(()=>{});}

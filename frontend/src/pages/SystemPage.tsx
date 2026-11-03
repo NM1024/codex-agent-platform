@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Card,Empty,Input,Modal,Select,Space,Table,Tabs,Typography} from 'antd';
+import {Alert,Button,Card,Empty,Input,Select,Space,Table,Tabs,Typography} from 'antd';
 import {useConsole} from '../context';
 import {LoadingState,Panel,Status,TableField,TableIdentifier} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
@@ -20,8 +20,8 @@ export default function SystemPage(){
  const [status,setStatus]=useState<SystemStatus>(),[statusError,setStatusError]=useState(false),[statusLoading,setStatusLoading]=useState(true);
  const [page,setPage]=useState<SystemPageEvidence>(),[loading,setLoading]=useState(true),[pageError,setPageError]=useState(false),[loadedPage,setLoadedPage]=useState(1);
  const [selection,setSelection]=useState<{id:string;event?:SystemEvent}>(),[detail,setDetail]=useState<SystemDetail>(),[detailError,setDetailError]=useState(false),[detailLoading,setDetailLoading]=useState(false);
- const [busy,setBusy]=useState(false),[handoffBusy,setHandoffBusy]=useState(false),[result,setResult]=useState(''),[actionError,setActionError]=useState(''),[reviewOpen,setReviewOpen]=useState(false);
- const listRequest=useRef(0),summaryRequest=useRef(0),detailRequest=useRef(0),actionLock=useRef(false),handoffLock=useRef(false),alive=useRef(true),loadedQuery=useRef(''),loadedFilters=useRef(''),retainRefresh=useRef(false);
+ const [handoffBusy,setHandoffBusy]=useState(false),[actionError,setActionError]=useState('');
+ const listRequest=useRef(0),summaryRequest=useRef(0),detailRequest=useRef(0),handoffLock=useRef(false),alive=useRef(true),loadedQuery=useRef(''),loadedFilters=useRef(''),retainRefresh=useRef(false);
  const cursor=cursors.at(-1)??'';
  const format=(at?:number|null)=>at===undefined||at===null?'—':new Intl.DateTimeFormat(locale,{dateStyle:'short',timeStyle:'medium'}).format(new Date(at));
  const code=(value:string)=>t(systemCodes[value]??'系统操作失败。');
@@ -45,28 +45,17 @@ export default function SystemPage(){
   if(alive.current&&request===detailRequest.current){setDetail(previous=>preserveSystemDetail(value,previous,id));setDetailError(false);}return value;
  };
  const inspect=async(record:SystemRecord)=>{
-  if(actionLock.current)return;const request=++detailRequest.current;setSelection({id:record.kind==='event'?(record.work_id??record.id):record.id,...(record.kind==='event'?{event:record}:{})});setDetail(record.kind==='work'&&record.service?{work:record,sources:page?.sources.filter(source=>source.service===record.service)??[]}:undefined);setDetailError(false);setActionError('');setResult('');setReviewOpen(false);
+  const request=++detailRequest.current;setSelection({id:record.kind==='event'?(record.work_id??record.id):record.id,...(record.kind==='event'?{event:record}:{})});setDetail(record.kind==='work'&&record.service?{work:record,sources:page?.sources.filter(source=>source.service===record.service)??[]}:undefined);setDetailError(false);setActionError('');
   if(record.kind==='event')return;
   setDetailLoading(true);try{await readDetail(record.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
  };
  const reloadDetail=async()=>{
-  if(!selection||actionLock.current)return;const request=++detailRequest.current;setDetailLoading(true);setActionError('');
+  if(!selection)return;const request=++detailRequest.current;setDetailLoading(true);setActionError('');
   try{await readDetail(selection.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
  };
- const close=()=>{if(actionLock.current)return;detailRequest.current++;setSelection(undefined);setReviewOpen(false);setDetailLoading(false);};
- const review=async()=>{
-  const work=detail?.work;if(!work||actionLock.current||detailError||detailLoading||detail.sources.some(source=>!source.available))return;
-  actionLock.current=true;setBusy(true);setActionError('');setResult('');const request=detailRequest.current;
-  try{
-   await api<SystemDetail>('/system/review',{id:work.id,revision:work.revision});if(alive.current&&request===detailRequest.current){setResult('已解除代码缺陷分类；未执行修复，未确认恢复。');setReviewOpen(false);}
-  }catch{if(alive.current&&request===detailRequest.current)setActionError('操作未完成，请重新读取详情后核对当前版本。');}
-  finally{
-   try{await readDetail(work.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}
-   if(alive.current&&request===detailRequest.current){setBusy(false);refresh();}actionLock.current=false;
-  }
- };
+ const close=()=>{detailRequest.current++;setSelection(undefined);setDetailLoading(false);};
  const analyze=async(id:string)=>{
-  if(handoffLock.current||actionLock.current)return;handoffLock.current=true;setHandoffBusy(true);setActionError('');
+  if(handoffLock.current)return;handoffLock.current=true;setHandoffBusy(true);setActionError('');
   try{const conversation=await api<Conversation>('/conversations',{system_reference:{id}});if(alive.current){setChatId(conversation.id);navigate('chat');}}
   catch{if(alive.current)setActionError('操作未完成，请重新读取详情后核对当前版本。');}
   finally{handoffLock.current=false;if(alive.current)setHandoffBusy(false);}
@@ -122,9 +111,9 @@ export default function SystemPage(){
   </Panel>
   <Typography.Paragraph className="system-retention" type="secondary">{t('系统记录遵循全局历史清理的启用开关与保留天数；未完成工作、未恢复问题及必要证据受保护。')}</Typography.Paragraph>
   <AdminDrawer open={!!selection} title={t(event?'系统事件详情':'系统工作详情')} subtitle={event?.id??selection?.id} width={620} onClose={close}>
-   <div id="system-detail" className="system-detail" aria-busy={detailLoading||busy}>
+   <div id="system-detail" className="system-detail" aria-busy={detailLoading}>
     {detailLoading?<LoadingState/>:event?<>{eventFacts(event)}{event.work_id&&<Button onClick={()=>void inspect({id:event.work_id,kind:'work'} as SystemWork)}>{t('系统工作详情')}</Button>}</>:<>
-     <div className="system-detail-toolbar">{detail&&sources(detail.sources)}<Button disabled={busy} onClick={()=>void reloadDetail()}>{t('重新读取详情')}</Button></div>
+     <div className="system-detail-toolbar">{detail&&sources(detail.sources)}<Button onClick={()=>void reloadDetail()}>{t('重新读取详情')}</Button></div>
      {partial(detail?.sources)&&sourceWarning}
      {detailError&&<Alert type="error" showIcon title={t('详情暂时无法读取，请重试。')}/>}
      {staleDetail&&work&&<Alert type="warning" showIcon title={t('数据可能过期；保留上次读取的证据，来源恢复后请重新读取详情。')}/>}
@@ -137,13 +126,13 @@ export default function SystemPage(){
       <dl className="system-facts">{[
        ['服务与编号',<TableIdentifier value={work.id}/>],['安全原因',<>{code(work.code)} <code>{work.code}</code></>],['记录版本',work.revision],['创建时间',format(work.created_at)],['首次出现',format(work.issue_opened_at)],['最近进展',<>{format(work.last_progress_at)} · {progress(work)}</>],['首次尝试',format(work.first_attempt_at)],['最近尝试',format(work.last_attempt_at)],['最近成功',format(work.last_success_at)],['下次重试',format(work.next_retry_at)],['尝试次数',work.attempts],['连续失败',work.consecutive_failures],['问题次数',work.issue_count],['待处理数量',work.pending_count],
       ].map(([label,value])=><div className="system-fact" key={String(label)}><dt>{t(String(label))}</dt><dd>{value}</dd></div>)}</dl>
-      {result&&<Alert role="status" type={result==='已核验恢复'?'success':'info'} showIcon title={t(result)}/>}{actionError&&<Alert type="error" showIcon title={t(actionError)}/>}
-      <div className="system-detail-actions"><Button type="primary" disabled={busy||handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id)}>{t('交给管理 Agent')}</Button><Button disabled={busy} onClick={()=>related(work.id)}>{t('查看关联日志')}</Button>{work.classification==='code_defect'&&<Button disabled={busy||detailError||partial(detail?.sources)} onClick={()=>setReviewOpen(true)}>{t('重新开放维护')}</Button>}</div>
+      {actionError&&<Alert type="error" showIcon title={t(actionError)}/>}
+      <div className="system-detail-actions"><Button type="primary" disabled={handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id)}>{t('交给管理 Agent')}</Button><Button onClick={()=>related(work.id)}>{t('查看关联日志')}</Button></div>
       <Typography.Title level={3}>{t('处理经过')}</Typography.Title><div className="system-timeline">{(detail?.events??[]).map(item=><div key={item.id}><Typography.Text>{code(item.code)}</Typography.Text><small>{format(item.last_seen_at)} · <code>{item.id}</code> · {item.count}</small></div>)}</div>
      </>}
     </>}
    </div>
   </AdminDrawer>
-  <Modal className="admin-overlay admin-modal" open={reviewOpen} title={t('重新开放维护')} okText={t('确认重新开放')} cancelText={t('取消')} onOk={()=>void review()} onCancel={()=>{if(!actionLock.current)setReviewOpen(false);}} okButtonProps={{loading:busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} mask={{closable:!busy}}><Typography.Paragraph>{t('请确认开发者已部署修复或人工已重新诊断。这只解除代码缺陷分类限制，不代表已经恢复，也不会执行修复或重试；问题保持未恢复，直到实际核验。此入口仅供人工使用。')}</Typography.Paragraph></Modal>
+
  </div>;
 }

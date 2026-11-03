@@ -158,8 +158,8 @@ export class ScheduleStore {
       }
       const work={id:'schedule-trigger.'+id,module:'schedules',target_id:id,details},previous=systemWork(this.journal,work.id);
       // A human configuration change permits one fresh admission check. Unchanged
-      // blocked dependencies and code defects never cause repeated admissions.
-      const force=previous?.state==='blocked'&&previous.classification==='configuration'&&['revision','plugin_revision','connection_revision'].some(key=>previous.details[key]!==details[key]);
+      // blocked dependencies never cause repeated admissions; diagnostic tags do not veto recovery.
+      const force=previous?.state==='blocked'&&['revision','plugin_revision','connection_revision'].some(key=>previous.details[key]!==details[key]);
       if(!systemDue(this.journal,work.id,{now,force}))continue;
       try {this.store.transaction(()=>{
         const plan=this.get(id);if (!plan.enabled || plan.next_run_at>now) return;

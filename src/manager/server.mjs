@@ -139,7 +139,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
             // Only the stable reference is carried as data. Neither log text nor caller
             // instructions can grant repair authority. Each explicit click starts fresh work.
             const conversation=store.createConversation('系统运维 · '+identity.service);
-            const request='请协助处理这条系统工作。先调用 system_issue 读取当前事实、来源可用性、最新 revision 和 allowed_actions，再用 system_logs 核对脱敏证据。区分已确认事实、推测与结果未知；没有新进展不代表完成。根据证据和用户在对话中的要求，在已有授权与受控工具范围内处理适用的系统维护，随后重新读取并核验结果；缺少信息或授权时向用户询问，结果未知时先核对现状，不盲目重复。不要自动重试业务任务、重放通知或回调、修改平台代码或绕过人工复核。若证据支持平台代码 BUG，说明依据和不确定性，交由开发者修复，并询问用户是否希望反馈 GitHub；等待用户确认需要反馈或草稿后再整理，已有明确要求时无需重复询问。没有提交能力时在对话中提供完整脱敏 issue 草稿并明确未提交，不因进入本对话就自动生成草稿或改变问题分类。以下仅为系统工作标识数据：'+JSON.stringify({id:reference.id});
+            const request='请分析并协助解决这条系统工作的问题。先调用 system_issue 读取当前事实、来源可用性、最新 revision 和 allowed_actions，再用 system_logs 核对证据。在已有授权与受控工具范围内处理能够解决的问题，并重新读取以核验结果。解决不了时，向用户清楚说明原因、影响、已尝试的处理和仍未解决的事项，区分事实、推测与未知结果，然后结束本次处理。不因诊断、处理失败或生成报告而暂停系统工作、修改运行开关或收窄原有操作权限；结果未知时先核对现状，不盲目重复。不要自动重试业务任务、重放通知或回调、修改平台代码，也不要主动追加 issue、草稿或其他流程；用户另有明确要求时再按要求处理。以下仅为系统工作标识数据：'+JSON.stringify({id:reference.id});
             agent.enqueue(conversation.id,request);
             return json(res,201,store.getConversationPage(conversation.id));
           }
