@@ -10,6 +10,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
+import {createSystemFixture} from "./system-fixture.mjs";
 import {readJson,json,errorResponse} from "../../src/http.mjs";
 const workspace = await mkdtemp(join(tmpdir(), "console-browser-"));
 const app = createApplication("gateway", {
@@ -130,9 +131,11 @@ const settings = createManagerConfiguration({ store, agent, auth }),
       disk: {},
     }),
   };
+const systemFixture=createSystemFixture({store,business});
 const operations = createManagerOperations({
   models:async()=>({models:[{model:'gpt-6.1-sol',displayName:'Fixture Default',defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'medium'},{reasoningEffort:'high'}]},{model:'fixture-fast',displayName:'Fixture Fast',defaultReasoningEffort:'low',supportedReasoningEfforts:[{reasoningEffort:'low'}]}]}),
   client: {
+    system:(...args)=>systemFixture.remote(...args),
     notificationChannels:(action,args)=>platform.notifications.channelOperation(action,args),
     claimPluginEntryKey(type,body){return business.pluginConnections.claimEntryKey(type,body);},
     pluginConnection(type,patch){return patch===undefined?business.pluginConnections.get(type):business.pluginConnections.update(type,patch);},
@@ -153,6 +156,7 @@ const operations = createManagerOperations({
   configuration: settings,
   auth,
 });
+operations.system=systemFixture.owner;
 const server = createManagerServer({ store, agent, auth, operations, metrics });
 // Local lifecycle controls for synthetic notification browser tests only.
 const managerRequest=server.listeners('request')[0];server.removeAllListeners('request');
@@ -162,6 +166,8 @@ server.on('request',(req,res)=>{
   void(async()=>{
     if(req.method!=='POST'||!auth.authorize(req))return json(res,401,{error:{code:'UNAUTHORIZED'}});
     const body=await readJson(req);
+    if(path==='/admin/api/__fixture/system-reset'){systemFixture.reset();return json(res,200,{reset:true});}
+    if(path==='/admin/api/__fixture/system-source'){systemFixture.setRunnerAvailable(body.available===true);return json(res,200,{updated:true});}
     if(path==='/admin/api/__fixture/notification-terminal'){
       const task=business.get(body.task_id);if(!task.type.startsWith('browser.notification.'))return json(res,400,{error:{code:'SYNTHETIC_TASK_REQUIRED'}});
       const run=business.claim(task.task_id),channel=business.notifications.channel(body.channel_id);
@@ -185,6 +191,7 @@ console.log("Synthetic browser test server ready");
 process.on("SIGTERM", () => {
   server.closeEventStreams?.();
   server.close(async () => {
+    systemFixture.close();
     store.close();
     business.close();
     await rm(workspace, { recursive: true, force: true });

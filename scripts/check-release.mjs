@@ -82,11 +82,15 @@ try {
     for (const resource of ['src/plugins/examples/content.review.json','src/plugins/examples/novel.illustrated.json'])await requireFile(resource);
   if(process.argv.includes('--manager-source')) {
     if(await exists('scripts/host-sandbox.py'))await requireFile('Dockerfile.sandbox');
-    const required=['README.md','docs/ARCHITECTURE.md','frontend/src/pages/PluginsPage.tsx','frontend/src/PluginExecutionSettings.tsx','src/manager/server.mjs','src/manager/project-source.mjs','prompts/manager-project.md'];
+    const required=['README.md','docs/ARCHITECTURE.md','frontend/src/pages/PluginsPage.tsx','frontend/src/PluginExecutionSettings.tsx','frontend/src/pages/SystemPage.tsx','frontend/src/pages/system.css','frontend/src/system-i18n.ts','src/manager/server.mjs','src/manager/project-source.mjs','prompts/manager-project.md'];
     for(const resource of required)await requireFile(resource);
     const {createProjectSourceReader}=await import('../src/manager/project-source.mjs');
-    const source=await createProjectSourceReader(root)({mode:'list',limit:200});
-    for(const resource of required)if(!source.files.some(file=>file.path===resource&&!file.unavailable))throw new Error(`Manager source unavailable: ${resource}`);
+    const readSource=createProjectSourceReader(root),files=[];let offset=0;
+    do {
+      const page=await readSource({mode:'list',limit:200,offset});
+      files.push(...page.files);offset=page.next_offset;
+    }while(offset!==null);
+    for(const resource of required)if(!files.some(file=>file.path===resource&&!file.unavailable))throw new Error(`Manager source unavailable: ${resource}`);
   }
   if(await exists('scripts/host-sandbox.py'))for(const resource of ['scripts/sandbox_runtime.py','scripts/sandbox_files.py','scripts/sandbox_network.py','scripts/sandbox-requirements.txt'])await requireFile(resource);
   await walk(join(root, "src"));

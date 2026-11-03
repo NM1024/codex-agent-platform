@@ -239,7 +239,7 @@ export class SystemJournal {
         const value=`%${q.search.replace(/[\\%_]/g,'\\$&')}%`;params.push(...fields.map(()=>value));
         for(const [field,aliases] of [['module',SYSTEM_SEARCH_ALIASES.modules],['code',SYSTEM_SEARCH_ALIASES.codes]]){
           const matched=Object.entries(aliases).filter(([,alias])=>alias.toLowerCase().includes(q.search.toLowerCase())).map(([key])=>key);
-          if(matched.length){terms.push(`${field} IN (${matched.map(()=>'?').join(',')})`);params.push(...matched);}
+          if(matched.length){terms.push(`json_extract(record,'$.${field}') IN (${matched.map(()=>'?').join(',')})`);params.push(...matched);}
         }
         where.push(`(${terms.join(' OR ')})`);
       }

@@ -155,8 +155,13 @@ test('release validates dynamic plugin JSON and manager web resources',async t=>
   await cp(join(root,'docs'),join(dir,'docs'),{recursive:true});
   await cp(join(root,'README.md'),join(dir,'README.md'));
   await cp(join(root,'Dockerfile.sandbox'),join(dir,'Dockerfile.sandbox'));
+  // Required Manager files can appear after the reader's first bounded page.
+  await mkdir(join(dir,'frontend/src/source-page-fixture'));
+  await Promise.all(Array.from({length:210},(_,index)=>writeFile(join(dir,'frontend/src/source-page-fixture',`synthetic-${index}.ts`),'export {};\n')));
   const managerSource=()=>spawnSync(process.execPath,[join(root,'scripts/check-release.mjs'),'--manager-source'],{cwd:dir,encoding:'utf8'});
   assert.equal(managerSource().status,0,managerSource().stderr);
+  const serverSource=join(dir,'src/manager/server.mjs'),serverBytes=await readFile(serverSource);
+  await unlink(serverSource);const missingLater=managerSource();assert.notEqual(missingLater.status,0);assert.match(missingLater.stderr,/src[\\/]manager[\\/]server\.mjs/);await writeFile(serverSource,serverBytes);
   await unlink(join(dir,'frontend/src/PluginExecutionSettings.tsx'));
   const missingSource=managerSource();assert.notEqual(missingSource.status,0);assert.match(missingSource.stderr,/PluginExecutionSettings/);
   await mkdir(join(dir,'src/manager/web'));

@@ -331,3 +331,12 @@ test('reconstruction within an uncommitted recovery preserves evidence after cal
   assert.equal(restored.logs({module:'system'}).items.length,2);
   assert.equal(new SystemJournal({db,service:'manager'}).health.collection.failed_operations,1);
 });
+
+test('localized code aliases search work and issue JSON records without requiring a code column',()=>{
+ const db=new DatabaseSync(':memory:');
+ try{
+  const j=new SystemJournal({db,service:'manager'}),work=j.work({id:'permission-alias',module:'cleanup',state:'blocked',code:'EACCES'});
+  assert.deepEqual(j.works({search:'权限'}).items.map(item=>item.id),[work.id]);
+  assert.deepEqual(j.issues({search:'权限'}).items.map(item=>item.id),[work.id]);
+ }finally{db.close();}
+});

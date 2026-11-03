@@ -159,9 +159,16 @@ Enabling cleanup or shortening the age applies to already-expired data from the 
 
 - Management conversations expire from their last activity and include messages, execution/activity records, questions, uploaded/generated images and local session/work files. Unsent drafts, unconfirmed guidance and active/queued/recovering work are protected.
 - Completed/failed tasks expire from their end time. Their input/results/errors, tool and execution records, artifacts/session/work files and associated trigger history are removed together. Valid receipt windows, pending callbacks and callbacks still sending are protected. Runner must confirm file cleanup before Gateway deletes task metadata; unreachable Runner leaves the task for retry.
+- System logs, completed background work and recovered issue history use the same global switch and retention days. Unfinished work, unresolved issues and necessary evidence are protected. Candidate code-defect evidence stays protected until a human reviews its classification. Deleting a management conversation does not delete its independent system evidence.
 - Plugin definitions, connection credentials, scheduled plan definitions, live settings and shared account authorization remain. This affects local platform data; it does not delete independent backups, upstream provider records or data already sent to external systems.
 
 Services reclaim SQLite free pages while idle; database size may contract later than deletion when work is active or temporary disk space is insufficient. Deleted rows no longer appear through the platform even while physical compaction is deferred. Preserve ordinary backups separately if you need records past the chosen age. To install these controls, rebuild and recreate the existing three services with the same runtime directory, then reload Admin; no new environment variable is required.
+
+## Inspecting system work
+
+Open **System operations** for issues, background work and sanitized logs. Check source availability and collection timestamps before interpreting counts; unavailable services and collection gaps mean incomplete evidence. Silence or an old progress timestamp does not prove completion. Refresh reads current owner evidence, and pages use bounded current-state cursors.
+
+Fixed maintenance actions use the displayed work revision; a conflict requires rereading details. Agent analysis explicitly starts a new diagnostic conversation and its first request, preserving any unrelated composer draft and attachments. Code-defect drafts are copyable and unsubmitted. After deploying a developer fix or re-diagnosing, **Reopen maintenance** clears only the code-defect classification; it does not repair code, retry work or establish recovery. Host service repair, deployment and publishing a GitHub issue remain human tasks. No new environment variable, policy control or service is required.
 
 ## Upgrade and backup
 

@@ -36,7 +36,7 @@ export default function RetentionPanel({group,onSaved,reload}:{group:ConfigGroup
     finally{if(alive.current){lock.current=false;setSaving(false);}}
   };
   return <Panel title={t('历史数据清理')}>
-    <Typography.Paragraph>{t('默认关闭。开启后每天分批永久删除到期的管理对话、任务记录及关联图片和文件；保留未结束的工作、插件、定时计划和账号配置。')}</Typography.Paragraph>
+    <Typography.Paragraph>{t('默认关闭。开启后每天分批永久删除到期的管理对话、任务记录及关联图片和文件。系统日志、已完成后台工作和已恢复问题的历史记录遵循同一启用开关与保留天数；未完成工作、未恢复问题及必要证据受保护，保留插件、定时计划和账号配置。')}</Typography.Paragraph>
     <Alert type="warning" showIcon title={t('删除不可恢复。开启或缩短保留天数后，已到期数据会从下一次后台检查开始清理。')}/>
     {error&&<Alert type="error" showIcon title={t(error)} action={conflict?<Button disabled={saving} onClick={()=>{void reread();}}>{t('重新读取')}</Button>:undefined}/>}
     <Form className="settings-form configuration-form admin-editor-form retention-form" layout="horizontal" colon={false} onFinish={()=>{void save();}}><div className="form-grid admin-form-grid">

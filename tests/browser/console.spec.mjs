@@ -41,7 +41,11 @@ test('configuration labels and inputs share a row in desktop and phone layouts',
     await page.setViewportSize(viewport);await navigate(page,'settings');
     const input=page.locator('#setting-manager-timeoutMs');await expect(input).toBeVisible();
     const label=page.locator('label[for="setting-manager-timeoutMs"]');
-    const fieldBox=await input.boundingBox(),labelBox=await label.boundingBox();
+    const geometry=await input.evaluate(element=>{const control=element.closest('.ant-input-number'),unit=control.querySelector('.input-unit');return {control:control.getBoundingClientRect().toJSON(),input:element.getBoundingClientRect().toJSON(),unit:unit.getBoundingClientRect().toJSON(),unitText:unit.textContent,scroll:element.scrollWidth,client:element.clientWidth};});
+    const fieldBox=geometry.control,labelBox=await label.boundingBox();
+    // The fixed suffix is part of the usable number control; keep its input and unit separate.
+    expect(geometry.input.width).toBeGreaterThanOrEqual(64);expect(geometry.scroll).toBeLessThanOrEqual(geometry.client+1);
+    expect(geometry.unit.width).toBeGreaterThan(0);expect(geometry.unitText).toBe(locale==='en'?'ms':'毫秒');expect(geometry.input.x+geometry.input.width).toBeLessThanOrEqual(geometry.unit.x);expect(geometry.unit.x+geometry.unit.width).toBeLessThanOrEqual(fieldBox.x+fieldBox.width);
     expect(Math.abs(fieldBox.y-labelBox.y)).toBeLessThan(8);expect(fieldBox.x).toBeGreaterThan(labelBox.x+labelBox.width);
     expect(fieldBox.width).toBeGreaterThan(100);expect(fieldBox.x+fieldBox.width).toBeLessThanOrEqual(viewport.width-8);
     await navigate(page,'plugins');await page.getByRole('button',{name:locale==='en'?'Configure connection':'配置接入',exact:true}).first().click();
@@ -491,7 +495,7 @@ test("saving one settings group retains unsaved changes in other groups", async 
     )
     .toBe(1234567);
 });
-test("all six navigation choices fit on a phone without horizontal page scrolling", async ({
+test("all seven navigation choices fit on a phone without horizontal page scrolling", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -504,6 +508,7 @@ test("all six navigation choices fit on a phone without horizontal page scrollin
     "tasks",
     "plugins",
     "schedules",
+    "system",
     "settings",
   ]) {
     const button = page.locator(`.mobile-navigation [data-view="${name}"]`).locator('..').locator('..'),
@@ -579,7 +584,7 @@ test("language switching preserves plugin data and settings drafts without write
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expectChoice(page,"#app-language","en");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(6);
+  await page.locator('#navigation-toggle').click();await expect(page.locator('.mobile-navigation [data-view]')).toHaveCount(7);
   await page.locator('.mobile-navigation [role=menuitem]').first().click({trial:true});
   await expect.poll(()=>page.locator('.mobile-navigation [role=menuitem]').evaluateAll(items=>Math.min(...items.map(item=>item.getBoundingClientRect().height)))).toBeGreaterThanOrEqual(44);
   await expect(page.locator('.mobile-navigation [data-view]').first()).toBeVisible();
@@ -708,7 +713,7 @@ test('a pending retry cannot create multiple replacement tasks through repeated 
 });
 test('English navigation covers each view and schedules guide users to management chat',async({page})=>{
   await choose(page,'#app-language','en');
-  for(const [view,title] of Object.entries({overview:'Overview',chat:'Management chat',tasks:'Task history',plugins:'Business plugins',schedules:'Schedules',settings:'Settings'})){
+  for(const [view,title] of Object.entries({overview:'Overview',chat:'Management chat',tasks:'Task history',plugins:'Business plugins',schedules:'Schedules',system:'System operations',settings:'Settings'})){
     await navigate(page,view);await expect(page.locator('#page-title')).toHaveText('Codex Agent Platform');await expect(page.locator('#view-title')).toHaveText(title);
   }
   await navigate(page,'schedules');
@@ -816,7 +821,7 @@ test('Admin layout keeps spacing and actions within desktop tablet and phone vie
     await choose(page,'#app-language',language);
     for(const width of [320,390,768,1440,2560]){
       await page.setViewportSize({width,height:1000});
-      for(const view of ['overview','chat','tasks','plugins','schedules','settings']){
+      for(const view of ['overview','chat','tasks','plugins','schedules','system','settings']){
         await navigate(page,view);await expect(page.locator(view==='chat'?'.chat-compose':'#view .ant-card, #view .ant-alert').first()).toBeVisible();await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
         await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:language+' '+width+' '+view}).toBeLessThanOrEqual(width);
         if(view==='overview'){

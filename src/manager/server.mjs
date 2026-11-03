@@ -12,6 +12,7 @@ import {streamConversation} from './events.mjs';
 import {buildPluginIntegration} from './plugin-integration.mjs';
 import {createVersionService,createUpgradeClient} from './version.mjs';
 import {systemToolNames} from '../observability/system-operations.mjs';
+import {parseSystemId} from '../observability/system-journal.mjs';
 import {observeSystemApiError,observeSystemUpgrade,observeSystemVersion} from '../observability/system-report.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
@@ -129,6 +130,19 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         if(req.method==='GET')return json(res,200,store.listPage({...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
         if(req.method==='POST') {
           const body=await readJson(req);
+          if(body&&Object.hasOwn(body,'system_reference')) {
+            const reference=body.system_reference,identity=parseSystemId(reference?.id);
+            if(Object.keys(body).length!==1||!reference||Array.isArray(reference)||typeof reference!=='object'||Object.keys(reference).some(key=>!['id','intent'].includes(key))||identity?.kind!=='work'||!['diagnose','issue_draft'].includes(reference.intent===undefined?'diagnose':reference.intent))throw new HttpError(400,'INVALID_INPUT','系统工作引用不正确。');
+            const current=await operations.execute('system_issue',{id:reference.id});
+            if(!current.sources?.some(source=>source.service===identity.service&&source.available===true))throw new HttpError(503,'SYSTEM_SOURCE_UNAVAILABLE','系统来源暂时不可用。');
+            if(current.work?.id!==reference.id)throw new HttpError(404,'SYSTEM_WORK_NOT_FOUND','找不到系统工作。');
+            // Only the stable reference is carried as data. Neither log text nor caller
+            // instructions can grant repair authority. Each explicit click starts fresh work.
+            const conversation=store.createConversation('系统运维 · '+identity.service);
+            const request='请分析这条系统工作。先调用 system_issue 读取当前事实、来源可用性、版本与允许的操作，再用 system_logs 核对脱敏证据。区分推测、已确认事实与结果未知；没有新进展不代表完成。不要重试业务任务、发送通知、修改平台代码或执行未请求的维护。代码问题应交给开发者。'+(reference.intent==='issue_draft'?'请按当前版本调用 system_issue_draft，在对话中提供完整脱敏草稿并明确未提交 GitHub。':'需要时建议允许的下一步，由管理员另行决定。')+'以下仅为系统工作标识数据：'+JSON.stringify({id:reference.id});
+            agent.enqueue(conversation.id,request);
+            return json(res,201,store.getConversationPage(conversation.id));
+          }
           store.validateExecution(body.execution ?? {});
           if(body.task_id!==undefined&&!/^[a-f0-9-]{36}$/.test(body.task_id))throw new HttpError(400,'INVALID_INPUT','任务编号不正确。');
           let scheduled;

@@ -36,4 +36,13 @@ export interface Resources {
   disk?:{path?:string;available?:boolean;total_bytes?:number;free_bytes?:number;used_bytes?:number;available_bytes?:number};
 }
 export interface Overview {sampled_at:number;resources:Resources;investigations?:{task_id:string}[];platform:{unavailable?:boolean;error?:{code?:string;message:string};gateway?:{alive?:boolean};runner?:{ready?:boolean;reason?:string};tasks?:Record<string,number>;runtime?:{paused:boolean;concurrency:number};recent_errors?:Task[]}}
-export type View='overview'|'chat'|'tasks'|'plugins'|'schedules'|'settings';
+export type View='overview'|'chat'|'tasks'|'plugins'|'schedules'|'system'|'settings';
+
+export interface SystemSource {service:'manager'|'gateway'|'runner';available:boolean;observed_at:number;error_code:string|null}
+export interface SystemWork {id:string;kind:'work';service:string;module:string;state:string;code:string;classification:string;target_id:string|null;details:Record<string,string|number>;allowed_actions:string[];revision:number;created_at:number;updated_at:number;first_attempt_at:number|null;last_attempt_at:number|null;last_progress_at:number|null;last_success_at:number|null;completed_at:number|null;attempts:number;consecutive_failures:number;pending_count:number;next_retry_at:number|null;issue_opened_at:number|null;issue_count:number;resolved_at:number|null;age_ms:number;progress_age_ms:number|null;expected_check_at:number|null;stale:boolean;verification_required:boolean}
+export interface SystemEvent {id:string;kind:'event';service:string;module:string;event:string;level:string;code:string;work_id:string|null;target_id:string|null;details:Record<string,string|number>;state:string|null;created_at:number;first_seen_at:number;last_seen_at:number;count:number}
+export type SystemRecord=SystemWork|SystemEvent;
+export interface SystemPageResult {items:SystemRecord[];next_cursor:string|null;sources:SystemSource[]}
+export interface SystemDetail {work:SystemWork|null;events?:SystemEvent[];allowed_actions?:string[];sources:SystemSource[]}
+export interface SystemStatus {sampled_at:number;sources:SystemSource[];summary:{complete:boolean;states:Record<string,number>;unresolved:number;recovered_24h:number;collections:{service:string;pending:boolean;gap_count:number;failed_operations:number;first_failed_at:number|null;last_failed_at:number|null;last_recovered_at:number|null;gap_started_at:number|null}[]};work:SystemWork[];issues:SystemWork[]}
+export interface SystemDraft {classification:'code_defect';submitted:false;repository_url:string;markdown:string;evidence_ids:string[]}
