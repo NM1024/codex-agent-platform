@@ -167,7 +167,8 @@ server.on('request',(req,res)=>{
     if(req.method!=='POST'||!auth.authorize(req))return json(res,401,{error:{code:'UNAUTHORIZED'}});
     const body=await readJson(req);
     if(path==='/admin/api/__fixture/system-reset'){systemFixture.reset();return json(res,200,{reset:true});}
-    if(path==='/admin/api/__fixture/system-source'){systemFixture.setRunnerAvailable(body.available===true);return json(res,200,{updated:true});}
+    if(path==='/admin/api/__fixture/system-source'){systemFixture.setSourceAvailable(body.service??'runner',body.available===true);return json(res,200,{updated:true});}
+    if(path==='/admin/api/__fixture/system-remove'){systemFixture.removeWork(body.id);return json(res,200,{updated:true});}
     if(path==='/admin/api/__fixture/notification-terminal'){
       const task=business.get(body.task_id);if(!task.type.startsWith('browser.notification.'))return json(res,400,{error:{code:'SYNTHETIC_TASK_REQUIRED'}});
       const run=business.claim(task.task_id),channel=business.notifications.channel(body.channel_id);

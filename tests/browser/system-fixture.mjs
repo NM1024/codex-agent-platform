@@ -8,14 +8,14 @@ import {executeSystemOwner} from '../../src/observability/system-operations.mjs'
 export function createSystemFixture({store,business}){
  const runnerDb=new DatabaseSync(':memory:');
  const journals={manager:new SystemJournal({db:store.db,service:'manager'}),gateway:new SystemJournal({db:business.db,service:'gateway'}),runner:new SystemJournal({db:runnerDb,service:'runner'})};
- let runnerAvailable=true;
- const facades=Object.fromEntries(Object.entries(journals).map(([service,journal])=>[service,{journal,maintain:createSystemMaintenance({journal,actions:{
+ const availability={manager:true,gateway:true,runner:true};
+ const facades=Object.fromEntries(Object.entries(journals).map(([service,journal])=>[service,{journal:new Proxy(journal,{get(target,key){const value=Reflect.get(target,key);return typeof value==='function'?(...args)=>{if(!availability[service]&&['summary','works','issues','logs','detail','classify'].includes(key))throw new Error('synthetic unavailable');return value.apply(target,args);}:value;}}),maintain:createSystemMaintenance({journal,actions:{
   configuration_sync:async({work})=>journal.work({...work,state:'completed',code:'CONFIGURATION_SYNCED',attempted:true,details:{confirmed_revision:8}}),
   cleanup_retry:async({work})=>journal.work({...work,state:'completed',code:'CLEANUP_COMPLETED',attempted:true}),
   health_check:async({work})=>journal.work({...work,state:'completed',code:'SERVICE_RECOVERED',attempted:true}),
  }})}]));
  function reset(){
-  runnerAvailable=true;
+  for(const service of Object.keys(availability))availability[service]=true;
   for(const journal of Object.values(journals)){journal.db.exec('DELETE FROM system_events; DELETE FROM system_work;');}
   // Keep actionable issues on page two regardless of millisecond ties during seeding.
   const managerNow=journals.manager.now;journals.manager.now=()=>Date.now()-10000;
@@ -31,5 +31,5 @@ export function createSystemFixture({store,business}){
   journals.runner.work({id:'recovered-idle',module:'health',state:'idle',code:'WORK_IDLE',attempted:false});
   journals.manager.event({module:'api',code:'EACCES',event:'request_rejected',level:'error'});
  }
- reset();return {owner:facades.manager,reset,setRunnerAvailable:value=>{runnerAvailable=value;},remote:(service,operation,args,context)=>{if(service==='runner'&&!runnerAvailable)throw new Error('synthetic unavailable');return executeSystemOwner(facades[service],operation,args,context);},close:()=>runnerDb.close()};
+ reset();return {owner:facades.manager,reset,setSourceAvailable:(service,value)=>{if(service==='all')for(const key of Object.keys(availability))availability[key]=value;else if(Object.hasOwn(availability,service))availability[service]=value;},removeWork:id=>{const service=id.split(':')[0];if(journals[service]?.detail(id))journals[service].db.prepare('DELETE FROM system_work WHERE id=?').run(id);},remote:(service,operation,args,context)=>executeSystemOwner(facades[service],operation,args,context),close:()=>runnerDb.close()};
 }

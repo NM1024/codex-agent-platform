@@ -52,6 +52,17 @@ test('repeated unchanged events consolidate but recovery remains independent',t=
   assert.equal(journal.logs({}).items.length,2);
 });
 
+test('ordinary work observations cannot clear code-defect classification with explicit owner classifications',t=>{
+ const {journal,tick}=fixture(t);let saved=work(journal,{classification:'code_defect'});
+ for(const classification of ['unknown','configuration','permission','transient']){
+  tick(saved.updated_at+1);saved=work(journal,{state:'completed',classification});
+  assert.equal(saved.classification,'code_defect',classification);assert.equal(saved.state,'completed');assert.ok(saved.resolved_at);
+ }
+ assert.throws(()=>journal.classify(saved.id,'unknown',saved.revision),/SYSTEM_HUMAN_REQUIRED/);
+ assert.throws(()=>journal.classify(saved.id,'unknown',saved.revision,{actor:'agent',review:true}),/SYSTEM_HUMAN_REQUIRED/);
+ const reviewed=journal.classify(saved.id,'unknown',saved.revision,{actor:'admin',review:true});assert.equal(reviewed.classification,'unknown');
+});
+
 test('durable work transitions track attempts, revisions and evidence-based recovery',t=>{
   const dir=mkdtempSync(join(tmpdir(),'journal-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const path=join(dir,'journal.sqlite');const {journal,db,tick}=fixture(t,{path});

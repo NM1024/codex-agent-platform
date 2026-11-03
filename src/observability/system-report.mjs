@@ -9,12 +9,19 @@ const sourceFiles=new Set([
  ...['operations','server','mcp','client','version','agent','sandbox','inspection-notifications','history-retention','project-source'].map(name=>`src/manager/${name}.mjs`),
  'src/api.mjs','src/operations/service.mjs','src/operations/schedules.mjs','src/runtime/client.mjs','src/runtime/server.mjs','src/runtime/events.mjs','src/core/dispatcher.mjs','src/history/worker.mjs','prompts/manager-project.md','docs/ARCHITECTURE.md',
 ]);
+const credentialWords=new Set(['password','passwd','token','secret','key','authorization','cookie','credential','credentials','密码','令牌','密钥']);
+const compactCredentialKeys=new Set(['accesstoken','refreshtoken','clientsecret','apikey','entrykey','signingsecret']);
+function sensitiveAssignment(key) {
+ const words=key.replace(/([A-Z])([A-Z][a-z])/g,'$1_$2').replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split(/[_-]+/);
+ return credentialWords.has(words.at(-1))||compactCredentialKeys.has(key.toLowerCase());
+}
 /** Caller prose is untrusted and never persisted in the journal. Remove deployment
  * locators and credential-like content before producing an in-conversation draft. */
 export function sanitizeSystemNote(value='') {
  return value.replace(/```[\s\S]*?```/g,'[redacted block]')
   .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g,'[redacted key]')
   .replace(/\b(?:Bearer|Basic)\s+[^\s;,]+/gi,'[redacted credential]')
+  .replace(/["']?([\p{L}][\p{L}\p{N}_-]*)["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s;,}\]]+)/gu,(assignment,key)=>sensitiveAssignment(key)?'[redacted credential]':assignment)
   .replace(/["']?\b(?:password|passwd|(?:access[_-]?|refresh[_-]?)?token|(?:client[_-]?)?secret|authorization|api[_-]?key|cookie|credential|entrykey|signingsecret|deployment|hostname|host|server|container|(?:run|task|conversation|job)[_-]?id)\b["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s;,]+)/gi,'[redacted credential or deployment]')
   .replace(/\b(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]+/g,'[redacted credential]')
   .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,'[redacted credential]')

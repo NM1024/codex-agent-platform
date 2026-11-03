@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {SystemJournal} from '../src/observability/system-journal.mjs';
-import {createSystemOperations} from '../src/observability/system-operations.mjs';
+import {createSystemOperations,executeSystemOwner} from '../src/observability/system-operations.mjs';
+import {NotificationStore} from '../src/notifications/store.mjs';
 import {observeSystemUpgrade,observeSystemVersion,observeSystemApiError} from '../src/observability/system-report.mjs';
 
 test('code-defect draft is bounded sanitized current evidence and guarded escalation without external submission',async t=>{
@@ -40,4 +41,36 @@ test('issue drafts redact short access_token client_secret and refresh_token ass
   for(const value of Object.values(values))assert.ok(!result.markdown.includes(value),`${format}: ${value}`);
   assert.ok(result.markdown.includes('Useful diagnosis and reproduction.'));assert.equal(result.submitted,false);
  }
+});
+
+test('final issue drafts scrub complete short credential assignments across naming conventions in every note',async t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());const journal=new SystemJournal({db,service:'manager'});
+ const work=journal.work({id:'ordinary-credentials',module:'api',state:'unknown'}),ops=createSystemOperations({local:()=>({journal})});
+ const values={RUNNER_TOKEN:'rt1',signing_secret:'ss2',entry_key:'ek3',private_key:'pk4','webhook-signing-secret':'ws5',privateKey:'pc6',serviceApiKey:'ak7',APP_CLIENT_PASSWORD:'pw8',authorization:'au9',cookie:'co0',entrykey:'ek0',signingsecret:'ss0',密码:'密1',令牌:'令2',密钥:'钥3'};
+ const formats=[JSON.stringify(values),Object.entries(values).map(([key,value])=>`${key}=${value}`).join('; '),'APP_AUTH_TOKEN="short secret, with spaces and \\"escaped\\" tail"; private-key=\'entire short value\''];
+ for(const assignments of formats){
+  const note='Useful reproduction. '+assignments+'; attempts=2; retry was observed.';
+  const result=await ops.execute('system_issue_draft',{id:work.id,revision:journal.detail(work.id).revision,...Object.fromEntries(['diagnosis','expected','actual','reproduction'].map(key=>[key,note]))});
+  for(const value of [...Object.values(values),'short secret','with spaces','escaped','tail','entire short value'])assert.ok(!result.markdown.includes(value),`leaked ${value}`);
+  for(const text of ['Useful reproduction.','attempts=2','retry was observed.'])assert.equal(result.markdown.split(text).length-1,4,text);
+ }
+});
+
+test('in-flight notification completion preserves drafted code-defect evidence until revision-checked human review',async t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());let now=100,entered,release,sends=0;
+ const started=new Promise(resolve=>entered=resolve),journal=new SystemJournal({db,service:'gateway',now:()=>now});
+ const store=new NotificationStore({db,journal,now:()=>now,fetchImpl:async()=>{sends++;entered();await new Promise(resolve=>release=resolve);return new Response('ok');}});
+ const channel=store.saveChannel({name:'Synthetic race',provider:'custom',url:'https://example.invalid/synthetic'}),owner={kind:'task',id:'synthetic-race'};
+ store.setBinding(owner,[channel.id]);const sending=store.send(owner,{notification_key:'synthetic-race',deliveries:[{channel_id:channel.id,body:{text:'synthetic'}}]});await started;
+ const ops=createSystemOperations({remote:(service,operation,args,context)=>executeSystemOwner({journal},operation,args,context)});
+ const before=journal.works().items[0],evidence=journal.logs({work_id:before.id}).items[0];assert.equal(before.state,'unknown');
+ try{await ops.execute('system_issue_draft',{id:before.id,revision:before.revision});assert.equal(journal.detail(before.id).classification,'code_defect');}
+ finally{now=200;release();await sending;}
+ const completed=journal.detail(before.id);assert.equal(store.history(owner).items[0].status,'accepted');assert.equal(sends,1);
+ assert.equal(completed.classification,'code_defect');assert.equal(completed.state,'completed');assert.equal(completed.completed_at,200);assert.equal(completed.resolved_at,200);
+ now=1000;journal.prune({cutoff:500,limit:100});assert.ok(journal.detail(before.id));assert.ok(journal.detail(evidence.id));
+ await assert.rejects(ops.review({id:before.id,revision:before.revision}),{code:'SYSTEM_REVISION_CONFLICT'});
+ await assert.rejects(executeSystemOwner({journal},'review',{id:before.id,revision:completed.revision},{actor:'agent'}),{code:'SYSTEM_HUMAN_REQUIRED'});
+ const reviewed=await ops.review({id:before.id,revision:completed.revision});assert.equal(reviewed.work.classification,'unknown');assert.equal(reviewed.work.completed_at,200);assert.equal(reviewed.work.resolved_at,200);
+ now=2000;journal.prune({cutoff:1500,limit:100});assert.equal(journal.detail(before.id),null);assert.equal(journal.detail(evidence.id),null);assert.equal(sends,1);
 });

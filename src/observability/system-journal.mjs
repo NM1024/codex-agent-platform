@@ -191,7 +191,8 @@ export class SystemJournal {
       const safe=this.projection({...input,code:input.code??`WORK_${input.state.toUpperCase()}`});
       const count=value=>time(value)?value:0;
       const record={...safe,id,kind:'work',title:titles[safe.module],state:input.state,
-        classification:select(input.classification,SYSTEM_CLASSIFICATIONS,old?.classification??'unknown'),
+        // Owner observations update outcome facts, never release human-review protection.
+        classification:old?.classification==='code_defect'?'code_defect':select(input.classification,SYSTEM_CLASSIFICATIONS,old?.classification??'unknown'),
         allowed_actions:Array.isArray(input.allowed_actions)?[...new Set(input.allowed_actions.filter(x=>SYSTEM_ACTIONS.includes(x)))].slice(0,SYSTEM_ACTIONS.length):[],
         revision:(old?.revision??0)+1,created_at:old?.created_at??at,updated_at:at,
         first_attempt_at:old?.first_attempt_at??(attempted?at:null),last_attempt_at:attempted?at:old?.last_attempt_at??null,
@@ -254,6 +255,7 @@ export class SystemJournal {
     const identity=parseSystemId(id);if(identity?.kind!=='work'||identity.service!==this.service)throw fail('SYSTEM_QUERY_INVALID');
     return this.read(()=>this.write(()=>{
       const record=this.getRecord('system_work',id);if(!record)throw fail('SYSTEM_WORK_NOT_FOUND');if(record.revision!==revision)throw fail('SYSTEM_REVISION_CONFLICT');
+      if(record.classification==='code_defect'&&classification!=='code_defect'&&(!review||actor!=='admin'))throw fail('SYSTEM_HUMAN_REQUIRED');
       const previous_classification=record.classification;
       record.classification=classification;record.revision++;record.updated_at=this.now();this.putWork(record);
       this.saveEvent({module:record.module,event:review?'classification_reviewed':'classification_changed',code:'WORK_UNKNOWN',work_id:id,details:{actor,revision:record.revision,previous_classification,classification}});return record;
