@@ -17,8 +17,11 @@ export function createSystemFixture({store,business}){
  function reset(){
   runnerAvailable=true;
   for(const journal of Object.values(journals)){journal.db.exec('DELETE FROM system_events; DELETE FROM system_work;');}
+  // Keep actionable issues on page two regardless of millisecond ties during seeding.
+  const managerNow=journals.manager.now;journals.manager.now=()=>Date.now()-10000;
   journals.manager.work({id:'permissions',module:'cleanup',state:'blocked',code:'EACCES',classification:'permission',pending_count:1,allowed_actions:['cleanup_retry']});
   journals.manager.work({id:'defect',module:'inspections',state:'blocked',code:'HANDOFF_FAILED',classification:'code_defect',allowed_actions:['inspection_reconcile']});
+  journals.manager.now=managerNow;
   for(let n=0;n<22;n++)journals.manager.work({id:'page-'+String(n).padStart(2,'0'),module:'events',state:'retrying',code:'EVENT_DELIVERY_FAILED',next_retry_at:Date.now()+60000});
   journals.gateway.work({id:'configuration',module:'configuration',state:'retrying',code:'RUNNER_UNAVAILABLE',classification:'transient',allowed_actions:['configuration_sync'],details:{revision:8,confirmed_revision:7},next_retry_at:Date.now()+60000});
   const oldNow=journals.runner.now;journals.runner.now=()=>Date.now()-600000;

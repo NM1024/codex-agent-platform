@@ -69,7 +69,7 @@ export default function SystemPage(){
   }catch{if(alive.current&&request===detailRequest.current)setActionError('操作未完成，请重新读取详情后核对当前版本。');}
   finally{
    try{await readDetail(work.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}
-   if(alive.current&&request===detailRequest.current){setBusy(false);setCursors(['']);setTick(value=>value+1);}actionLock.current=false;
+   if(alive.current&&request===detailRequest.current){setBusy(false);refresh();}actionLock.current=false;
   }
  };
  const analyze=async(id:string,intent='diagnose')=>{
