@@ -68,6 +68,9 @@ function recordProjection(raw,service,kind,now) {
 }
 function pageProjection(raw,service,kind,args,now) {
  if(!object(raw)||!Array.isArray(raw.items)||raw.items.length>(args.limit??50)||raw.next_cursor!==null&&typeof raw.next_cursor!=='string')throw fault('SYSTEM_SOURCE_UNAVAILABLE');
+ // Global merge requires every continued source to supply the full requested
+ // window; a shorter window could hide newer records behind the global cursor.
+ if(raw.next_cursor!==null&&raw.items.length!==(args.limit??50))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
  const items=raw.items.map(x=>recordProjection(x,service,kind,now));
  if(raw.next_cursor!==null){const cursor=decodeSystemCursor(raw.next_cursor),last=items.at(-1);if(!last||cursor.id!==last.id||cursor.time!==systemRecordTime(last))throw fault('SYSTEM_SOURCE_UNAVAILABLE');}
  if(new Set(items.map(x=>x.id)).size!==items.length||items.some((x,i)=>i>0&&compareSystemRecords(items[i-1],x)>0))throw fault('SYSTEM_SOURCE_UNAVAILABLE');

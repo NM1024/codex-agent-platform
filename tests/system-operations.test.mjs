@@ -148,3 +148,20 @@ test('a confirmed owner callback failure returns failed with fresh work instead 
  const value=await ops.execute('system_maintain',{id:w.id,revision:w.revision,action:'cleanup_retry'},{actor:'admin'});assert.equal(value.outcome,'failed');assert.equal(value.work.state,'retrying');assert.equal(value.sources[0].available,true);assert.ok(!JSON.stringify(value).includes('private failure'));
 });
 
+test('undersized continued source pages are explicitly unavailable before global cursor advancement',async t=>{
+ let at=0;const manager=journal(t,'manager',()=>at),gateway=journal(t,'gateway',()=>at);
+ for(const [j,times] of [[manager,[60,50]],[gateway,[100,90,80]]])for(const time of times){at=time;j.work({id:'w'+time,module:'cleanup',state:'retrying'});}
+ const ops=system.createSystemOperations({local:()=>owner(manager),remote:(service,operation,args)=>{
+  if(service!=='gateway')throw new Error('synthetic unavailable Runner');
+  return system.executeSystemOwner(owner(gateway),operation,{...args,limit:1});
+ },now:()=>200});
+ const first=await ops.execute('system_work',{limit:2});
+ assert.equal(first.sources.find(s=>s.service==='gateway').available,false);
+ assert.equal(first.sources.find(s=>s.service==='gateway').error_code,'SYSTEM_SOURCE_UNAVAILABLE');
+ assert.deepEqual(first.items.map(w=>w.id),['manager:work:w60','manager:work:w50']);assert.equal(first.next_cursor,null);
+ // A final short page is legitimate: rejecting incomplete continued windows must
+ // not discard the last record once a source has exhausted its matching history.
+ const terminal=await ops.execute('system_work',{service:'gateway',limit:2,before:90});
+ assert.equal(terminal.sources[0].available,true);assert.deepEqual(terminal.items.map(w=>w.id),['gateway:work:w80']);assert.equal(terminal.next_cursor,null);
+});
+

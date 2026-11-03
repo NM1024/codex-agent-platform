@@ -28,3 +28,16 @@ test('actual safe observers record fixed API/version/upgrade facts without job i
  assert.equal(j.detail('manager:work:host-access').state,'disabled');
  const all=JSON.stringify(j.logs().items);for(const text of ['private-secret','/runtime/private','deployment-private-id','PRIVATE_HOST_PATH'])assert.ok(!all.includes(text));
 });
+
+test('issue drafts redact short access_token client_secret and refresh_token assignments in JSON and prose',async t=>{
+ const db=new DatabaseSync(':memory:');t.after(()=>db.close());const journal=new SystemJournal({db,service:'manager'});
+ const work=journal.work({id:'credential-scrub',module:'api',state:'unknown'}),ops=createSystemOperations({local:()=>({journal}),version:'1.0.4'});
+ const values={access_token:'at7',client_secret:'cs8',refresh_token:'rt9'};
+ for(const format of ['json','assignment']){
+  const assignments=format==='json'?JSON.stringify(values):Object.entries(values).map(([key,value])=>`${key}=${value}`).join('; ');
+  const note='Useful diagnosis and reproduction. '+assignments;
+  const result=await ops.execute('system_issue_draft',{id:work.id,revision:journal.detail(work.id).revision,diagnosis:note,expected:note,actual:note,reproduction:note});
+  for(const value of Object.values(values))assert.ok(!result.markdown.includes(value),`${format}: ${value}`);
+  assert.ok(result.markdown.includes('Useful diagnosis and reproduction.'));assert.equal(result.submitted,false);
+ }
+});

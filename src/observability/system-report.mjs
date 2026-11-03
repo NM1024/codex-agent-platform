@@ -15,7 +15,7 @@ export function sanitizeSystemNote(value='') {
  return value.replace(/```[\s\S]*?```/g,'[redacted block]')
   .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g,'[redacted key]')
   .replace(/\b(?:Bearer|Basic)\s+[^\s;,]+/gi,'[redacted credential]')
-  .replace(/["']?\b(?:password|passwd|token|secret|authorization|api[_-]?key|cookie|credential|entrykey|signingsecret|deployment|hostname|host|server|container|(?:run|task|conversation|job)[_-]?id)\b["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s;,]+)/gi,'[redacted credential or deployment]')
+  .replace(/["']?\b(?:password|passwd|(?:access[_-]?|refresh[_-]?)?token|(?:client[_-]?)?secret|authorization|api[_-]?key|cookie|credential|entrykey|signingsecret|deployment|hostname|host|server|container|(?:run|task|conversation|job)[_-]?id)\b["']?\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s;,]+)/gi,'[redacted credential or deployment]')
   .replace(/\b(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]+/g,'[redacted credential]')
   .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,'[redacted credential]')
   .replace(/(?:https?|wss?|ssh):\/\/[^\s<>]+/gi,'[redacted address]')
