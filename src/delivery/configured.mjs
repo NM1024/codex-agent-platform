@@ -1,9 +1,10 @@
 export function configuredDelivery(resolveTarget) {
   return {async execute({store,task}) {
     const target=typeof resolveTarget==='function'?resolveTarget():resolveTarget;
-    if (!target) return {status:'blocked_configuration'};
+    if (!target) {store.journal?.work({id:'callback.'+task.task_id,module:'delivery',target_id:task.task_id,state:'blocked',classification:'configuration',code:'CALLBACK_FAILED',allowed_actions:[]});return {status:'blocked_configuration'};}
     const reserved=store.db.prepare('UPDATE agent_deliveries SET status=? WHERE task_id=? AND status=?').run('unknown',task.task_id,'pending').changes;
     if (!reserved) return store.get(task.task_id).delivery;
+    store.journal?.work({id:'callback.'+task.task_id,module:'delivery',target_id:task.task_id,state:'unknown',code:'CALLBACK_UNKNOWN',allowed_actions:[],details:{phase:'send'}});
     const row=store.raw(task.task_id),artifacts=store.registry.catalog.artifactsFor?.(store,task.task_id) ?? [];
     let status='unknown',http_status=null,error_code=null;
     try {
@@ -13,6 +14,7 @@ export function configuredDelivery(resolveTarget) {
     } catch {error_code='DELIVERY_UNKNOWN';}
     store.db.prepare('UPDATE agent_deliveries SET status=? WHERE task_id=?').run(status,task.task_id);
     store.db.prepare('INSERT OR REPLACE INTO platform_delivery_details VALUES(?,?,?,?)').run(task.task_id,http_status,error_code,Date.now());
+    store.journal?.work({id:'callback.'+task.task_id,module:'delivery',target_id:task.task_id,state:status==='unknown'?'unknown':status==='accepted'?'completed':'blocked',attempted:false,code:status==='unknown'?'CALLBACK_UNKNOWN':status==='accepted'?'SYSTEM_OK':'CALLBACK_FAILED',allowed_actions:[],details:{phase:'send',...(http_status?{status_code:http_status}:{})}});
     return {status};
   }};
 }

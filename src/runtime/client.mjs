@@ -67,6 +67,7 @@ export class RuntimeClient {
   cancel(run_id) {
     return this.request("/internal/cancel", { run_id });
   }
+  pruneSystemHistory(args) {return this.request('/internal/history/system',args,30000);}
   purgeHistory(identity) {
     return this.request("/internal/history/purge", identity, 30000);
   }

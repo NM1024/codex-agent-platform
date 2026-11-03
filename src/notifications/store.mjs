@@ -46,8 +46,8 @@ function aggregate(statuses) {
 
 /** Gateway-owned durable notifications; private channel records never leave this module. */
 export class NotificationStore {
-  constructor({db,fetchImpl=globalThis.fetch,now=Date.now}) {
-    this.db=db;this.fetchImpl=fetchImpl;this.now=now;this.active=new Map();
+  constructor({journal,db,fetchImpl=globalThis.fetch,now=Date.now}) {
+    this.journal=journal;this.db=db;this.fetchImpl=fetchImpl;this.now=now;this.active=new Map();
     db.exec(`
       CREATE TABLE IF NOT EXISTS notification_channels (
         id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,provider TEXT NOT NULL,
@@ -181,6 +181,7 @@ export class NotificationStore {
   #transport(channel) {return {provider:channel.provider,url:channel.url,token:channel.token,headers:JSON.parse(channel.headers),signingSecret:channel.signing_secret,timeoutMs:channel.timeout_ms};}
   #finish(batchId,channelId,status,{http_status=null,provider_code=null,summary=''}={},transport) {
     const scrub=this.#redactor(transport?[transport]:[]);this.db.prepare('UPDATE notification_attempts SET status=?,http_status=?,provider_code=?,summary=?,updated_at=? WHERE batch_id=? AND channel_id=?').run(status,http_status,provider_code===null?null:JSON.stringify(scrub(provider_code)),scrub(String(summary)).slice(0,2048),this.now(),batchId,channelId);
+    this.journal?.work({id:'notification.'+batchId+'.'+channelId,module:'notifications',target_id:batchId,state:status==='unknown'?'unknown':status==='accepted'?'completed':'blocked',attempted:status==='unavailable',classification:status==='unavailable'?'configuration':'unknown',code:status==='unknown'?'NOTIFICATION_UNKNOWN':status==='accepted'?'SYSTEM_OK':'NOTIFICATION_FAILED',allowed_actions:[],details:{phase:'send',...(http_status?{status_code:http_status}:{})}});
   }
   async #execute(owner,batchId,deliveries,validate) {
     for(const delivery of deliveries) {
@@ -190,6 +191,7 @@ export class NotificationStore {
       const transport=this.#transport(channel);
       let request;try{request=notificationRequest(transport,delivery.body,{now:this.now()});}catch{this.#finish(batchId,delivery.channel_id,'unavailable',{summary:'Notification channel configuration is unavailable'});continue;}
       const reserved=this.db.prepare("UPDATE notification_attempts SET status='sending',channel_revision=?,updated_at=? WHERE batch_id=? AND channel_id=? AND status='pending'").run(channel.revision,this.now(),batchId,delivery.channel_id);if(!reserved.changes)continue;
+      this.journal?.work({id:'notification.'+batchId+'.'+delivery.channel_id,module:'notifications',target_id:batchId,state:'unknown',code:'NOTIFICATION_UNKNOWN',allowed_actions:[],details:{phase:'send'}});
       const controller=new AbortController();let timer;
       try {
         const response=await Promise.race([(async()=>{

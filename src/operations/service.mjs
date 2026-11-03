@@ -1,3 +1,4 @@
+import {createSystemMaintenance,requireSystemTarget,systemFailure,systemDue,systemObserve,systemWork} from '../observability/system-maintenance.mjs';
 import Ajv from 'ajv';
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../errors.mjs';
@@ -14,13 +15,34 @@ import {NotificationOperations,notificationManagementActions,notificationPrivate
 
 const fault=(code,status=400)=>new HttpError(status,code,code);
 export class OperationsService {
-  constructor({store,registry=store.registry,config,dispatcher,runner,restartGateway,configuration}) {
-    Object.assign(this,{store,registry,config,dispatcher,runner,restartGateway});
+  constructor({journal,store,registry=store.registry,config,dispatcher,runner,restartGateway,configuration}) {
+    Object.assign(this,{journal,store,registry,config,dispatcher,runner,restartGateway});
     this.configuration=configuration ?? new ConfigurationStore(store.db,[executionScope({store,config}),retentionScope()]);
-    this.schedules=new ScheduleStore(store,{clientId:config.clientId ?? 'default'});
+    this.schedules=new ScheduleStore(store,{clientId:config.clientId ?? 'default',journal});
+    if(journal){store.journal=journal;if(store.notifications)store.notifications.journal=journal;}
     this.notifications=new NotificationOperations({store,schedules:this.schedules});
     this.metrics=new ResourceSampler({diskPath:config.workspace ?? '/data'});
+    if(journal)this.system={journal,maintain:createSystemMaintenance({journal,actions:{
+      configuration_sync:async({work})=>{requireSystemTarget(work,'configuration-sync');await this.syncConfiguration({force:true});},
+      runtime_reconcile:async({work})=>{requireSystemTarget(work,'runtime-reconcile');await this.dispatcher.synchronize({force:true});},
+      history_sweep:async({work})=>{if(!['history-sweep','history-compact'].some(id=>work.id===`${journal.service}:work:${id}`)||!this.retention)throw new Error('SYSTEM_ACTION_UNSUPPORTED');await this.retention.retry();},
+      health_check:async({work})=>{requireSystemTarget(work,'runner-health');let state;try{state=await this.runner.ready();}catch{state={ready:false};}systemObserve(journal,{id:'runner-health',module:'health',state:state.ready?'completed':'unknown',code:state.ready?'SERVICE_RECOVERED':'RUNNER_UNAVAILABLE',allowed_actions:['health_check']});},
+    }})};
     const ajv=new Ajv({strict:true});this.checks=new Map(managementTools.map(tool=>[tool.name,ajv.compile(tool.inputSchema)]));
+  }
+  async syncConfiguration({force=false}={}) {
+    if(this.configurationSync)return this.configurationSync;
+    if(!systemDue(this.journal,'configuration-sync',{force}))return false;
+    this.configurationSync=(async()=>{
+      const saved=this.configuration.get('execution'),settings={concurrency:this.config.concurrency,...runtimeSettings(this.config)};
+      const work={id:'configuration-sync',module:'configuration',allowed_actions:['configuration_sync'],details:{revision:saved.revision,...(systemWork(this.journal,'configuration-sync')?.details.confirmed_revision!==undefined?{confirmed_revision:systemWork(this.journal,'configuration-sync').details.confirmed_revision}:{})},pending_count:1};
+      try {
+        const confirmed=await this.runner.configure?.(settings);
+        if(!confirmed||Object.entries(settings).some(([key,value])=>value!==undefined&&JSON.stringify(confirmed[key])!==JSON.stringify(value)))throw new Error('CONFIGURATION_SYNC_FAILED');
+        if(this.configuration.get('execution').revision!==saved.revision){systemObserve(this.journal,{...work,state:'unknown',code:'CONFIGURATION_SYNC_FAILED'});return false;}
+        systemObserve(this.journal,{...work,state:'completed',code:'CONFIGURATION_SYNCED',pending_count:0,details:{revision:saved.revision,confirmed_revision:saved.revision}});return true;
+      }catch(error){systemFailure(this.journal,{...work,code:'CONFIGURATION_SYNC_FAILED'},error);return false;}
+    })().finally(()=>{this.configurationSync=null;});return this.configurationSync;
   }
   async execute(action,args={}) {
     const pluginView=definition=>this.store.pluginConnections?{...definition,connection:this.store.pluginConnections.status(definition.type)}:definition;
@@ -39,7 +61,7 @@ export class OperationsService {
       const saved=this.configuration.update(args.scope,args.patch,{revision:args.revision}),synchronization={gateway:'applied'};
       if(args.scope==='execution') {
         this.runner.toolTimeoutMs=this.config.toolTimeoutMs;
-        try{await this.runner.configure?.({concurrency:this.config.concurrency,...runtimeSettings(this.config)});synchronization.runner='applied';}catch{synchronization.runner='pending';}
+        synchronization.runner=await this.syncConfiguration({force:true})?'applied':'pending';
         void this.dispatcher.drain();
       }
       return {...saved,synchronization};

@@ -1,12 +1,13 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import { lifecycleDetails } from "./codex.mjs";
 import { join } from "node:path";
-import { readdir, unlink } from "node:fs/promises";
+import { readdir, unlink, stat } from "node:fs/promises";
 import { safeDirectory, atomicJson, readRegular } from "../files.mjs";
 
 export class EventOutbox {
-  constructor({ workspace, send }) {
+  constructor({ workspace, send, journal }) {
     this.directory = join(workspace, ".agent-events");
-    this.send = send;
+    this.send = send;this.journal=journal;
     this.closed = false;
   }
   async publish(run_id, code, details) {
@@ -17,12 +18,13 @@ export class EventOutbox {
     });
     await this.flush();
   }
-  flush() {
+  flush({force=false}={}) {
+    if(!systemDue(this.journal,'event-outbox',{force})){this.schedule();return Promise.resolve();}
     if (this.flushing) {
       this.again = true;
       return this.flushing;
     }
-    this.flushing = this.sendPending().finally(() => {
+    this.flushing = this.sendPending().catch(error=>{systemFailure(this.journal,{id:'event-outbox',module:'events',code:'EVENT_DELIVERY_FAILED',allowed_actions:['event_flush']},error);this.schedule();throw error;}).finally(() => {
       this.flushing = null;
     });
     return this.flushing;
@@ -31,6 +33,7 @@ export class EventOutbox {
     do {
       this.again = false;
       await safeDirectory(this.directory);
+      let pending=0,oldest=Date.now(),failure;
       for (const name of await readdir(this.directory)) {
         if (this.closed) return;
         if (!/^[a-f0-9-]{36}(?:\.[0-9]+\.[A-Z_]+)?\.json$/.test(name)) continue;
@@ -41,17 +44,18 @@ export class EventOutbox {
           );
           await this.send(event);
           await unlink(path);
-        } catch {
+        } catch(error) {
+          pending++;failure=error;try{oldest=Math.min(oldest,Math.floor((await stat(path)).mtimeMs));}catch{}
           /* Keep uncertain delivery durable; its receiver is idempotent. */
         }
       }
+      const work={id:'event-outbox',module:'events',pending_count:pending,allowed_actions:['event_flush'],details:pending?{oldest_pending_at:oldest}:{}};
+      if(pending)systemFailure(this.journal,{...work,code:'EVENT_DELIVERY_FAILED'},failure);
+      else systemObserve(this.journal,{...work,state:'completed',code:'EVENT_DELIVERED'});
     } while (this.again && !this.closed);
-    if (!this.closed && !this.timer)
-      this.timer = setTimeout(() => {
-        this.timer = null;
-        void this.flush();
-      }, 15000);
+    this.schedule();
   }
+  schedule(){if(!this.closed&&!this.timer)this.timer=setTimeout(()=>{this.timer=null;void this.flush().catch(()=>{});},15000);}
   async stop() {
     this.closed = true;
     clearTimeout(this.timer);

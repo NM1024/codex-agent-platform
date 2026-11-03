@@ -1,3 +1,4 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import {join,basename,extname,isAbsolute,posix} from 'node:path';
 import {mkdir,lstat,open,unlink,rm} from 'node:fs/promises';
@@ -42,9 +43,9 @@ async function contentInfo(name,bytes){
   return {mime:'application/octet-stream',preview:false};
 }
 export class ManagerSandbox {
-  constructor({store,root,client=new SandboxHostClient(),wake=()=>{},now=Date.now}){
+  constructor({journal,store,root,client=new SandboxHostClient(),wake=()=>{},now=Date.now}){
     if(!isAbsolute(root))throw new Error('Sandbox attachment root must be absolute.');
-    Object.assign(this,{store,root:join(root,'sandbox-attachments'),client,wake,now});this.locks=new Map();
+    Object.assign(this,{journal,store,root:join(root,'sandbox-attachments'),client,wake,now});this.locks=new Map();
     store.db.exec(`CREATE TABLE IF NOT EXISTS manager_sandbox_files(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,preview INTEGER NOT NULL,origin TEXT NOT NULL,message_id TEXT,created_at INTEGER NOT NULL,digest TEXT NOT NULL,deleting INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS manager_sandbox_files_owner ON manager_sandbox_files(conversation_id);
       CREATE TABLE IF NOT EXISTS manager_sandbox_message_files(message_id TEXT NOT NULL,file_id TEXT NOT NULL,PRIMARY KEY(message_id,file_id));
@@ -75,7 +76,7 @@ export class ManagerSandbox {
   permission(id,conversationId){return permissionRow(this.sql('SELECT * FROM manager_sandbox_permissions WHERE id=? AND conversation_id=?').get(id,conversationId));}
   expire(conversationId,context){for(const row of this.sql("SELECT * FROM manager_sandbox_permissions WHERE conversation_id=? AND status IN ('pending','approved')").all(conversationId)){const p=permissionRow(row);if(p.expires_at<=this.now()||(context?.available&&(p.instance_id!==context.instance_id||p.revision!==context.revision)))this.sql("UPDATE manager_sandbox_permissions SET status='expired' WHERE id=? AND status IN ('pending','approved')").run(p.id);}}
   context(conversationId){return this.locked(conversationId,()=>this.snapshot(conversationId));}
-  async snapshot(conversationId){this.store.metadata(conversationId);let context;try{context=await this.client.call('context',conversationId);}catch{context={available:false,exists:false,network_supported:false,reason:'The local code sandbox is unavailable.',executions:[]};}this.store.metadata(conversationId);this.expire(conversationId,context);const stored=this.sql('SELECT * FROM manager_sandbox_operations WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 16').all(conversationId);const jobs=new Map((context.executions??[]).map(job=>[job.request_key,job]));const executions=stored.map(row=>{const old=JSON.parse(row.result),received=jobs.get(row.request_key),current=received&&['completed','failed','cancelled'].includes(old.status)&&received.status==='running'?null:received,result={...old,...(current??{}),message_id:row.message_id};for(const stream of ['stdout','stderr'])if(current?.[stream+'_truncated']&&typeof old[stream]==='string'&&typeof current[stream]==='string'&&old[stream].startsWith(current[stream])&&old[stream].length>current[stream].length)result[stream]=old[stream];if(current)this.sql('UPDATE manager_sandbox_operations SET result=? WHERE conversation_id=? AND request_key=?').run(JSON.stringify(result),conversationId,row.request_key);return result;});return {...context,files:this.sql('SELECT * FROM manager_sandbox_files WHERE conversation_id=? AND deleting=0 ORDER BY created_at DESC,rowid DESC LIMIT 100').all(conversationId).map(fileRow),permissions:this.sql('SELECT * FROM manager_sandbox_permissions WHERE conversation_id=? ORDER BY rowid DESC LIMIT 100').all(conversationId).map(permissionRow),executions:executions.map(summaryJob)};}
+  async snapshot(conversationId){this.store.metadata(conversationId);let context;try{context=await this.client.call('context',conversationId);}catch{context={available:false,exists:false,network_supported:false,reason:'The local code sandbox is unavailable.',executions:[]};}systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:context.available?'completed':'unknown',code:context.available?'SERVICE_RECOVERED':'SANDBOX_UNAVAILABLE',allowed_actions:[],details:{phase:'probe',source:'host'}});this.store.metadata(conversationId);this.expire(conversationId,context);const stored=this.sql('SELECT * FROM manager_sandbox_operations WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 16').all(conversationId);const jobs=new Map((context.executions??[]).map(job=>[job.request_key,job]));const executions=stored.map(row=>{const old=JSON.parse(row.result),received=jobs.get(row.request_key),current=received&&['completed','failed','cancelled'].includes(old.status)&&received.status==='running'?null:received,result={...old,...(current??{}),message_id:row.message_id};for(const stream of ['stdout','stderr'])if(current?.[stream+'_truncated']&&typeof old[stream]==='string'&&typeof current[stream]==='string'&&old[stream].startsWith(current[stream])&&old[stream].length>current[stream].length)result[stream]=old[stream];if(current)this.sql('UPDATE manager_sandbox_operations SET result=? WHERE conversation_id=? AND request_key=?').run(JSON.stringify(result),conversationId,row.request_key);return result;});return {...context,files:this.sql('SELECT * FROM manager_sandbox_files WHERE conversation_id=? AND deleting=0 ORDER BY created_at DESC,rowid DESC LIMIT 100').all(conversationId).map(fileRow),permissions:this.sql('SELECT * FROM manager_sandbox_permissions WHERE conversation_id=? ORDER BY rowid DESC LIMIT 100').all(conversationId).map(permissionRow),executions:executions.map(summaryJob)};}
   async execute(toolName,args,context){const validator=validators.get(toolName);if(!validator||!validator(args))throw error('SANDBOX_INVALID_ARGUMENTS','Invalid sandbox tool arguments.',400);return this.locked(context?.conversationId,async()=>{this.scope(context);const id=context.conversationId;
     if(toolName==='sandbox_files')return this.files(args,context);
     if(toolName==='sandbox_exec')return this.exec(args,context);
@@ -146,21 +147,24 @@ export class ManagerSandbox {
       this.store.db.exec('RELEASE sandbox_cleanup');
     }catch(e){this.store.db.exec('ROLLBACK TO sandbox_cleanup; RELEASE sandbox_cleanup');throw e;}
   }
-  async cleanup({limit=50,conversationId}={}){
+  async cleanup({limit=50,conversationId,force=conversationId!==undefined}={}){
     if(!Number.isInteger(limit)||limit<1||limit>100)throw error('SANDBOX_INVALID_LIMIT');
     if(conversationId!==undefined&&(typeof conversationId!=='string'||!/^[0-9a-f-]{36}$/.test(conversationId)))throw error('SANDBOX_SCOPE_INVALID');
     let cleaned=0,failed=0;
     const rows=this.sql(`SELECT * FROM manager_sandbox_cleanup ${conversationId?'WHERE id=?':''} ORDER BY attempted_at,created_at LIMIT ?`).all(...(conversationId?[conversationId]:[]),limit);
     for(const row of rows){
       if(this.sql('SELECT id FROM manager_conversations WHERE id=?').get(row.id))continue;
+      const work={id:'sandbox-cleanup.'+row.id,module:'sandbox',target_id:row.id,allowed_actions:['cleanup_retry'],pending_count:1};
+      if(!systemDue(this.journal,work.id,{force})){this.sql('UPDATE manager_sandbox_cleanup SET attempted_at=? WHERE id=?').run(this.now(),row.id);continue;}
+      this.journal?.work({...work,state:'running'});let failure;
       // Stable private attachments do not depend on the optional host helper.
       // Attempt each side independently and retain the durable job until both
       // have completed; destroy and missing local directories are idempotent.
       let localDone=false,hostDone=false;
-      try{await this.cleanupLocalFiles(row.id);localDone=true;}catch{}
-      try{await this.client.call('destroy',row.id);hostDone=true;}catch{}
-      if(localDone&&hostDone){this.sql('DELETE FROM manager_sandbox_cleanup WHERE id=?').run(row.id);cleaned++;}
-      else{this.sql('UPDATE manager_sandbox_cleanup SET attempted_at=? WHERE id=?').run(this.now(),row.id);failed++;}
+      try{await this.cleanupLocalFiles(row.id);localDone=true;}catch(error){failure=error;}
+      try{await this.client.call('destroy',row.id);hostDone=true;}catch(error){failure??=error;}
+      if(localDone&&hostDone){this.sql('DELETE FROM manager_sandbox_cleanup WHERE id=?').run(row.id);cleaned++;this.journal?.work({...work,state:'completed',code:'CLEANUP_COMPLETED',pending_count:0,attempted:false});}
+      else{this.sql('UPDATE manager_sandbox_cleanup SET attempted_at=? WHERE id=?').run(this.now(),row.id);failed++;systemFailure(this.journal,{...work,code:'SANDBOX_CLEANUP_FAILED',attempted:false},failure);}
     }
     const abandoned=this.sql(`SELECT f.* FROM manager_sandbox_files f WHERE f.origin='upload' AND f.created_at<? AND NOT EXISTS(SELECT 1 FROM manager_sandbox_message_files m WHERE m.file_id=f.id) ${conversationId?'AND f.conversation_id=?':''} LIMIT ?`).all(this.now()-86400000,...(conversationId?[conversationId]:[]),limit);for(const file of abandoned){
       // Claim synchronously before any filesystem await. Message admission uses
@@ -170,5 +174,5 @@ export class ManagerSandbox {
       try{try{const path=await containedPath(this.root,join(this.root,file.conversation_id,file.id));await unlink(path);}catch(e){if(e.code!=='ENOENT')throw e;}this.sql('DELETE FROM manager_sandbox_files WHERE id=? AND deleting=1').run(file.id);}catch{}
     }
     return {cleaned,failed,pending:Boolean(this.sql(`SELECT 1 FROM manager_sandbox_cleanup ${conversationId?'WHERE id=?':''} LIMIT 1`).get(...(conversationId?[conversationId]:[])))};}
-  async recover(){this.sql("UPDATE manager_sandbox_permissions SET status='expired' WHERE status IN ('pending','approved')").run();this.sql("UPDATE manager_sandbox_operations SET result=json_set(result,'$.status','unknown','$.reason','Sandbox restart; no command was replayed.') WHERE json_extract(result,'$.status')='running'").run();return this.client.recover();}
+  async recover(){this.sql("UPDATE manager_sandbox_permissions SET status='expired' WHERE status IN ('pending','approved')").run();this.sql("UPDATE manager_sandbox_operations SET result=json_set(result,'$.status','unknown','$.reason','Sandbox restart; no command was replayed.') WHERE json_extract(result,'$.status')='running'").run();try{const result=await this.client.recover();systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:'completed',code:'SERVICE_RECOVERED',details:{phase:'recovery'},allowed_actions:[]});return result;}catch(error){systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:'unknown',code:'SANDBOX_UNAVAILABLE',allowed_actions:[],details:{phase:'recovery',source:'host'}});throw error;}}
 }

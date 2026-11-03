@@ -7,8 +7,9 @@ const time=value=>Number.isSafeInteger(value)&&value>=0;
 const fail=code=>{const error=new Error(code);error.code=code;return error;};
 const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
 const select=(value,values,fallback)=>values.includes(value)?value:fallback;
-const numericDetails=new Set(['pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code','gap_count','failed_operations','first_failed_at','last_failed_at','last_recovered_at','gap_started_at']);
+const numericDetails=new Set(['plugin_revision','connection_revision','confirmed_revision','oldest_pending_at','pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code','gap_count','failed_operations','first_failed_at','last_failed_at','last_recovered_at','gap_started_at']);
 const selectors={
+  action:SYSTEM_ACTIONS,actor:['admin','agent','system'],
   phase:['cleanup','scan','prune','compact','synchronize','sync','dispatch','claim','ack','handoff','reconcile','recovery','probe','send','verify','start','stop','complete','idle'],
   status:[...SYSTEM_STATES,'pending','failed','succeeded','unavailable','available','accepted','claimed','acknowledged','cancelled'],
   result:['success','failure','unknown','skipped','pending','partial'],source:[...SYSTEM_SERVICES,'local','remote','sandbox','codex','callback','notification','host'],

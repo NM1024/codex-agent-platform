@@ -1,3 +1,4 @@
+import {SystemJournal} from './observability/system-journal.mjs';
 import { dirname } from "node:path";
 import { createApplication } from "./application.mjs";
 import { safeDirectory } from "./files.mjs";
@@ -10,6 +11,7 @@ import { OperationsService } from './operations/service.mjs';
 import {HistoryRetentionWorker,compactHistoryDatabase} from './history/worker.mjs';
 import {createTaskHistoryBatch} from './core/history-retention.mjs';
 
+let startupJournal;
 try {
   const { config, registry,configuration } = createApplication("gateway");
   await safeDirectory(dirname(config.dbPath));
@@ -18,6 +20,8 @@ try {
     registry,
     queueLimit: config.queueLimit,
   });
+  const journal=new SystemJournal({db:store.db,service:'gateway'});startupJournal=journal;store.journal=journal;
+  journal.event({module:'system',event:'startup',code:'WORK_RUNNING',details:{phase:'start'}});
   const settings=configuration(store);
   for (const module of registry.modules.values()) await module.migrate?.(store);
   const runner = new RuntimeClient({
@@ -36,16 +40,19 @@ try {
     runner,
     config,
     deliver,
+    journal,
   });
   const api = createTaskApi({ store, registry, dispatcher, config, runner });
-  const operations=new OperationsService({store,registry,dispatcher,runner,config,configuration:settings,restartGateway:()=>void stop().then(()=>process.exit(0))});
-  const retention=new HistoryRetentionWorker({db:store.db,
+  const operations=new OperationsService({journal,store,registry,dispatcher,runner,config,configuration:settings,restartGateway:()=>void stop().then(()=>process.exit(0))});
+  const retention=new HistoryRetentionWorker({db:store.db,journal,
+    pruneRemote:args=>runner.pruneSystemHistory(args),
     readPolicy:()=>{const group=settings.get('retention');return {...group.values,revision:group.revision};},
     maintenance:()=>store.notifications?.pruneTestHistory({cutoff:Date.now()-7*24*60*60*1000,limit:50}),
     runBatch:createTaskHistoryBatch({store,runner,schedules:operations.schedules,activeDeliveries:deliver.active}),
     compact:()=>compactHistoryDatabase(store.db,{idle:store.isHistoryIdle()&&!deliver.active.size}),
     onSweep:state=>console.log(JSON.stringify({service:'gateway',event:'history_retention_completed',deleted:state.deleted,failed:state.failed})),
   });
+  operations.retention=retention;dispatcher.syncConfiguration=()=>operations.syncConfiguration();
   const internal = createPrivateApi({
     store,
     registry,
@@ -74,6 +81,7 @@ try {
         JSON.stringify({ service: "gateway", event: "reconciliation_failed" }),
       ),
     );
+  journal.event({module:'system',event:'listening',code:'SYSTEM_OK',details:{phase:'start'}});
   let scheduling=false;
   const scheduleTimer=setInterval(()=>{
     if (scheduling) return;
@@ -86,6 +94,7 @@ try {
   async function stop() {
     if (closing) return;
     closing = true;
+    journal.event({module:'system',event:'stopping',code:'WORK_IDLE',details:{phase:'stop'}});
     clearInterval(scheduleTimer);
     clearInterval(retentionTimer);await retention.stop();
     await dispatcher.stop();
@@ -98,6 +107,7 @@ try {
   process.on("SIGTERM", () => void stop());
   process.on("SIGINT", () => void stop());
 } catch (error) {
+  startupJournal?.event({module:'system',event:'startup_failed',code:'SERVICE_UNAVAILABLE',level:'error',details:{phase:'start'}});
   console.error(
     JSON.stringify({
       service: "gateway",

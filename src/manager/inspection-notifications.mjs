@@ -1,10 +1,11 @@
+import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
 import {HttpError} from '../errors.mjs';
 
 // Gateway owns notification transport. These local outboxes only coordinate
 // inspection lifecycle and deletion across the two independently durable stores.
 export class InspectionNotificationBridge {
-  constructor({store,client}) {
-    Object.assign(this,{store,client});this.pending=new Map();
+  constructor({journal,store,client}) {
+    Object.assign(this,{journal,store,client});this.pending=new Map();
     store.db.exec(`CREATE TABLE IF NOT EXISTS manager_inspection_notification_cleanup(
       inspection_id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL,created_at INTEGER NOT NULL,attempted_at INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS manager_inspection_notification_states(
@@ -38,9 +39,11 @@ export class InspectionNotificationBridge {
       WHERE conversation_id<>excluded.conversation_id OR message_id<>excluded.message_id OR state<>excluded.state`).run(event.id,event.conversation_id,event.message_id,event.state,Date.now());
   }
   async confirmLifecycle(event) {
-    const result=await this.client.execute('inspection_execution_update',event);
-    if(result?.accepted!==true)throw new HttpError(409,'INSPECTION_EXECUTION_REJECTED','巡检执行映射未被确认。');
-    return result;
+    const work={id:'inspection-lifecycle.'+event.id,module:'inspections',target_id:event.id,allowed_actions:['inspection_reconcile']};
+    try {const result=await this.client.execute('inspection_execution_update',event);
+      if(result?.accepted!==true)throw new HttpError(409,'INSPECTION_EXECUTION_REJECTED');
+      systemObserve(this.journal,{...work,state:'completed',code:'HANDOFF_COMPLETED',details:{phase:'complete'}});return result;
+    }catch(error){systemFailure(this.journal,{...work,code:'HANDOFF_FAILED',pending_count:1},error);throw error;}
   }
   async deliverLifecycle(id) {
     const row=this.store.statement('SELECT * FROM manager_inspection_notification_states WHERE inspection_id=?').get(id);if(!row)return;
@@ -49,22 +52,23 @@ export class InspectionNotificationBridge {
       this.store.statement('DELETE FROM manager_inspection_notification_states WHERE inspection_id=? AND version=?').run(id,row.version);
     }catch(error){this.store.statement('UPDATE manager_inspection_notification_states SET attempted_at=max(?,(SELECT COALESCE(max(attempted_at),0)+1 FROM manager_inspection_notification_states)) WHERE inspection_id=? AND version=?').run(Date.now(),id,row.version);throw error;}
   }
-  async retryLifecycle({limit=50}={}) {
+  async retryLifecycle({limit=50,inspectionId,force=false}={}) {
     this.validateLimit(limit);
-    const rows=this.store.statement('SELECT inspection_id FROM manager_inspection_notification_states ORDER BY attempted_at,created_at,inspection_id LIMIT ?').all(limit);let completed=0;
-    for(const row of rows)try{await this.serialize(row.inspection_id,()=>this.deliverLifecycle(row.inspection_id));completed++;}catch{}
+    const rows=inspectionId?this.store.statement('SELECT inspection_id FROM manager_inspection_notification_states WHERE inspection_id=?').all(inspectionId):this.store.statement('SELECT inspection_id FROM manager_inspection_notification_states ORDER BY attempted_at,created_at,inspection_id LIMIT ?').all(limit);let completed=0;
+    for(const row of rows)try{if(!systemDue(this.journal,'inspection-lifecycle.'+row.inspection_id,{force}))continue;await this.serialize(row.inspection_id,()=>this.deliverLifecycle(row.inspection_id));completed++;}catch{}
     return {attempted:rows.length,completed,pending:rows.length-completed};
   }
-  async cleanup({limit=50,conversationId}={}) {
+  async cleanup({limit=50,conversationId,force=conversationId!==undefined}={}) {
     this.validateLimit(limit);
     const rows=this.store.statement(`SELECT * FROM manager_inspection_notification_cleanup ${conversationId===undefined?'':'WHERE conversation_id=?'} ORDER BY attempted_at,created_at,inspection_id LIMIT ?`).all(...(conversationId===undefined?[]:[conversationId]),limit);let completed=0;
     for(const row of rows)try {
+      if(!systemDue(this.journal,'inspection-cleanup.'+row.inspection_id,{force}))continue;
       await this.serialize(row.inspection_id,async()=>{
         const result=await this.client.execute('inspection_notification_cleanup',{id:row.inspection_id,conversation_id:row.conversation_id});
         if(result?.accepted===false)throw new HttpError(409,'INSPECTION_CLEANUP_REJECTED','巡检通知清理尚未确认。');
         this.store.statement('DELETE FROM manager_inspection_notification_cleanup WHERE inspection_id=? AND conversation_id=?').run(row.inspection_id,row.conversation_id);
-      });completed++;
-    }catch{this.store.statement('UPDATE manager_inspection_notification_cleanup SET attempted_at=max(?,(SELECT COALESCE(max(attempted_at),0)+1 FROM manager_inspection_notification_cleanup)) WHERE inspection_id=?').run(Date.now(),row.inspection_id);}
+      });completed++;systemObserve(this.journal,{id:'inspection-cleanup.'+row.inspection_id,module:'inspections',target_id:row.conversation_id,state:'completed',code:'CLEANUP_COMPLETED',allowed_actions:['cleanup_retry']});
+    }catch(error){systemFailure(this.journal,{id:'inspection-cleanup.'+row.inspection_id,module:'inspections',target_id:row.conversation_id,code:'CLEANUP_FAILED',pending_count:1,allowed_actions:['cleanup_retry']},error);this.store.statement('UPDATE manager_inspection_notification_cleanup SET attempted_at=max(?,(SELECT COALESCE(max(attempted_at),0)+1 FROM manager_inspection_notification_cleanup)) WHERE inspection_id=?').run(Date.now(),row.inspection_id);}
     return {attempted:rows.length,completed,pending:rows.length-completed};
   }
   validateLimit(limit){if(!Number.isInteger(limit)||limit<1||limit>100)throw new HttpError(400,'INVALID_PAGINATION','每页数量必须是 1 到 100 的整数。');}

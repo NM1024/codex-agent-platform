@@ -7,6 +7,7 @@ export const SYSTEM_CLASSIFICATIONS=Object.freeze(['unknown','transient','config
 export const SYSTEM_ACTIONS=Object.freeze(['cleanup_retry','inspection_reconcile','configuration_sync','runtime_reconcile','event_flush','history_sweep','health_check']);
 /** Only these fixed descriptions enter public records. Raw message/title/error text is discarded. */
 export const SYSTEM_CODES=Object.freeze({
+  HOST_ACCESS_UNAVAILABLE:'Host service access is unavailable here; use the human deployment interface.',
   SYSTEM_ERROR:'System operation failed.',SYSTEM_OK:'System check succeeded.',
   SYSTEM_JOURNAL_UNAVAILABLE:'System journal is unavailable.',
   SYSTEM_JOURNAL_RECOVERED:'System journal access recovered; a collection gap was recorded.',
