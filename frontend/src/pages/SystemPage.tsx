@@ -3,10 +3,10 @@ import {Alert,Button,Card,Empty,Input,Modal,Select,Space,Table,Tabs,Typography} 
 import {useConsole} from '../context';
 import {LoadingState,Panel,Status,TableField,TableIdentifier} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
-import {systemActions,systemClassifications,systemCodes,systemModules} from '../system-i18n';
+import {systemClassifications,systemCodes,systemModules} from '../system-i18n';
 import {preserveSystemDetail,preserveSystemPage} from '../system-evidence';
 import type {SystemPageEvidence} from '../system-evidence';
-import type {Conversation,SystemDetail,SystemDraft,SystemEvent,SystemPageResult,SystemRecord,SystemSource,SystemStatus,SystemWork} from '../types';
+import type {Conversation,SystemDetail,SystemEvent,SystemPageResult,SystemRecord,SystemSource,SystemStatus,SystemWork} from '../types';
 import './system.css';
 
 type Tab='issues'|'work'|'logs';
@@ -20,9 +20,8 @@ export default function SystemPage(){
  const [status,setStatus]=useState<SystemStatus>(),[statusError,setStatusError]=useState(false),[statusLoading,setStatusLoading]=useState(true);
  const [page,setPage]=useState<SystemPageEvidence>(),[loading,setLoading]=useState(true),[pageError,setPageError]=useState(false),[loadedPage,setLoadedPage]=useState(1);
  const [selection,setSelection]=useState<{id:string;event?:SystemEvent}>(),[detail,setDetail]=useState<SystemDetail>(),[detailError,setDetailError]=useState(false),[detailLoading,setDetailLoading]=useState(false);
- const [busy,setBusy]=useState(false),[handoffBusy,setHandoffBusy]=useState(false),[result,setResult]=useState(''),[actionError,setActionError]=useState(''),[draft,setDraft]=useState<SystemDraft>(),[reviewOpen,setReviewOpen]=useState(false);
+ const [busy,setBusy]=useState(false),[handoffBusy,setHandoffBusy]=useState(false),[result,setResult]=useState(''),[actionError,setActionError]=useState(''),[reviewOpen,setReviewOpen]=useState(false);
  const listRequest=useRef(0),summaryRequest=useRef(0),detailRequest=useRef(0),actionLock=useRef(false),handoffLock=useRef(false),alive=useRef(true),loadedQuery=useRef(''),loadedFilters=useRef(''),retainRefresh=useRef(false);
- const [copyResult,setCopyResult]=useState('');
  const cursor=cursors.at(-1)??'';
  const format=(at?:number|null)=>at===undefined||at===null?'—':new Intl.DateTimeFormat(locale,{dateStyle:'short',timeStyle:'medium'}).format(new Date(at));
  const code=(value:string)=>t(systemCodes[value]??'系统操作失败。');
@@ -46,7 +45,7 @@ export default function SystemPage(){
   if(alive.current&&request===detailRequest.current){setDetail(previous=>preserveSystemDetail(value,previous,id));setDetailError(false);}return value;
  };
  const inspect=async(record:SystemRecord)=>{
-  if(actionLock.current)return;const request=++detailRequest.current;setSelection({id:record.kind==='event'?(record.work_id??record.id):record.id,...(record.kind==='event'?{event:record}:{})});setDetail(record.kind==='work'&&record.service?{work:record,sources:page?.sources.filter(source=>source.service===record.service)??[]}:undefined);setDetailError(false);setActionError('');setResult('');setDraft(undefined);setCopyResult('');setReviewOpen(false);
+  if(actionLock.current)return;const request=++detailRequest.current;setSelection({id:record.kind==='event'?(record.work_id??record.id):record.id,...(record.kind==='event'?{event:record}:{})});setDetail(record.kind==='work'&&record.service?{work:record,sources:page?.sources.filter(source=>source.service===record.service)??[]}:undefined);setDetailError(false);setActionError('');setResult('');setReviewOpen(false);
   if(record.kind==='event')return;
   setDetailLoading(true);try{await readDetail(record.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
  };
@@ -55,28 +54,20 @@ export default function SystemPage(){
   try{await readDetail(selection.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}finally{if(alive.current&&request===detailRequest.current)setDetailLoading(false);}
  };
  const close=()=>{if(actionLock.current)return;detailRequest.current++;setSelection(undefined);setReviewOpen(false);setDetailLoading(false);};
- const mutate=async(kind:'maintain'|'review'|'draft',action?:string)=>{
+ const review=async()=>{
   const work=detail?.work;if(!work||actionLock.current||detailError||detailLoading||detail.sources.some(source=>!source.available))return;
-  actionLock.current=true;setBusy(true);setActionError('');setResult('');setCopyResult('');const request=detailRequest.current;
+  actionLock.current=true;setBusy(true);setActionError('');setResult('');const request=detailRequest.current;
   try{
-   if(kind==='draft'){
-    const value=await operation<SystemDraft>('system_issue_draft',{id:work.id,revision:work.revision});if(alive.current&&request===detailRequest.current)setDraft(value);
-   }else if(kind==='review'){
-    await api<SystemDetail>('/system/review',{id:work.id,revision:work.revision});if(alive.current&&request===detailRequest.current){setResult('已解除代码缺陷分类；未执行修复，未确认恢复。');setReviewOpen(false);}
-   }else{
-    const value=await operation<{outcome:'recovered'|'unconfirmed'|'unknown'|'failed'}>('system_maintain',{id:work.id,revision:work.revision,action});
-    const messages={recovered:'已核验恢复',unconfirmed:'请求已返回，尚未核验恢复。',unknown:'结果未知，请先核验现状，不要盲目重试。',failed:'维护执行失败；请读取最新证据。'};
-    if(alive.current&&request===detailRequest.current)setResult(messages[value.outcome]??messages.unknown);
-   }
+   await api<SystemDetail>('/system/review',{id:work.id,revision:work.revision});if(alive.current&&request===detailRequest.current){setResult('已解除代码缺陷分类；未执行修复，未确认恢复。');setReviewOpen(false);}
   }catch{if(alive.current&&request===detailRequest.current)setActionError('操作未完成，请重新读取详情后核对当前版本。');}
   finally{
    try{await readDetail(work.id,request);}catch{if(alive.current&&request===detailRequest.current)setDetailError(true);}
    if(alive.current&&request===detailRequest.current){setBusy(false);refresh();}actionLock.current=false;
   }
  };
- const analyze=async(id:string,intent='diagnose')=>{
+ const analyze=async(id:string)=>{
   if(handoffLock.current||actionLock.current)return;handoffLock.current=true;setHandoffBusy(true);setActionError('');
-  try{const conversation=await api<Conversation>('/conversations',{system_reference:{id,intent}});if(alive.current){setChatId(conversation.id);navigate('chat');}}
+  try{const conversation=await api<Conversation>('/conversations',{system_reference:{id}});if(alive.current){setChatId(conversation.id);navigate('chat');}}
   catch{if(alive.current)setActionError('操作未完成，请重新读取详情后核对当前版本。');}
   finally{handoffLock.current=false;if(alive.current)setHandoffBusy(false);}
  };
@@ -85,7 +76,6 @@ export default function SystemPage(){
  const sourceWarning=<Alert type="warning" showIcon title={t('部分来源不可用；当前结果不完整，不能据此判断系统健康。')}/>;
  const related=(workId:string)=>{close();setTab('logs');const next={...initial,work_id:workId};setDraftFilters(next);setFilters(next);setCursors(['']);};
  const work=detail?.work;
- const allowed=work&&(detail?.allowed_actions??work.allowed_actions).filter(action=>systemActions[action]&&(work.classification!=='code_defect'||action==='health_check'));
  const event=selection?.event;
  const stalePage=!!page?.stale_ids.length,staleDetail=partial(detail?.sources),allUnavailable=(items?:SystemSource[])=>!!items?.length&&items.every(source=>!source.available);
  const renderState=(row:SystemRecord)=><Status value={row.kind==='event'?row.level:row.state}/>;
@@ -125,7 +115,7 @@ export default function SystemPage(){
      {title:t('核验情况'),key:'verification',width:'10%',className:'system-verification-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('核验情况')}>{row.kind==='work'&&renderVerification(row)}</TableField>},
     ]),
     {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:row.last_progress_at)}{row.kind==='work'&&<><small>{progress(row)}</small>{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
-    {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('Agent 分析')}</Button>}</Space>},
+    {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('交给管理 Agent')}</Button>}</Space>},
    ]}/>}
    <div id="system-pagination" className="system-pagination"><Button disabled={cursors.length===1||loading||stalePage} onClick={()=>setCursors(value=>value.slice(0,-1))}>{t('上一页')}</Button><Typography.Text type="secondary">{stalePage?t('已知记录 {count} 条；包含过期证据',{count:page?.items.length??0}):t('每页 {limit} 条 · 第 {page} 页 · 本页 {count} 条',{limit:pageSize,page:page?loadedPage:cursors.length,count:page?.items.length??0})}</Typography.Text><Button disabled={!page?.next_cursor||loading||pageError||stalePage} onClick={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}}>{t('下一页')}</Button></div>
    <Typography.Paragraph className="system-page-help" type="secondary">{t('当前状态游标分页；来源恢复或数据变化后请从首页刷新。')}</Typography.Paragraph>
@@ -148,14 +138,12 @@ export default function SystemPage(){
        ['服务与编号',<TableIdentifier value={work.id}/>],['安全原因',<>{code(work.code)} <code>{work.code}</code></>],['记录版本',work.revision],['创建时间',format(work.created_at)],['首次出现',format(work.issue_opened_at)],['最近进展',<>{format(work.last_progress_at)} · {progress(work)}</>],['首次尝试',format(work.first_attempt_at)],['最近尝试',format(work.last_attempt_at)],['最近成功',format(work.last_success_at)],['下次重试',format(work.next_retry_at)],['尝试次数',work.attempts],['连续失败',work.consecutive_failures],['问题次数',work.issue_count],['待处理数量',work.pending_count],
       ].map(([label,value])=><div className="system-fact" key={String(label)}><dt>{t(String(label))}</dt><dd>{value}</dd></div>)}</dl>
       {result&&<Alert role="status" type={result==='已核验恢复'?'success':'info'} showIcon title={t(result)}/>}{actionError&&<Alert type="error" showIcon title={t(actionError)}/>}
-      <div className="system-detail-actions"><Button disabled={busy||handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id)}>{t('Agent 分析')}</Button><Button disabled={busy} onClick={()=>related(work.id)}>{t('查看关联日志')}</Button>{allowed&&allowed.length>0?allowed.map(action=><Button key={action} type="primary" disabled={busy||detailError||partial(detail?.sources)} onClick={()=>void mutate('maintain',action)}>{t(systemActions[action])}</Button>):<Typography.Text type="secondary">{t('未提供受控维护操作。')}</Typography.Text>}</div>
-      <div className="system-detail-actions"><Button disabled={busy||detailError||partial(detail?.sources)} onClick={()=>void mutate('draft')}>{t('生成代码问题草稿')}</Button><Button disabled={busy||handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id,'issue_draft')}>{t('请 Agent 整理草稿')}</Button>{work.classification==='code_defect'&&<Button disabled={busy||detailError||partial(detail?.sources)} onClick={()=>setReviewOpen(true)}>{t('重新开放维护')}</Button>}</div>
-      {draft&&<section id="system-draft"><Alert type="info" showIcon title={t('未提交 GitHub；请核对脱敏内容后自行发布。')}/><Typography.Link href={draft.repository_url} target="_blank" rel="noopener noreferrer">{draft.repository_url}</Typography.Link><pre>{draft.markdown}</pre><Button onClick={()=>{void navigator.clipboard.writeText(draft.markdown).then(()=>setCopyResult('草稿已复制。')).catch(()=>setCopyResult('草稿复制失败，请手动选择复制。'));}}>{t('复制草稿')}</Button>{copyResult&&<Typography.Paragraph role="status">{t(copyResult)}</Typography.Paragraph>}</section>}
+      <div className="system-detail-actions"><Button type="primary" disabled={busy||handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id)}>{t('交给管理 Agent')}</Button><Button disabled={busy} onClick={()=>related(work.id)}>{t('查看关联日志')}</Button>{work.classification==='code_defect'&&<Button disabled={busy||detailError||partial(detail?.sources)} onClick={()=>setReviewOpen(true)}>{t('重新开放维护')}</Button>}</div>
       <Typography.Title level={3}>{t('处理经过')}</Typography.Title><div className="system-timeline">{(detail?.events??[]).map(item=><div key={item.id}><Typography.Text>{code(item.code)}</Typography.Text><small>{format(item.last_seen_at)} · <code>{item.id}</code> · {item.count}</small></div>)}</div>
      </>}
     </>}
    </div>
   </AdminDrawer>
-  <Modal className="admin-overlay admin-modal" open={reviewOpen} title={t('重新开放维护')} okText={t('确认重新开放')} cancelText={t('取消')} onOk={()=>void mutate('review')} onCancel={()=>{if(!actionLock.current)setReviewOpen(false);}} okButtonProps={{loading:busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} mask={{closable:!busy}}><Typography.Paragraph>{t('请确认开发者已部署修复或人工已重新诊断。这只解除代码缺陷分类限制，不代表已经恢复，也不会执行修复或重试；问题保持未恢复，直到实际核验。此入口仅供人工使用。')}</Typography.Paragraph></Modal>
+  <Modal className="admin-overlay admin-modal" open={reviewOpen} title={t('重新开放维护')} okText={t('确认重新开放')} cancelText={t('取消')} onOk={()=>void review()} onCancel={()=>{if(!actionLock.current)setReviewOpen(false);}} okButtonProps={{loading:busy}} cancelButtonProps={{disabled:busy}} closable={!busy} keyboard={!busy} mask={{closable:!busy}}><Typography.Paragraph>{t('请确认开发者已部署修复或人工已重新诊断。这只解除代码缺陷分类限制，不代表已经恢复，也不会执行修复或重试；问题保持未恢复，直到实际核验。此入口仅供人工使用。')}</Typography.Paragraph></Modal>
  </div>;
 }
