@@ -1,4 +1,5 @@
 import {registerEnglish} from './i18n.ts';
+registerEnglish({'工作状态':'Work state','问题恢复':'Issue recovery','核验情况':'Verification','问题分类':'Classification','日志级别':'Log level'});
 export const systemModules:Record<string,string>={system:'系统',cleanup:'资源清理',sandbox:'沙箱',retention:'历史保留',configuration:'配置同步',events:'内部事件',runtime:'运行恢复',schedules:'定时计划',inspections:'巡检',notifications:'通知',delivery:'结果回调',health:'服务健康',api:'管理接口',upgrade:'升级'};
 export const systemActions:Record<string,string>={cleanup_retry:'重试资源清理',inspection_reconcile:'核对巡检交接',configuration_sync:'重新同步配置',runtime_reconcile:'核对运行状态',event_flush:'推进内部事件',history_sweep:'执行历史扫描',health_check:'检查服务健康'};
 export const systemClassifications:Record<string,string>={unknown:'分类待确认',transient:'暂时故障',configuration:'配置问题',permission:'权限问题',code_defect:'候选代码缺陷'};

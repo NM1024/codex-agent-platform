@@ -88,7 +88,9 @@ export default function SystemPage(){
  const allowed=work&&(detail?.allowed_actions??work.allowed_actions).filter(action=>systemActions[action]&&(work.classification!=='code_defect'||action==='health_check'));
  const event=selection?.event;
  const stalePage=!!page?.stale_ids.length,staleDetail=partial(detail?.sources),allUnavailable=(items?:SystemSource[])=>!!items?.length&&items.every(source=>!source.available);
- const renderState=(row:SystemRecord)=><Space orientation="vertical" size={4}><Status value={row.kind==='event'?row.level:row.state}/>{row.kind==='work'&&row.verification_required&&<Status value="需要核验"/>}{row.kind==='work'&&row.issue_opened_at&&<Typography.Text type="secondary">{t(row.resolved_at?'已恢复':'未恢复')}</Typography.Text>}</Space>;
+ const renderState=(row:SystemRecord)=><Status value={row.kind==='event'?row.level:row.state}/>;
+ const renderRecovery=(row:SystemWork)=><Typography.Text type="secondary">{row.issue_opened_at?t(row.resolved_at?'已恢复':'未恢复'):'—'}</Typography.Text>;
+ const renderVerification=(row:SystemWork)=>row.verification_required?<Status value="需要核验"/>:<Typography.Text type="secondary">—</Typography.Text>;
  const eventFacts=(item:SystemEvent)=><dl className="system-facts"><dt>{t('首次出现')}</dt><dd>{format(item.first_seen_at)}</dd><dt>{t('最近出现')}</dt><dd>{format(item.last_seen_at)}</dd><dt>{t('创建时间')}</dt><dd>{format(item.created_at)}</dd><dt>{t('问题次数')}</dt><dd>{item.count}</dd><dt>{t('安全原因')}</dt><dd>{code(item.code)} <code>{item.code}</code></dd><dt>{t('服务与编号')}</dt><dd>{serviceName(item.service)} · {item.id}</dd></dl>;
  return <div id="system-page" className="system-page">
   <Typography.Paragraph type="secondary">{t('查看系统内部状态，跟踪异常与处理结果。')}</Typography.Paragraph>
@@ -115,11 +117,15 @@ export default function SystemPage(){
    {stalePage&&<Alert type="warning" showIcon title={t('部分来源失败，数据可能过期；保留已知记录，暂停分页，恢复后请刷新。')}/>}
    {actionError&&!selection&&<Alert type="error" showIcon title={t(actionError)}/>}
    {loading&&!page?<LoadingState/>:<Table<SystemRecord> id="system-records" rowKey="id" dataSource={page?.items??[]} loading={loading} pagination={false} tableLayout="fixed" className="responsive-table expanded-table system-table" locale={{emptyText:<Empty description={t(pageError?'数据加载失败，请刷新重试。':partial(page?.sources)?'来源暂时无法读取。':'没有匹配的记录，请调整筛选条件。')}/>}} columns={[
-    {title:t(tab==='issues'?'问题与影响':'名称与原因'),key:'name',width:'29%',className:'table-name-cell',render:(_,row)=><TableField label={t('名称与原因')}><strong>{t(systemModules[row.module]??'系统')}</strong><div>{code(row.code)}</div><small><code>{row.code}</code>{row.kind==='work'?' · '+t('问题次数')+' '+row.issue_count:' · '+row.count}</small></TableField>},
-    {title:t('服务与编号'),key:'identity',width:'21%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('服务与编号')}><div>{serviceName(row.service)}</div><TableIdentifier value={row.id}/></TableField>},
-    {title:t('当前状态'),key:'state',width:'16%',className:'table-status-cell',render:(_,row)=><TableField label={t('当前状态')}>{renderState(row)}{page?.stale_ids.includes(row.id)&&<Typography.Text type="warning">{t('数据可能过期')}</Typography.Text>}</TableField>},
-    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:'20%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:row.last_progress_at)}{row.kind==='work'&&<><small>{progress(row)}</small>{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
-    {title:t('操作'),key:'actions',width:'14%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('Agent 分析')}</Button>}</Space>},
+    {title:t(tab==='issues'?'问题与影响':'名称与原因'),key:'name',width:tab==='logs'?'29%':'21%',className:'table-name-cell',render:(_,row)=><TableField label={t('名称与原因')}><strong>{t(systemModules[row.module]??'系统')}</strong><div>{code(row.code)}</div><small><code>{row.code}</code>{row.kind==='work'?' · '+t('问题次数')+' '+row.issue_count:' · '+row.count}</small></TableField>},
+    {title:t('服务与编号'),key:'identity',width:tab==='logs'?'21%':'19%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('服务与编号')}><div>{serviceName(row.service)}</div><TableIdentifier value={row.id}/>{page?.stale_ids.includes(row.id)&&<Typography.Text className="system-data-freshness" type="warning">{t('数据可能过期')}</Typography.Text>}</TableField>},
+    {title:t(tab==='logs'?'日志级别':'工作状态'),key:'state',width:tab==='logs'?'16%':'11%',className:'table-status-cell',render:(_,row)=><TableField label={t(tab==='logs'?'日志级别':'工作状态')}>{renderState(row)}</TableField>},
+    ...(tab==='logs'?[]:[
+     {title:t('问题恢复'),key:'resolution',width:'10%',className:'system-resolution-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('问题恢复')}>{row.kind==='work'&&renderRecovery(row)}</TableField>},
+     {title:t('核验情况'),key:'verification',width:'10%',className:'system-verification-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('核验情况')}>{row.kind==='work'&&renderVerification(row)}</TableField>},
+    ]),
+    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:row.last_progress_at)}{row.kind==='work'&&<><small>{progress(row)}</small>{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
+    {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('Agent 分析')}</Button>}</Space>},
    ]}/>}
    <div id="system-pagination" className="system-pagination"><Button disabled={cursors.length===1||loading||stalePage} onClick={()=>setCursors(value=>value.slice(0,-1))}>{t('上一页')}</Button><Typography.Text type="secondary">{stalePage?t('已知记录 {count} 条；包含过期证据',{count:page?.items.length??0}):t('每页 {limit} 条 · 第 {page} 页 · 本页 {count} 条',{limit:pageSize,page:page?loadedPage:cursors.length,count:page?.items.length??0})}</Typography.Text><Button disabled={!page?.next_cursor||loading||pageError||stalePage} onClick={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}}>{t('下一页')}</Button></div>
    <Typography.Paragraph className="system-page-help" type="secondary">{t('当前状态游标分页；来源恢复或数据变化后请从首页刷新。')}</Typography.Paragraph>
@@ -128,13 +134,15 @@ export default function SystemPage(){
   <AdminDrawer open={!!selection} title={t(event?'系统事件详情':'系统工作详情')} subtitle={event?.id??selection?.id} width={620} onClose={close}>
    <div id="system-detail" className="system-detail" aria-busy={detailLoading||busy}>
     {detailLoading?<LoadingState/>:event?<>{eventFacts(event)}{event.work_id&&<Button onClick={()=>void inspect({id:event.work_id,kind:'work'} as SystemWork)}>{t('系统工作详情')}</Button>}</>:<>
-     {detail&&sources(detail.sources)}{partial(detail?.sources)&&sourceWarning}
+     <div className="system-detail-toolbar">{detail&&sources(detail.sources)}<Button disabled={busy} onClick={()=>void reloadDetail()}>{t('重新读取详情')}</Button></div>
+     {partial(detail?.sources)&&sourceWarning}
      {detailError&&<Alert type="error" showIcon title={t('详情暂时无法读取，请重试。')}/>}
      {staleDetail&&work&&<Alert type="warning" showIcon title={t('数据可能过期；保留上次读取的证据，来源恢复后请重新读取详情。')}/>}
-     <Button disabled={busy} onClick={()=>void reloadDetail()}>{t('重新读取详情')}</Button>
      {!detailLoading&&detail&&!work&&<Alert type="warning" showIcon title={t(staleDetail?'来源暂时无法读取。':'找不到工作；请核对来源状态或刷新。')}/>}
      {work&&<>
-      <div className="system-detail-state">{renderState(work)}<Typography.Text>{t(systemClassifications[work.classification]??'分类待确认')}</Typography.Text></div>
+      <dl className="system-detail-summary">{[
+       ['工作状态',renderState(work)],['问题恢复',renderRecovery(work)],['核验情况',renderVerification(work)],['问题分类',t(systemClassifications[work.classification]??'分类待确认')],
+      ].map(([label,value])=><div key={String(label)}><dt>{t(String(label))}</dt><dd>{value}</dd></div>)}</dl>
       {work.stale&&<Alert type="warning" showIcon title={t('记录可能过期，请核对来源与进展。')} description={progress(work)}/>}
       <dl className="system-facts">{[
        ['服务与编号',<TableIdentifier value={work.id}/>],['安全原因',<>{code(work.code)} <code>{work.code}</code></>],['记录版本',work.revision],['创建时间',format(work.created_at)],['首次出现',format(work.issue_opened_at)],['最近进展',<>{format(work.last_progress_at)} · {progress(work)}</>],['首次尝试',format(work.first_attempt_at)],['最近尝试',format(work.last_attempt_at)],['最近成功',format(work.last_success_at)],['下次重试',format(work.next_retry_at)],['尝试次数',work.attempts],['连续失败',work.consecutive_failures],['问题次数',work.issue_count],['待处理数量',work.pending_count],
