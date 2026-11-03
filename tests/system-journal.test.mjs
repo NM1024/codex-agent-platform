@@ -276,3 +276,58 @@ test('verified journal recovery separates current availability from durable sani
   assert.equal(restored.logs({module:'system'}).items.length,0,'gap event history obeys the ordinary caller cutoff');
   assert.equal(restored.summary().health.collection.failed_operations,2,'compact loss metadata remains distinct from retained event history');
 });
+
+test('caller rollback keeps collection evidence pending until a standalone recovery commits',t=>{
+  const {journal,db,tick}=fixture(t);
+  db.exec("CREATE TRIGGER synthetic_gap_failure BEFORE INSERT ON system_events BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  assert.equal(event(journal),null);db.exec('DROP TRIGGER synthetic_gap_failure');
+  db.exec('CREATE TABLE synthetic_owner_work(id TEXT); BEGIN');
+  db.exec("INSERT INTO synthetic_owner_work VALUES ('pending-owner-work')");
+  tick(2000);assert.ok(event(journal,{target_id:'uncommitted-recovery'}));
+  assert.equal(db.isTransaction,true,'journal must leave the caller transaction open');
+  assert.equal(journal.health.collection.pending,true,'savepoint release is not evidence of outer commit');
+  db.exec('ROLLBACK');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM synthetic_owner_work').get().n,0);
+  assert.equal(journal.logs({}).items.length,0);
+  assert.equal(journal.health.collection.pending,true);
+  tick(3000);assert.ok(event(journal,{target_id:'committed-recovery'}));
+  assert.equal(db.isTransaction,false);assert.equal(journal.health.collection.pending,false);
+  assert.equal(journal.logs({module:'system'}).items.length,2);
+  const restored=new SystemJournal({db,service:'manager',now:()=>4000});
+  assert.equal(restored.summary().health.collection.failed_operations,1);
+  assert.equal(restored.health.collection.last_recovered_at,3000);
+  assert.equal(restored.logs({module:'system'}).items.length,2);
+});
+
+test('caller commit reconciles staged collection evidence without duplicate recovery events',t=>{
+  const {journal,db,tick}=fixture(t);
+  db.exec("CREATE TRIGGER synthetic_gap_failure BEFORE INSERT ON system_events BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  assert.equal(event(journal),null);db.exec('DROP TRIGGER synthetic_gap_failure');
+  db.exec('BEGIN');tick(2000);assert.ok(event(journal,{target_id:'first-nested-write'}));
+  assert.equal(journal.summary().health.collection.pending,true);
+  tick(2500);assert.ok(event(journal,{target_id:'second-nested-write'}));
+  assert.equal(journal.logs({module:'system'}).items.length,2,'staged evidence is not written twice');
+  assert.equal(journal.health.collection.pending,true);assert.equal(db.isTransaction,true);
+  db.exec('COMMIT');
+  assert.equal(journal.summary().health.collection.pending,false,'verified access reconciles the caller commit');
+  assert.equal(journal.health.collection.last_recovered_at,2000);
+  tick(3000);event(journal,{target_id:'after-outer-commit'});
+  assert.equal(journal.logs({module:'system'}).items.length,2);
+  const restored=new SystemJournal({db,service:'manager',now:()=>4000});
+  assert.equal(restored.health.collection.failed_operations,1);
+  assert.equal(restored.health.collection.pending,false);
+  assert.equal(restored.logs({module:'system'}).items.length,2);
+});
+
+test('reconstruction within an uncommitted recovery preserves evidence after caller rollback',t=>{
+  const {journal,db,tick}=fixture(t);
+  db.exec("CREATE TRIGGER synthetic_gap_failure BEFORE INSERT ON system_events BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  event(journal);db.exec('DROP TRIGGER synthetic_gap_failure');
+  db.exec('BEGIN');tick(2000);event(journal,{target_id:'staged-before-reconstruction'});
+  const restored=new SystemJournal({db,service:'manager',now:()=>3000});
+  assert.equal(restored.health.collection.pending,true,'constructor cannot treat visible transaction-local metadata as committed');
+  db.exec('ROLLBACK');event(restored,{target_id:'standalone-after-reconstruction'});
+  assert.equal(restored.health.collection.pending,false);
+  assert.equal(restored.logs({module:'system'}).items.length,2);
+  assert.equal(new SystemJournal({db,service:'manager'}).health.collection.failed_operations,1);
+});

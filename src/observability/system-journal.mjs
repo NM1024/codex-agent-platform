@@ -91,6 +91,9 @@ export function normalizeSystemQuery(query={},{issues=false}={}) {
  * gap counters/timestamps and pending (not yet durably recorded) evidence. A verified read recovers
  * access but cannot clear pending evidence. The next successful write atomically saves fixed failure
  * and recovery events plus compact service-owned counters, which survive journal reconstruction.
+ * Caller-owned outer transactions remain untouched. Evidence stays pending until verified outside
+ * any transaction; visible matching metadata deduplicates staged writes. After outer rollback the
+ * pending evidence is retried; after outer commit a later verified access clears pending.
  * Gap events follow ordinary event retention; compact counters contain no payload/history bodies.
  * Storage and lifecycle remain owned by the caller; this class never closes db.
  */
@@ -110,7 +113,7 @@ export class SystemJournal {
       CREATE TABLE IF NOT EXISTS system_journal_health(service TEXT PRIMARY KEY,record TEXT NOT NULL);
     `);
       const saved=db.prepare('SELECT record FROM system_journal_health WHERE service=?').get(service);
-      if(saved)this.health.collection=JSON.parse(saved.record);
+      if(saved)this.health.collection={...JSON.parse(saved.record),pending:db.isTransaction};
     }catch{this.unavailable();}
   }
   unavailable() {
@@ -121,7 +124,20 @@ export class SystemJournal {
       first_failed_at:old.first_failed_at??at,last_failed_at:at,gap_started_at:old.pending?old.gap_started_at:at,pending:true,
     }};
   }
-  verifiedAccess() {this.health={...this.health,available:true,code:'SYSTEM_OK',failed_at:null};}
+  savedCollectionEvidence() {
+    const row=this.db.prepare('SELECT record FROM system_journal_health WHERE service=?').get(this.service);
+    const saved=row?JSON.parse(row.record):null;
+    return saved&&!saved.pending&&['gap_count','failed_operations','first_failed_at','last_failed_at','gap_started_at'].every(key=>saved[key]===this.health.collection[key])?saved:null;
+  }
+  verifiedAccess() {
+    // RELEASE only commits when there is no caller-owned transaction. A matching row read in
+    // autocommit mode proves persistence; an absent row after rollback leaves evidence pending.
+    if(this.health.collection.pending&&!this.db.isTransaction){
+      const committed=this.savedCollectionEvidence();
+      if(committed)this.health={...this.health,collection:committed};
+    }
+    this.health={...this.health,available:true,code:'SYSTEM_OK',failed_at:null};
+  }
   read(fn) {try{const result=fn();this.verifiedAccess();return result;}catch(error){if(error.code?.startsWith('SYSTEM_'))throw error;this.unavailable();throw fail('SYSTEM_JOURNAL_UNAVAILABLE');}}
   transaction(fn) {
     this.db.exec('SAVEPOINT system_journal_write');
@@ -129,19 +145,17 @@ export class SystemJournal {
     catch(error){try{this.db.exec('ROLLBACK TO system_journal_write');this.db.exec('RELEASE system_journal_write');}catch{}throw error;}
   }
   write(fn) {
-    let collection;
     const result=this.transaction(()=>{
       const saved=fn();
-      if(this.health.collection.pending){
-        collection={...this.health.collection,last_recovered_at:this.now(),pending:false};
+      if(this.health.collection.pending&&!this.savedCollectionEvidence()){
+        const collection={...this.health.collection,last_recovered_at:this.now(),pending:false};
         this.saveEvent({module:'system',event:'collection_failed',level:'error',code:'SYSTEM_JOURNAL_UNAVAILABLE',details:collection});
         this.saveEvent({module:'system',event:'collection_recovered',level:'info',code:'SYSTEM_JOURNAL_RECOVERED',details:collection});
         this.db.prepare('INSERT INTO system_journal_health(service,record) VALUES(?,?) ON CONFLICT(service) DO UPDATE SET record=excluded.record').run(this.service,JSON.stringify(collection));
       }
       return saved;
     });
-    // Publish recovery only after the write and its collection evidence both succeeded.
-    if(collection)this.health={...this.health,collection};
+    // Reconcile the evidence only after commit; a caller-owned transaction remains pending.
     this.verifiedAccess();return result;
   }
   projection(input={}) {
