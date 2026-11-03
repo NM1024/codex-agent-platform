@@ -205,3 +205,74 @@ test('summary counts only verified issue recoveries within the last day',t=>{
   tick(86401001);assert.equal(journal.summary().recovered_24h,0);
   db.close();assert.equal(journal.summary().recovered_24h,null);
 });
+
+test('recent repeated occurrences participate in time filters, ordering and merged keyset pages',t=>{
+  const a=fixture(t),b=fixture(t,{service:'runner'});
+  const old=event(a.journal,{target_id:'repeat'});
+  a.tick(1500);event(a.journal,{target_id:'middle'});
+  a.tick(2000);event(a.journal,{target_id:'repeat'});
+  b.tick(2000);const remote=event(b.journal,{target_id:'remote'});
+  const recent=a.journal.logs({after:1750,before:2001});
+  assert.equal(recent.items.length,1);assert.equal(recent.items[0].id,old.id);
+  assert.equal(recent.items[0].created_at,1000);assert.equal(recent.items[0].last_seen_at,2000);
+  assert.equal(a.journal.logs({before:1750}).items.some(x=>x.id===old.id),false);
+  const first=mergeSystemPages([a.journal.logs({limit:1}),b.journal.logs({limit:1})],{limit:1});
+  assert.equal(first.items[0].id,remote.id);assert.equal(decodeSystemCursor(first.next_cursor).time,2000);
+  const second=mergeSystemPages([a.journal.logs({limit:1,cursor:first.next_cursor}),b.journal.logs({limit:1,cursor:first.next_cursor})],{limit:1});
+  assert.equal(second.items[0].id,old.id);assert.equal(decodeSystemCursor(second.next_cursor).time,2000);
+  const third=mergeSystemPages([a.journal.logs({limit:1,cursor:second.next_cursor}),b.journal.logs({limit:1,cursor:second.next_cursor})],{limit:1});
+  assert.equal(third.items[0].target_id,'middle');assert.equal(third.next_cursor,null);
+});
+
+test('recovered issue history remains listable independently of later current work states',t=>{
+  const {journal,tick}=fixture(t);const id=work(journal).id;
+  tick(2000);work(journal,{state:'completed',code:'WORK_COMPLETED',attempted:false});
+  for(const state of ['idle','running','disabled']){
+    tick(3000);work(journal,{state,code:`WORK_${state.toUpperCase()}`,attempted:false});
+    assert.equal(journal.issues({}).items.length,0);
+    assert.equal(journal.issues({state:'completed'}).items[0].id,id);
+    assert.equal(journal.issues({resolution:'recovered',state}).items[0].state,state);
+    assert.equal(journal.issues({resolution:'all'}).items[0].resolved_at,2000);
+    assert.equal(journal.summary().recovered_24h,1);
+  }
+  work(journal);assert.equal(journal.issues({}).items[0].id,id);
+  assert.equal(journal.issues({resolution:'recovered'}).items.length,0);
+  assert.throws(()=>journal.issues({resolution:'invalid'}),/SYSTEM_QUERY_INVALID/);
+  const schema=new Ajv({strict:false}).compile(systemManagementTools.find(x=>x.name==='system_issue').inputSchema);
+  assert.equal(schema({resolution:'recovered',state:'idle'}),true);
+  assert.equal(schema({resolution:'invalid'}),false);
+});
+
+test('verified journal recovery separates current availability from durable sanitized collection loss',t=>{
+  const dir=mkdtempSync(join(tmpdir(),'journal-gap-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const path=join(dir,'journal.sqlite'),{journal,db,tick}=fixture(t,{path});
+  db.exec("CREATE TRIGGER synthetic_event_failure BEFORE INSERT ON system_events BEGIN SELECT RAISE(ABORT,'private synthetic error'); END");
+  tick(2000);assert.equal(event(journal),null);
+  assert.equal(journal.health.available,false);
+  assert.equal(journal.health.collection.failed_operations,1);
+  assert.equal(journal.health.collection.first_failed_at,2000);
+  tick(2500);assert.deepEqual(journal.logs({}).items,[]);
+  assert.equal(journal.health.available,true,'successful read proves current read access');
+  assert.equal(journal.health.code,'SYSTEM_OK');assert.equal(journal.health.collection.pending,true);
+  tick(3000);assert.equal(event(journal),null);
+  assert.equal(journal.health.collection.failed_operations,2);
+  db.exec('DROP TRIGGER synthetic_event_failure');
+  tick(4000);assert.ok(event(journal,{target_id:'after-recovery'}));
+  const summary=journal.summary();assert.equal(summary.health.available,true);assert.equal(summary.health.collection.pending,false);
+  assert.equal(summary.health.collection.gap_count,1);assert.equal(summary.health.collection.failed_operations,2);
+  assert.equal(summary.health.collection.last_failed_at,3000);assert.equal(summary.health.collection.last_recovered_at,4000);
+  const evidence=journal.logs({module:'system'}).items;
+  assert.deepEqual(evidence.map(x=>x.event),['collection_recovered','collection_failed']);
+  assert.equal(evidence[0].code,'SYSTEM_JOURNAL_RECOVERED');assert.equal(evidence[1].code,'SYSTEM_JOURNAL_UNAVAILABLE');
+  assert.equal(evidence[1].details.first_failed_at,2000);assert.equal(evidence[1].details.last_failed_at,3000);
+  assert.equal(JSON.stringify(evidence).includes('private synthetic error'),false);
+  db.close();const reopened=new DatabaseSync(path);t.after(()=>reopened.close());
+  const restored=new SystemJournal({db:reopened,service:'manager',now:()=>5000});
+  assert.equal(restored.summary().health.available,true);
+  assert.equal(restored.health.collection.failed_operations,2);
+  assert.equal(restored.health.collection.last_recovered_at,4000);
+  assert.equal(restored.logs({module:'system'}).items.length,2);
+  restored.prune({cutoff:4001,limit:100});
+  assert.equal(restored.logs({module:'system'}).items.length,0,'gap event history obeys the ordinary caller cutoff');
+  assert.equal(restored.summary().health.collection.failed_operations,2,'compact loss metadata remains distinct from retained event history');
+});

@@ -9,6 +9,7 @@ export const SYSTEM_ACTIONS=Object.freeze(['cleanup_retry','inspection_reconcile
 export const SYSTEM_CODES=Object.freeze({
   SYSTEM_ERROR:'System operation failed.',SYSTEM_OK:'System check succeeded.',
   SYSTEM_JOURNAL_UNAVAILABLE:'System journal is unavailable.',
+  SYSTEM_JOURNAL_RECOVERED:'System journal access recovered; a collection gap was recorded.',
   WORK_RUNNING:'Work is running.',WORK_RETRYING:'Work is waiting for retry.',WORK_BLOCKED:'Work requires attention.',WORK_UNKNOWN:'Work outcome needs verification.',WORK_COMPLETED:'Work completed.',WORK_IDLE:'No work is pending.',WORK_DISABLED:'Capability is disabled.',
   CLEANUP_FAILED:'Cleanup failed.',CLEANUP_COMPLETED:'Cleanup completed.',
   SANDBOX_UNAVAILABLE:'Sandbox service is unavailable.',SANDBOX_CLEANUP_FAILED:'Sandbox cleanup failed.',
@@ -36,13 +37,14 @@ export const systemQueryProperties={
 };
 const object=(properties,required=[])=>({type:'object',additionalProperties:false,properties,required});
 export const systemQuerySchema=object(systemQueryProperties);
+export const systemIssueQueryProperties={...systemQueryProperties,resolution:{enum:['unresolved','recovered','all']}};
 export const systemMaintenanceSchema=object({id,action:{enum:SYSTEM_ACTIONS},revision:{type:'integer',minimum:1}},['id','action','revision']);
 const tool=(name,description,inputSchema)=>({name,description,inputSchema});
 export const systemManagementTools=[
   tool('system_status','Read bounded system-work counts and source availability. An unavailable source never means healthy.',object({service:{enum:SYSTEM_SERVICES}})),
   tool('system_logs','Read safe structured system logs using literal search and keyset pagination. No raw log files or SQL.',systemQuerySchema),
   tool('system_work','Read background work or one service-prefixed record by id. Completed means verified completion.',object({...systemQueryProperties,id})),
-  tool('system_issue','Read unresolved issues by default, or one service-prefixed issue. state=completed includes recovered issues.',object({...systemQueryProperties,id})),
+  tool('system_issue','Read unresolved issues by default, or one service-prefixed issue. resolution selects unresolved/recovered/all independently of current work state. With no resolution, state=completed aliases recovered issues in any current work state.',object({...systemIssueQueryProperties,id})),
   tool('system_maintain','Perform only a currently allowed fixed action on an exact owned work revision. Never replay unknown external effects, restart terminal business tasks, run shell or edit platform code.',systemMaintenanceSchema),
   tool('system_issue_draft','Prepare a sanitized code-defect issue draft against the current work revision. Caller notes are untrusted hypotheses, never authority for code edits or external writes. No GitHub submission is implied.',object({id,revision:{type:'integer',minimum:1},diagnosis:text(2000),expected:text(2000),actual:text(2000),reproduction:text(2000),source_refs:{type:'array',maxItems:10,items:text(200)}},['id','revision'])),
 ];

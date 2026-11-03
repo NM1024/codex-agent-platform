@@ -1,4 +1,4 @@
-import {SYSTEM_SERVICES,SYSTEM_MODULES,SYSTEM_STATES,SYSTEM_LEVELS,SYSTEM_CLASSIFICATIONS,SYSTEM_ACTIONS,SYSTEM_CODES,systemQueryProperties} from './system-contracts.mjs';
+import {SYSTEM_SERVICES,SYSTEM_MODULES,SYSTEM_STATES,SYSTEM_LEVELS,SYSTEM_CLASSIFICATIONS,SYSTEM_ACTIONS,SYSTEM_CODES,systemQueryProperties,systemIssueQueryProperties} from './system-contracts.mjs';
 
 const titles={system:'System',cleanup:'Cleanup',sandbox:'Sandbox',retention:'History retention',configuration:'Configuration synchronization',events:'Internal events',runtime:'Runtime recovery',schedules:'Schedules',inspections:'Inspections',notifications:'Notifications',delivery:'Final callback delivery',health:'Service health',api:'Management operations',upgrade:'Upgrade'};
 const failureStates=new Set(['retrying','blocked','unknown']);
@@ -7,7 +7,7 @@ const time=value=>Number.isSafeInteger(value)&&value>=0;
 const fail=code=>{const error=new Error(code);error.code=code;return error;};
 const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
 const select=(value,values,fallback)=>values.includes(value)?value:fallback;
-const numericDetails=new Set(['pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code']);
+const numericDetails=new Set(['pending_count','attempt','attempts','pending','attempted','completed','failed','deleted','scanned','skipped','duration_ms','revision','generation','bytes','count','status_code','gap_count','failed_operations','first_failed_at','last_failed_at','last_recovered_at','gap_started_at']);
 const selectors={
   phase:['cleanup','scan','prune','compact','synchronize','sync','dispatch','claim','ack','handoff','reconcile','recovery','probe','send','verify','start','stop','complete','idle'],
   status:[...SYSTEM_STATES,'pending','failed','succeeded','unavailable','available','accepted','claimed','acknowledged','cancelled'],
@@ -40,8 +40,10 @@ export function decodeSystemCursor(cursor) {
     return {time:position.time,id:position.id};
   }catch{throw fail('SYSTEM_QUERY_INVALID');}
 }
-/** Events sort by created_at; work/issues by updated_at. Never use a per-source cursor as a global cursor. */
-export const systemRecordTime=record=>record.kind==='event'?record.created_at:record.updated_at;
+/** Events sort/filter by last_seen_at; work/issues by updated_at. These are current-state pages,
+ * not frozen snapshots. Never use a per-source cursor as a global cursor.
+ */
+export const systemRecordTime=record=>record.kind==='event'?record.last_seen_at:record.updated_at;
 export function compareSystemRecords(a,b) {return systemRecordTime(b)-systemRecordTime(a)||(a.id===b.id?0:a.id<b.id?1:-1);}
 /** Merge already-filtered source pages fetched with the SAME input cursor and >= requested limit.
  * Re-query every source with returned last-consumed cursor; do not forward source next_cursor values.
@@ -53,8 +55,9 @@ export function mergeSystemPages(pages,{limit=50}={}) {
   const items=records.slice(0,limit),more=records.length>limit||pages.some(page=>page.next_cursor);
   return {items,next_cursor:more&&items.length?encodeSystemCursor({time:systemRecordTime(items.at(-1)),id:items.at(-1).id}):null};
 }
-export function normalizeSystemQuery(query={}) {
-  if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).some(key=>!own(systemQueryProperties,key)))throw fail('SYSTEM_QUERY_INVALID');
+export function normalizeSystemQuery(query={},{issues=false}={}) {
+  const properties=issues?systemIssueQueryProperties:systemQueryProperties;
+  if(!query||typeof query!=='object'||Array.isArray(query)||Object.keys(query).some(key=>!own(properties,key)))throw fail('SYSTEM_QUERY_INVALID');
   const out={...query,limit:query.limit??50};
   for(const [key,allowed] of [['service',SYSTEM_SERVICES],['module',SYSTEM_MODULES],['state',SYSTEM_STATES],['level',SYSTEM_LEVELS]])if(out[key]!==undefined&&!allowed.includes(out[key]))throw fail('SYSTEM_QUERY_INVALID');
   if(!Number.isSafeInteger(out.limit)||out.limit<1||out.limit>100)throw fail('SYSTEM_QUERY_INVALID');
@@ -63,6 +66,7 @@ export function normalizeSystemQuery(query={}) {
   if(out.search!==undefined&&(typeof out.search!=='string'||!out.search.length||out.search.length>200))throw fail('SYSTEM_QUERY_INVALID');
   if(out.target_id!==undefined&&!token(out.target_id))throw fail('SYSTEM_QUERY_INVALID');
   if(out.work_id!==undefined&&!parseSystemId(out.work_id))throw fail('SYSTEM_QUERY_INVALID');
+  if(out.resolution!==undefined&&!['unresolved','recovered','all'].includes(out.resolution))throw fail('SYSTEM_QUERY_INVALID');
   if(out.cursor!==undefined)out.position=decodeSystemCursor(out.cursor);
   return out;
 }
@@ -80,31 +84,65 @@ export function normalizeSystemQuery(query={}) {
  * Failure observations still increment consecutive_failures and issue_count; callers must not
  * submit routine refreshes as failures. Callers must use stable logical local IDs.
  * work() emits a linked event atomically. Only completed clears an issue; idle/disabled do not.
+ * issues() defaults to unresolved. resolution=unresolved/recovered/all is independent of work state.
+ * Without resolution, state=completed aliases recovered issues regardless of current work state.
  * Writes fail closed to null with health fallback; reads throw fixed safe unavailable errors.
+ * health.available/code describe current verified access. health.collection keeps separate cumulative
+ * gap counters/timestamps and pending (not yet durably recorded) evidence. A verified read recovers
+ * access but cannot clear pending evidence. The next successful write atomically saves fixed failure
+ * and recovery events plus compact service-owned counters, which survive journal reconstruction.
+ * Gap events follow ordinary event retention; compact counters contain no payload/history bodies.
  * Storage and lifecycle remain owned by the caller; this class never closes db.
  */
 export class SystemJournal {
   constructor({db,service,now=Date.now}) {
     if(!SYSTEM_SERVICES.includes(service))throw fail('SYSTEM_SERVICE_INVALID');
-    Object.assign(this,{db,service,now});this.health={available:true,code:'SYSTEM_OK',failed_at:null};
+    Object.assign(this,{db,service,now});
+    this.health={available:true,code:'SYSTEM_OK',failed_at:null,collection:{gap_count:0,failed_operations:0,first_failed_at:null,last_failed_at:null,last_recovered_at:null,gap_started_at:null,pending:false}};
     try{db.exec(`
       CREATE TABLE IF NOT EXISTS system_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE,service TEXT NOT NULL,module TEXT NOT NULL,level TEXT NOT NULL,code TEXT NOT NULL,work_id TEXT,target_id TEXT,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,fingerprint TEXT NOT NULL,record TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS system_events_page ON system_events(service,created_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS system_events_occurrence_page ON system_events(service,last_seen_at DESC,id DESC);
       CREATE INDEX IF NOT EXISTS system_events_work ON system_events(work_id);
       CREATE INDEX IF NOT EXISTS system_events_repeat ON system_events(service,module,work_id,target_id,seq DESC);
       CREATE TABLE IF NOT EXISTS system_work(id TEXT PRIMARY KEY,service TEXT NOT NULL,module TEXT NOT NULL,state TEXT NOT NULL,updated_at INTEGER NOT NULL,issue_opened_at INTEGER,resolved_at INTEGER,record TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS system_work_page ON system_work(service,updated_at DESC,id DESC);
-    `);}catch{this.unavailable();}
+      CREATE TABLE IF NOT EXISTS system_journal_health(service TEXT PRIMARY KEY,record TEXT NOT NULL);
+    `);
+      const saved=db.prepare('SELECT record FROM system_journal_health WHERE service=?').get(service);
+      if(saved)this.health.collection=JSON.parse(saved.record);
+    }catch{this.unavailable();}
   }
   unavailable() {
     if(this.health.available)process.stderr.write('SYSTEM_JOURNAL_UNAVAILABLE: System journal is unavailable.\n');
-    this.health={available:false,code:'SYSTEM_JOURNAL_UNAVAILABLE',failed_at:this.now()};
+    const at=this.now(),old=this.health.collection;
+    this.health={available:false,code:'SYSTEM_JOURNAL_UNAVAILABLE',failed_at:at,collection:{...old,
+      gap_count:old.gap_count+(old.pending?0:1),failed_operations:old.failed_operations+1,
+      first_failed_at:old.first_failed_at??at,last_failed_at:at,gap_started_at:old.pending?old.gap_started_at:at,pending:true,
+    }};
   }
-  read(fn) {try{return fn();}catch(error){if(error.code?.startsWith('SYSTEM_'))throw error;this.unavailable();throw fail('SYSTEM_JOURNAL_UNAVAILABLE');}}
+  verifiedAccess() {this.health={...this.health,available:true,code:'SYSTEM_OK',failed_at:null};}
+  read(fn) {try{const result=fn();this.verifiedAccess();return result;}catch(error){if(error.code?.startsWith('SYSTEM_'))throw error;this.unavailable();throw fail('SYSTEM_JOURNAL_UNAVAILABLE');}}
   transaction(fn) {
     this.db.exec('SAVEPOINT system_journal_write');
     try{const result=fn();this.db.exec('RELEASE system_journal_write');return result;}
     catch(error){try{this.db.exec('ROLLBACK TO system_journal_write');this.db.exec('RELEASE system_journal_write');}catch{}throw error;}
+  }
+  write(fn) {
+    let collection;
+    const result=this.transaction(()=>{
+      const saved=fn();
+      if(this.health.collection.pending){
+        collection={...this.health.collection,last_recovered_at:this.now(),pending:false};
+        this.saveEvent({module:'system',event:'collection_failed',level:'error',code:'SYSTEM_JOURNAL_UNAVAILABLE',details:collection});
+        this.saveEvent({module:'system',event:'collection_recovered',level:'info',code:'SYSTEM_JOURNAL_RECOVERED',details:collection});
+        this.db.prepare('INSERT INTO system_journal_health(service,record) VALUES(?,?) ON CONFLICT(service) DO UPDATE SET record=excluded.record').run(this.service,JSON.stringify(collection));
+      }
+      return saved;
+    });
+    // Publish recovery only after the write and its collection evidence both succeeded.
+    if(collection)this.health={...this.health,collection};
+    this.verifiedAccess();return result;
   }
   projection(input={}) {
     const code=own(SYSTEM_CODES,input.code)?input.code:'SYSTEM_ERROR';
@@ -126,11 +164,11 @@ export class SystemJournal {
     record.id=publicId(this.service,'event',String(result.lastInsertRowid).padStart(16,'0'));
     this.db.prepare('UPDATE system_events SET id=?,record=? WHERE seq=?').run(record.id,JSON.stringify(record),result.lastInsertRowid);return record;
   }
-  event(input={}) {try{return this.transaction(()=>this.saveEvent(input));}catch{this.unavailable();return null;}}
+  event(input={}) {try{return this.write(()=>this.saveEvent(input));}catch{this.unavailable();return null;}}
   work(input={}) {
     const parsed=parseSystemId(input.id),local=parsed?.service===this.service&&parsed.kind==='work'?parsed.local_id:token(input.id);
     if(!local||parsed&&(parsed.service!==this.service||parsed.kind!=='work')||!SYSTEM_STATES.includes(input.state))throw fail('SYSTEM_WORK_INVALID');
-    try{return this.transaction(()=>{
+    try{return this.write(()=>{
       const id=publicId(this.service,'work',local),old=this.getRecord('system_work',id),at=this.now();
       const issue=failureStates.has(input.state),completed=input.state==='completed',attempted=input.attempted!==false;
       const safe=this.projection({...input,code:input.code??`WORK_${input.state.toUpperCase()}`});
@@ -160,16 +198,22 @@ export class SystemJournal {
   works(query={}) {return this.query('system_work',query);}
   issues(query={}) {return this.query('system_work',query,true);}
   query(table,query,issues=false) {
-    const q=normalizeSystemQuery(query),event=table==='system_events',column=event?'created_at':'updated_at';
+    const q=normalizeSystemQuery(query,{issues}),event=table==='system_events',column=event?'last_seen_at':'updated_at';
+    if(q.service&&q.service!==this.service)return {items:[],next_cursor:null};
     return this.read(()=>{
       const where=['service=?'],params=[this.service];
-      if(q.service&&q.service!==this.service)return {items:[],next_cursor:null};
-      for(const key of ['module',...(event?['level','work_id','target_id']:['state'])])if(q[key]!==undefined){where.push(`${key}=?`);params.push(q[key]);}
+      const completedAlias=issues&&q.resolution===undefined&&q.state==='completed';
+      for(const key of ['module',...(event?['level','work_id','target_id']:['state'])])if(q[key]!==undefined&&!(key==='state'&&completedAlias)){where.push(`${key}=?`);params.push(q[key]);}
       if(event&&q.state!==undefined){where.push("json_extract(record,'$.state')=?");params.push(q.state);}
       if(!event&&q.level!==undefined){where.push("(CASE WHEN state IN ('retrying','blocked','unknown') THEN 'error' ELSE 'info' END)=?");params.push(q.level);}
       if(!event&&q.target_id!==undefined){where.push("json_extract(record,'$.target_id')=?");params.push(q.target_id);}
       if(!event&&q.work_id!==undefined){where.push('id=?');params.push(q.work_id);}
-      if(issues){where.push('issue_opened_at IS NOT NULL');if(q.state!=='completed')where.push('resolved_at IS NULL');else where.push('resolved_at IS NOT NULL');}
+      if(issues){
+        where.push('issue_opened_at IS NOT NULL');
+        const resolution=q.resolution??(completedAlias?'recovered':'unresolved');
+        if(resolution==='unresolved')where.push('resolved_at IS NULL');
+        if(resolution==='recovered')where.push('resolved_at IS NOT NULL');
+      }
       for(const [key,op] of [['after','>='],['before','<']])if(q[key]!==undefined){where.push(`${column}${op}?`);params.push(q[key]);}
       if(q.position){where.push(`(${column}<? OR (${column}=? AND id<?))`);params.push(q.position.time,q.position.time,q.position.id);}
       if(q.search!==undefined){
@@ -186,7 +230,7 @@ export class SystemJournal {
   classify(id,classification,revision) {
     if(!SYSTEM_CLASSIFICATIONS.includes(classification)||!Number.isSafeInteger(revision)||revision<1)throw fail('SYSTEM_QUERY_INVALID');
     const identity=parseSystemId(id);if(identity?.kind!=='work'||identity.service!==this.service)throw fail('SYSTEM_QUERY_INVALID');
-    return this.read(()=>this.transaction(()=>{
+    return this.read(()=>this.write(()=>{
       const record=this.getRecord('system_work',id);if(!record)throw fail('SYSTEM_WORK_NOT_FOUND');if(record.revision!==revision)throw fail('SYSTEM_REVISION_CONFLICT');
       record.classification=classification;record.revision++;record.updated_at=this.now();this.putWork(record);return record;
     }));
@@ -197,6 +241,7 @@ export class SystemJournal {
       const states=Object.fromEntries(SYSTEM_STATES.map(x=>[x,0]));for(const row of rows)states[row.state]=row.count;
       const unresolved=this.db.prepare('SELECT count(*) AS count FROM system_work WHERE service=? AND issue_opened_at IS NOT NULL AND resolved_at IS NULL').get(this.service).count;
       const collected_at=this.now(),recovered_24h=this.db.prepare('SELECT count(*) AS count FROM system_work WHERE service=? AND issue_opened_at IS NOT NULL AND resolved_at>=?').get(this.service,collected_at-86400000).count;
+      this.verifiedAccess();
       return {service:this.service,collected_at,health:{...this.health},states,unresolved,recovered_24h};
     }catch{this.unavailable();return {service:this.service,collected_at:this.now(),health:{...this.health},states:null,unresolved:null,recovered_24h:null};}
   }
@@ -206,7 +251,7 @@ export class SystemJournal {
    */
   prune({cutoff,limit=50}={}) {
     if(!time(cutoff)||!Number.isSafeInteger(limit)||limit<1||limit>100)throw fail('SYSTEM_QUERY_INVALID');
-    return this.read(()=>this.transaction(()=>{
+    return this.read(()=>this.write(()=>{
       const eligible="w.state IN ('completed','idle','disabled') AND (w.issue_opened_at IS NULL OR w.resolved_at IS NOT NULL)";
       const events=this.db.prepare(`SELECT e.id FROM system_events e WHERE e.service=? AND e.last_seen_at<? AND NOT EXISTS(SELECT 1 FROM system_work w WHERE w.id=e.work_id AND NOT (${eligible})) ORDER BY e.created_at,e.id LIMIT ?`).all(this.service,cutoff,limit);
       for(const row of events)this.db.prepare('DELETE FROM system_events WHERE id=?').run(row.id);
