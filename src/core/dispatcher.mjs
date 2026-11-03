@@ -133,11 +133,21 @@ export class Dispatcher {
     }
     // A durable terminal task wins over a leftover runtime, including the window
     // after complete_task committed but its receipt/close signal was lost.
-    for (const id of live) {
+    const orphans=[...live].filter(id=>!owned.has(id));
+    for (const id of orphans) {
       if (owned.has(id)) continue;
       const run = this.store.run(id);
       if (run?.status === 'completed') await this.runner.completed?.(id).catch(() => {this.reconcilePending++;});
       else await this.runner.cancel?.(id).catch(() => {this.reconcilePending++;});
+    }
+    if(orphans.length) {
+      // Stops may acknowledge a pending launch before its reservation disappears.
+      // Only the owner inventory can confirm that reconciliation has finished.
+      let verified;
+      try {verified=await this.runner.active();}catch{return false;}
+      if(!verified||!Array.isArray(verified.runs))return false;
+      const currentOwned=new Set(this.store.unfinished().map(run=>run.run_id));
+      this.reconcilePending=Math.max(this.reconcilePending,verified.runs.filter(id=>!currentOwned.has(id)).length);
     }
     return true;
   }

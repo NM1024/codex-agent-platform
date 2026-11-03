@@ -144,8 +144,8 @@ test('maintenance records fixed actor action and verification state without acce
  const j=journal(t);const work=j.work({id:'health',module:'health',state:'unknown',allowed_actions:['health_check']});const maintain=createSystemMaintenance({journal:j,actions:{health_check:async()=>{}}});await maintain({id:work.id,revision:work.revision,action:'health_check'},{actor:'admin'});assert.equal(j.logs().items[0].details.actor,'admin');assert.equal(j.logs().items[0].details.action,'health_check');assert.equal(j.detail(work.id).state,'unknown');
 });
 test('runtime reconciliation does not claim completion while an orphan stop remains unconfirmed',async t=>{
- const registry=new BusinessRegistry(),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});let offline=true;
- const dispatcher=new Dispatcher({journal:j,store,registry,config:{concurrency:1},runner:{active:async()=>({runs:['00000000-0000-4000-8000-000000000123']}),cancel:async()=>{if(offline)throw new Error('private');}}});t.after(()=>dispatcher.stop());
+ const registry=new BusinessRegistry(),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});let offline=true,live=true;
+ const dispatcher=new Dispatcher({journal:j,store,registry,config:{concurrency:1},runner:{active:async()=>({runs:live?['00000000-0000-4000-8000-000000000123']:[]}),cancel:async()=>{if(offline)throw new Error('private');live=false;}}});t.after(()=>dispatcher.stop());
  await dispatcher.synchronize();const w=j.detail('gateway:work:runtime-reconcile');assert.equal(w.state,'retrying');assert.equal(w.pending_count,1);offline=false;await dispatcher.synchronize({force:true});assert.equal(j.detail(w.id).state,'completed');
 });
 test('notification reservation exposes unresolved outcome before remote acknowledgement',async t=>{
@@ -174,4 +174,30 @@ test('human connection repair releases a blocked schedule without a schedule or 
  assert.equal(j.detail(id).state,'blocked');const pluginRevision=store.plugins.get('test.connection').revision;
  store.pluginConnections.update('test.connection',{entryKey:'synthetic-repaired-key-123456'});await service.schedules.tick(plan.next_run_at);
  assert.equal(store.plugins.get('test.connection').revision,pluginRevision);assert.equal(store.queued().length,1);assert.equal(j.detail(id).state,'completed');
+});
+for(const boundary of ['directory','write'])test(`outbox ${boundary} publication failure remains unresolved after an empty flush and process reconstruction`,async t=>{
+ const root=await mkdtemp(join(base,'unpublished-'));t.after(()=>rm(root,{recursive:true,force:true}));const j=journal(t,'runner'),runId='00000000-0000-4000-8000-000000000321',directory=join(root,'.agent-events');
+ let sends=0;const outbox=new EventOutbox({workspace:root,journal:j,send:async()=>{sends++;}});t.after(()=>outbox.stop());
+ if(boundary==='directory')await writeFile(directory,'synthetic');else await mkdir(join(directory,runId+'.0.COMPLETED.json'),{recursive:true});
+ await assert.rejects(outbox.publish(runId,'COMPLETED'),error=>error.code===(boundary==='directory'?'EEXIST':'EISDIR'));
+ const issue=j.issues({module:'events'}).items[0];assert.ok(issue);assert.notEqual(issue.state,'completed');assert.deepEqual(issue.allowed_actions,[]);assert.ok(outbox.timer);assert.equal(sends,0);
+ await rm(directory,{recursive:true,force:true});await outbox.flush({force:true});assert.notEqual(j.detail(issue.id).state,'completed');assert.equal(sends,0);
+ await outbox.stop();const restarted=new EventOutbox({workspace:root,journal:new SystemJournal({db:j.db,service:'runner'}),send:async()=>{sends++;}});t.after(()=>restarted.stop());
+ await restarted.flush({force:true});assert.notEqual(j.detail(issue.id).state,'completed');
+ await restarted.publish(runId,'SUSPENDED');assert.notEqual(j.detail(issue.id).state,'completed');assert.equal(sends,1);
+ await restarted.publish(runId,'COMPLETED');assert.equal(j.detail(issue.id).state,'completed');assert.equal(sends,2);assert.ok(!JSON.stringify(j.logs()).includes(root));
+});
+test('accepted orphan cancellation remains pending until the real launch reservation disappears',async t=>{
+ const root=await mkdtemp(join(base,'pending-orphan-'));t.after(()=>rm(root,{recursive:true,force:true}));const registry=new BusinessRegistry(),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});
+ let release;const gate=new Promise(r=>release=r),runtime=new AgentRuntime({workspace:root,codexHome:join(root,'codex')});const runId='00000000-0000-4000-8000-000000000322';
+ const launched=runtime.launch({run_id:runId,task_id:'00000000-0000-4000-8000-000000000323'},{beforeStart:()=>gate});const settled=launched.catch(error=>error);t.after(async()=>{runtime.closed=true;release();await settled;});
+ const runner={active:async()=>({runs:[...new Set([...runtime.active.keys(),...runtime.launches.keys()])]}),cancel:async id=>{await runtime.end(id,'CANCELLED');return {accepted:true};}};
+ const dispatcher=new Dispatcher({journal:j,store,registry,config:{concurrency:1},runner});t.after(()=>dispatcher.stop());
+ await dispatcher.synchronize();const work=j.detail('gateway:work:runtime-reconcile');assert.ok(runtime.cancelled.has(runId));assert.equal(runtime.launches.size,1);assert.equal(work.state,'retrying');assert.equal(work.pending_count,1);
+ runtime.closed=true;release();assert.equal((await settled).message,'RUNNER_STOPPING');await dispatcher.synchronize({force:true});assert.equal(j.detail(work.id).state,'completed');assert.equal(store.unfinished().length,0);
+});
+for(const outcome of ['unavailable','malformed'])test(`accepted orphan stop cannot complete when verification inventory is ${outcome}`,async t=>{
+ const registry=new BusinessRegistry(),store=new RequestStore(':memory:',{registry});t.after(()=>store.close());const j=new SystemJournal({db:store.db,service:'gateway'});let reads=0;
+ const runner={active:async()=>{if(++reads===1)return {runs:['00000000-0000-4000-8000-000000000324']};if(outcome==='unavailable')throw new Error('private');return {};},cancel:async()=>({accepted:true})};
+ const dispatcher=new Dispatcher({journal:j,store,registry,config:{concurrency:1},runner});t.after(()=>dispatcher.stop());await dispatcher.synchronize();const work=j.detail('gateway:work:runtime-reconcile');assert.equal(work.state,'retrying');assert.equal(work.pending_count,1);assert.ok(!JSON.stringify(j.logs()).includes('private'));
 });

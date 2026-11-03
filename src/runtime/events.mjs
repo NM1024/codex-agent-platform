@@ -1,4 +1,5 @@
-import {systemFailure,systemDue,systemObserve} from '../observability/system-maintenance.mjs';
+import {systemFailure,systemDue,systemObserve,systemWork} from '../observability/system-maintenance.mjs';
+import {createHash} from 'node:crypto';
 import { lifecycleDetails } from "./codex.mjs";
 import { join } from "node:path";
 import { readdir, unlink, stat } from "node:fs/promises";
@@ -12,10 +13,20 @@ export class EventOutbox {
   }
   async publish(run_id, code, details) {
     if (!/^[a-f0-9-]{36}$/.test(run_id)) throw new Error("INVALID_RUN");
-    await safeDirectory(this.directory);
-    await atomicJson(join(this.directory, `${run_id}.${details?.generation ?? 0}.${code}.json`), {
-      run_id, code, ...(details ? { details: lifecycleDetails(details) } : {}),
-    });
+    const name=`${run_id}.${details?.generation ?? 0}.${code}.json`;
+    const publication={id:'event-publication.'+createHash('sha256').update(name).digest('hex'),module:'events',target_id:run_id,allowed_actions:[]};
+    try {
+      await safeDirectory(this.directory);
+      await atomicJson(join(this.directory,name), {
+        run_id, code, ...(details ? { details: lifecycleDetails(details) } : {}),
+      });
+    } catch(error) {
+      // A directory scan cannot recover a publication that never reached disk.
+      // Keep separate durable evidence; only persisting this exact event resolves it.
+      this.journal?.work({...publication,state:'unknown',code:'EVENT_PERSISTENCE_FAILED',pending_count:1});
+      this.schedule();throw error;
+    }
+    if(systemWork(this.journal,publication.id))systemObserve(this.journal,{...publication,state:'completed',code:'EVENT_PERSISTED'});
     await this.flush();
   }
   flush({force=false}={}) {

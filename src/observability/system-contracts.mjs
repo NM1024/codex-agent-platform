@@ -17,6 +17,7 @@ export const SYSTEM_CODES=Object.freeze({
   RETENTION_FAILED:'History retention failed.',RETENTION_COMPLETED:'History retention completed.',
   CONFIGURATION_SYNC_FAILED:'Configuration synchronization failed.',CONFIGURATION_SYNCED:'Configuration synchronized.',
   EVENT_DELIVERY_FAILED:'Internal event delivery failed.',EVENT_DELIVERED:'Internal event delivered.',
+  EVENT_PERSISTENCE_FAILED:'Internal event publication was not confirmed; a delivery scan cannot verify recovery.',EVENT_PERSISTED:'Internal event publication persisted.',
   RECOVERY_FAILED:'Runtime recovery failed.',RECOVERY_UNKNOWN:'Runtime recovery needs verification.',RECOVERY_COMPLETED:'Runtime recovery completed.',
   HANDOFF_FAILED:'Scheduled work handoff failed.',HANDOFF_COMPLETED:'Scheduled work handoff completed.',
   NOTIFICATION_FAILED:'Notification delivery failed.',NOTIFICATION_UNKNOWN:'Notification outcome needs verification.',
