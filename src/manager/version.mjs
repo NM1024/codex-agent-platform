@@ -63,24 +63,31 @@ function publicStatus(value,start) {
   if(!value||typeof value.available!=='boolean'||!(value.job===null||(value.job&&typeof value.job==='object'&&!Array.isArray(value.job))))throw new Error('Invalid updater envelope');
   if(value.error_code!==undefined&&!errorCode(value.error_code))throw new Error('Invalid updater error');
   if(!value.available&&value.job!==null)throw new Error('Unavailable updater with job');
+  let capability={};
+  if(value.methods!==undefined||value.default_method!==undefined){
+    if(!Array.isArray(value.methods)||value.methods.length<1||value.methods.length>2||new Set(value.methods).size!==value.methods.length||value.methods.some(method=>!['image','source'].includes(method))||!value.methods.includes(value.default_method))throw new Error('Invalid updater methods');
+    capability={methods:[...value.methods],default_method:value.default_method};
+  }
   let job=null;
   if(value.job!==null){
     const source=value.job;
     if(typeof source.id!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(source.id)||!states.has(source.state)||!phases.has(source.phase)||!timestamp(source.started_at)||!timestamp(source.updated_at)||source.updated_at<source.started_at)throw new Error('Invalid updater job');
     job={id:source.id,state:source.state,phase:source.phase,started_at:source.started_at,updated_at:source.updated_at};
     for(const key of ['target_version','installed_version'])if(source[key]!==undefined){if(!versionParts(source[key]))throw new Error('Invalid updater version');job[key]=source[key];}
+    if(source.method!==undefined){if(!['image','source'].includes(source.method))throw new Error('Invalid updater method');job.method=source.method;}
     if(source.error_code!==undefined){if(!errorCode(source.error_code))throw new Error('Invalid updater job error');job.error_code=source.error_code;}
   }
   if(start&&value.available&&!job)throw new Error('No admitted job');
-  return {available:value.available,job,...(value.error_code?{error_code:value.error_code}:{})};
+  return {available:value.available,job,...capability,...(value.error_code?{error_code:value.error_code}:{})};
 }
 
 // Only these two fixed HTTP operations cross the optional host boundary; no shell or Docker API.
 export function createUpgradeClient({socketPath='/run/platform-updater/updater.sock',timeoutMs=3000,maxBytes=16384}={}) {
-  const call=start=>new Promise(resolve=>{
+  const call=(start,options={})=>new Promise(resolve=>{
+    const body=JSON.stringify(options);
     let done=false,timer;
     const finish=value=>{if(done)return;done=true;clearTimeout(timer);resolve(value);};
-    const req=request({socketPath,path:start?'/upgrade':'/status',method:start?'POST':'GET',headers:{accept:'application/json',...(start?{'content-type':'application/json','content-length':2}:{})}},res=>{
+    const req=request({socketPath,path:start?'/upgrade':'/status',method:start?'POST':'GET',headers:{accept:'application/json',...(start?{'content-type':'application/json','content-length':Buffer.byteLength(body)}:{})}},res=>{
       const expected=start?202:200;
       if(res.statusCode!==expected){res.resume();finish(failed('UPDATER_UNAVAILABLE'));req.destroy();return;}
       if(!/^application\/json(?:\s*;|$)/i.test(res.headers['content-type']??'')||Number(res.headers['content-length'])>maxBytes){finish(failed('UPDATER_INVALID_RESPONSE'));req.destroy();return;}
@@ -95,7 +102,13 @@ export function createUpgradeClient({socketPath='/run/platform-updater/updater.s
     });
     req.on('error',()=>finish(failed('UPDATER_UNAVAILABLE')));
     timer=setTimeout(()=>{finish(failed('UPDATER_TIMEOUT'));req.destroy();},timeoutMs);
-    req.end(start?'{}':undefined);
+    req.end(start?body:undefined);
   });
-  return {status:()=>call(false),start:()=>call(true)};
+  return {status:()=>call(false),start:async method=>{
+    if(method===undefined)return call(true);
+    if(!['image','source'].includes(method))throw new HttpError(400,'INVALID_INPUT','Invalid update method.');
+    const status=await call(false);if(!status.available)return status;
+    if(!status.methods?.includes(method))return {...status,error_code:'UPDATER_METHOD_UNSUPPORTED'};
+    return call(true,{method});
+  }};
 }

@@ -1,15 +1,18 @@
 import {useEffect,useRef,useState} from 'react';
-import {activeUpgrade,type LatestVersion,type UpgradeJob,type UpgradeStatus,type VersionContext} from './version-types';
+import {activeUpgrade,type LatestVersion,type UpgradeJob,type UpgradeMethod,type UpgradeStatus,type VersionContext} from './version-types';
 
 import {versionText} from './version-i18n';
 const expired=(error:unknown)=>error instanceof Error&&'status' in error&&error.status===401;
-const updateCommand='curl -fL https://github.com/NM1024/codex-agent-platform/releases/latest/download/update.sh -o /tmp/codex-platform-update.sh\nsudo bash /tmp/codex-platform-update.sh update';
+const updateCommandBase='curl -fL https://github.com/NM1024/codex-agent-platform/releases/latest/download/update.sh -o /tmp/codex-platform-update.sh\nsudo bash /tmp/codex-platform-update.sh update';
 const setupCommand='sudo ./deploy.sh web-update-status [runtime]\nsudo ./deploy.sh enable-web-update [runtime]';
 const phases:Record<string,string>={queued:'等待升级',checking:'正在检查版本',downloading:'正在下载',building:'正在构建',stopping:'正在停止服务',backing_up:'正在备份',validating:'正在验证数据',restarting:'正在重启服务',verifying:'正在验证部署',completed:'升级完成',failed:'升级失败，请在部署服务器检查状态与备份。',interrupted:'升级已中断，需在部署服务器检查后手动处理。'};
 function jobText(job:UpgradeJob){return job.state==='failed'?phases.failed:job.state==='interrupted'?phases.interrupted:job.state==='succeeded'?phases.completed:['completed','failed','interrupted'].includes(job.phase)?'升级正在进行':phases[job.phase]??'升级正在进行';}
 
 export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:VersionContext&{current:string|null;onClose:()=>void;onUpdated:()=>void}){
   const {Alert,Button,Modal,Typography}=ui,t=(key:string)=>versionText(locale,key);
+  const [method,setMethod]=useState<UpgradeMethod>('image');
+  const methodTouched=useRef(false);
+  const updateCommand=updateCommandBase+' --method '+method;
   const [status,setStatus]=useState<UpgradeStatus|null>(null),[latest,setLatest]=useState<LatestVersion|null>(null);
   const [checking,setChecking]=useState(false),[latestError,setLatestError]=useState(false),[reconnecting,setReconnecting]=useState(false);
   const [confirming,setConfirming]=useState(false),[starting,setStarting]=useState(false),[requestError,setRequestError]=useState(false),[copyState,setCopyState]=useState('');
@@ -27,6 +30,8 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
         if(activeUpgrade(value.job))observedJob.current=value.job!.id;
         trackedJob.current=value.job;
         setStatus(value);setReconnecting(false);
+        if(activeUpgrade(value.job)&&value.job?.method)setMethod(value.job.method);
+        else if(!methodTouched.current&&value.default_method)setMethod(value.default_method);
         if(value.job&&!activeUpgrade(value.job)&&value.job.id!==terminalJob){terminalJob=value.job.id;setLatest(null);updated.current();}
         if(activeUpgrade(value.job))schedule();
       }catch(error){if(stopped||expired(error))return;setReconnecting(true);schedule();}
@@ -41,10 +46,12 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
     catch{if(alive.current){setLatest(null);setLatestError(true);}}
     finally{checkLock.current=false;if(alive.current)setChecking(false);}
   };
-  const canUpgrade=Boolean(latest?.update_available&&status?.available&&!activeUpgrade(status.job)&&!reconnecting&&!checking&&!starting);
+  const legacy=Boolean(status?.available&&!status.methods?.length);
+  const chooseMethod=(next:UpgradeMethod)=>{methodTouched.current=true;setMethod(next);setConfirming(false);};
+  const canUpgrade=Boolean(latest?.update_available&&status?.available&&!activeUpgrade(status.job)&&!reconnecting&&!checking&&!starting&&(!status.methods||status.methods.includes(method)));
   const start=async()=>{
     if(startLock.current||!canUpgrade)return;startLock.current=true;setStarting(true);setRequestError(false);setConfirming(false);
-    try{const value=await api<UpgradeStatus>('/upgrade',{});if(!alive.current)return;if(value.job)observedJob.current=value.job.id;trackedJob.current=value.job;setStatus(value);kick.current();}
+    try{const value=await api<UpgradeStatus>('/upgrade',legacy?{}:{method});if(!alive.current)return;if(value.job)observedJob.current=value.job.id;trackedJob.current=value.job;setStatus(value);kick.current();}
     catch(error){if(!alive.current||expired(error))return;setRequestError(true);setReconnecting(true);kick.current();}
     finally{startLock.current=false;if(alive.current)setStarting(false);}
   };
@@ -61,13 +68,17 @@ export default function VersionDialog({api,locale,ui,current,onClose,onUpdated}:
     <div id="version-dialog-content">
       <dl className="version-summary"><div><dt>{t('当前运行版本')}</dt><dd>{current?'v'+current:t('版本未知')}</dd></div><div><dt>{t('最新稳定版本')}</dt><dd>{latest?'v'+latest.latest:t('尚未检查')}</dd></div></dl>
       <div className="version-check-row"><Button id="version-check" loading={checking} disabled={Boolean(busy)||starting} onClick={()=>{void check();}}>{t('检查更新')}</Button>{latest&&<Typography.Link id="version-release" href={latest.release_url} target="_blank" rel="noopener noreferrer">{t('发布说明')}</Typography.Link>}</div>
+      <fieldset id="version-method" className="version-method" disabled={Boolean(busy)||starting||legacy||status===null}>
+        <legend>{t('升级方式')}</legend><div className="version-method-options">{(['image','source'] as const).map(value=><label key={value} className="version-method-choice"><input type="radio" name="version-upgrade-method" value={value} checked={!legacy&&method===value} disabled={Boolean(status?.available&&status.methods?.length&&!status.methods.includes(value))} onChange={()=>chooseMethod(value)}/><span>{t(value==='image'?'官方镜像（推荐）':'源码构建')}</span></label>)}</div>
+      </fieldset>
+      <Typography.Paragraph className="version-method-help" type="secondary">{t(legacy?'当前升级服务使用版本默认方式，更新后可选择升级方式。':method==='image'?'下载本版本已构建的官方镜像，服务器无需编译。':'下载稳定版本源码，在服务器上构建镜像。')}</Typography.Paragraph>
       {latestError&&<Alert type="warning" showIcon title={t('暂时无法检查最新版本，请稍后重试。')}/>}
       {latest&&<Typography.Paragraph type="secondary">{t(latest.update_available?'发现新版本':latest.current===latest.latest?'当前已是最新稳定版本':'当前版本比最新稳定版本更新')} · {t('上次检查')} {new Date(latest.checked_at).toLocaleString(locale==='en'?'en-US':'zh-CN')}</Typography.Paragraph>}
       {reconnecting&&<Alert role="status" type="warning" showIcon title={t(job?'正在重新连接；升级任务会在服务器上继续。':'升级服务暂时无法连接，正在重试。')}/>}
       {starting&&<Alert role="status" type="info" showIcon title={t('正在确认升级任务，请勿重复提交。')}/>}
       {requestError&&!job&&<Alert type="warning" showIcon title={t('升级请求未能确认，请检查服务器状态后重试。')}/>}
-      {job&&<Alert role="status" type={job.state==='succeeded'?'success':job.state==='failed'||job.state==='interrupted'?'error':'info'} showIcon title={t(jobText(job))} description={<div className="version-details">{job.target_version&&<span>{t('目标版本')} · v{job.target_version}</span>}{job.installed_version&&<span>{t('已安装版本')} · v{job.installed_version}</span>}{job.error_code&&<span>{t('错误代码')} · {job.error_code}</span>}{busy&&<span>{t('升级任务未完成时可关闭此窗口，稍后重新打开查看进度。')}</span>}</div>}/>}
-      {confirming&&<Alert type="warning" showIcon title={t('维护期间服务会短暂中断，运行中的工作可能暂停。升级会先构建、备份，再重启服务；请确认当前适合维护。')}/>}
+      {job&&<Alert role="status" type={job.state==='succeeded'?'success':job.state==='failed'||job.state==='interrupted'?'error':'info'} showIcon title={t(jobText(job))} description={<div className="version-details">{job.method&&<span>{t('本次升级方式')} · {t(job.method==='image'?'官方镜像':'源码构建')}</span>}{job.target_version&&<span>{t('目标版本')} · v{job.target_version}</span>}{job.installed_version&&<span>{t('已安装版本')} · v{job.installed_version}</span>}{job.error_code&&<span>{t('错误代码')} · {job.error_code}</span>}{busy&&<span>{t('升级任务未完成时可关闭此窗口，稍后重新打开查看进度。')}</span>}</div>}/>}
+      {confirming&&<Alert type="warning" showIcon title={t(legacy?'维护期间服务会短暂中断，运行中的工作可能暂停。升级会先准备所需镜像、备份数据，再重启服务；请确认当前适合维护。':method==='image'?'维护期间服务会短暂中断，运行中的工作可能暂停。升级会先准备官方镜像、备份数据，再重启服务；请确认当前适合维护。':'维护期间服务会短暂中断，运行中的工作可能暂停。升级会先构建镜像、备份数据，再重启服务；请确认当前适合维护。')}/>}
       {status===null&&!reconnecting&&<Typography.Paragraph type="secondary">{t('正在读取升级服务状态…')}</Typography.Paragraph>}
       {status?.available&&!job&&<Typography.Paragraph type="secondary">{t('升级服务已就绪')}</Typography.Paragraph>}
       {status?.available===false&&!busy&&<section className="version-section"><h3>{t('检查网页升级服务')}</h3><p>{t('标准部署会自动配置网页升级。服务可能已关闭或自动配置未完成；请先检查状态，需要时恢复启用。将 [runtime] 替换为已有运行目录。不支持 systemd 的环境请使用命令行更新。')}</p><pre className="version-command">{setupCommand}</pre></section>}

@@ -17,6 +17,7 @@ import tempfile
 import time
 from typing import NamedTuple
 
+UPDATE_METHODS = ('image', 'source')
 REPO = 'NM1024/codex-agent-platform'
 API = f'https://api.github.com/repos/{REPO}/releases/latest'
 STATE = '.deployment.json'
@@ -351,7 +352,7 @@ def update(install,event=None,method='image'):
             # Verify the original Compose resolves the same data before using it to stop services.
             check_mounts(install,install.source)
             env={**os.environ,'PLATFORM_PROJECT':install.project}
-            event('pulling' if method=='image' else 'building')
+            event('downloading' if method=='image' else 'building')
             run(['bash',str(staged/'deploy.sh'),'pull' if method=='image' else 'build',str(install.data)],env={**env,'PLATFORM_UPDATE_STAGED':'1','PLATFORM_UPDATE_METHOD':method})
             expected=expected_images(config,tag)
             backup_path=backups/(time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+str(time.time_ns())+'.tar.gz')

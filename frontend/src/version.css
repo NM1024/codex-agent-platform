@@ -21,3 +21,5 @@
   .console-header #version-entry.ant-btn { max-width: 65px; padding-inline: 4px; font-size: 11px; }
   .version-modal .ant-modal-container { padding: 18px 16px; }
 }
+
+.version-method{min-width:0;margin:16px 0 8px;padding:0;border:0}.version-method legend{padding:0;margin-bottom:8px;font-size:13px;color:var(--ui-text)}.version-method-options{display:flex;gap:10px}.version-method-choice{display:flex;align-items:flex-start;gap:7px;flex:1;min-width:0;padding:10px;border:1px solid var(--ui-border);border-radius:8px;color:#345e4f;cursor:pointer;font-size:13px}.version-method-choice:has(input:checked){border-color:#83a794;background:#edf5f0}.version-method-choice input{accent-color:#345e4f;flex:none;margin:4px 0 0}.version-method-choice span{min-width:0;overflow-wrap:anywhere}.version-method:disabled .version-method-choice{cursor:default;opacity:.7}.version-method-help{font-size:12px;margin-bottom:14px!important}.version-method-choice:has(input:focus-visible){outline:2px solid #345e4f;outline-offset:2px}@media(max-width:430px){.version-method-options{flex-direction:column}}

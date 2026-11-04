@@ -24,9 +24,10 @@ import threading
 import time
 import uuid
 
+METHODS=('image','source')
 REPO='NM1024/codex-agent-platform'
 LOG_LIMIT=128*1024
-PUBLIC=('id','state','phase','started_at','updated_at','target_version','installed_version','error_code')
+PUBLIC=('id','state','phase','started_at','updated_at','target_version','installed_version','error_code','method')
 ACTIVE=('queued','running')
 PHASES=('queued','checking','downloading','building','stopping','backing_up','validating','restarting','verifying','completed','failed','interrupted')
 STATES=(*ACTIVE,'succeeded','failed','interrupted')
@@ -65,12 +66,13 @@ class JobStore:
     def read(self):
         job=self._read()
         return {k:job[k] for k in PUBLIC if k in job} if job else None
-    def admit(self, launch):
+    def admit(self, launch, method='image'):
+        if not isinstance(method,str) or method not in METHODS:raise ValueError('Invalid update method')
         with self.lock():
             job=self._read()
             if job and job['state'] in ACTIVE:return self.read()
             now=int(time.time()*1000)
-            job={'id':uuid.uuid4().hex,'state':'queued','phase':'queued','started_at':now,'updated_at':now}
+            job={'id':uuid.uuid4().hex,'state':'queued','phase':'queued','started_at':now,'updated_at':now,'method':method}
             atomic(self.path,job)
             try:launch(job)
             except Exception:
@@ -82,6 +84,7 @@ class JobStore:
             job=self._read()
             if not job or job['id']!=job_id or job['state'] not in ACTIVE:return
             clean={k:v for k,v in fields.items() if k in (*PUBLIC,'release_sha256') and k not in ('id','started_at','updated_at')}
+            if 'method' in clean and clean['method'] not in METHODS:raise ValueError('Invalid update method')
             if 'state' in clean and clean['state'] not in STATES:raise ValueError('Invalid state')
             if 'phase' in clean and clean['phase'] not in PHASES:raise ValueError('Invalid phase')
             for key in ('target_version','installed_version'):
@@ -94,8 +97,17 @@ class JobStore:
         if job and job['state'] in ACTIVE:self.change(job['id'],state='interrupted',phase='interrupted',error_code='updater_restarted')
 
 def upgrade_body(body):
-    if len(body)>64 or json.loads(body)!= {} or not isinstance(json.loads(body),dict):raise ValueError('Only {} is accepted')
-    return {}
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise ValueError('Duplicate upgrade field')
+            value[key]=item
+        return value
+    if len(body)>64:raise ValueError('Upgrade request exceeds limit')
+    value=json.loads(body,object_pairs_hook=unique)
+    if not isinstance(value,dict) or set(value)-{'method'}:raise ValueError('Only a fixed method selector is accepted')
+    if 'method' in value and (not isinstance(value['method'],str) or value['method'] not in METHODS):raise ValueError('Invalid update method')
+    return value
 
 def trusted(path, directory=False):
     path=Path(path)
@@ -175,9 +187,11 @@ def worker(cfg, job_id):
         trusted(install.source,True)
         for name in ('compose.yaml','deploy.sh','package.json','scripts/update-release.py'):trusted(install.source/name)
         # Follow the activated trusted release for future updater fixes.
-        module=updater_module(install.source)
+        active=updater_module(install.source)
+        if getattr(active,'UPDATE_METHODS',None)==METHODS:module=active
+        if getattr(module,'UPDATE_METHODS',None)!=METHODS:raise RuntimeError('Updater method support is unavailable')
         module.run=command
-        module.update(install,event=event)
+        module.update(install,event=event,method=job.get('method','image'))
         refreshed=refresh_helper(cfg)
         store.change(job_id,state='succeeded',phase='completed')
         if refreshed:
@@ -220,16 +234,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_GET(self):
         if self.path!='/status':return self.reply(404,{'error_code':'not_found'})
-        self.reply(200,{'available':True,'job':self.server.store.read()})
+        self.reply(200,{'available':True,'job':self.server.store.read(),'methods':list(METHODS),'default_method':'image'})
     def do_POST(self):
         if self.path!='/upgrade':return self.reply(404,{'error_code':'not_found'})
         try:
             length=self.headers.get('Content-Length','')
             if not length.isdigit() or int(length)>64 or self.headers.get('Transfer-Encoding'):raise ValueError()
-            upgrade_body(self.rfile.read(int(length)))
+            body=upgrade_body(self.rfile.read(int(length)))
         except (ValueError,TimeoutError):return self.reply(400,{'error_code':'invalid_request'})
-        job=self.server.store.admit(self.server.launch)
-        self.reply(202,{'available':True,'job':job})
+        job=self.server.store.admit(self.server.launch,method=body.get('method','image'))
+        self.reply(202,{'available':True,'job':job,'methods':list(METHODS),'default_method':'image'})
 
 def watch_worker(process,store,job_id):
     process.wait()

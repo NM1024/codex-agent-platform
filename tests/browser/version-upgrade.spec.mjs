@@ -120,3 +120,20 @@ test('cold sign-in defers both version chunks and the dialog stays deferred unti
     await page.locator('#version-entry').click();await expect(dialog(page)).toBeVisible();expect(scripts.some(response=>/VersionDialog-/.test(response.url()))).toBe(true);
   }finally{await context.close();}
 });
+
+test('official and source choices match copied commands, confirmation and the submitted upgrade method',async({page})=>{
+ await setup(page,{available:true});let active=null;const methods=[];
+ await page.route('**/admin/api/upgrade',async route=>{if(route.request().method()==='POST'){const method=route.request().postDataJSON().method;methods.push(method);active={id:'method-job',state:'running',phase:'building',started_at:1000,updated_at:2000,target_version:'1.3.0',method};}await route.fulfill({status:route.request().method()==='POST'?202:200,json:{available:true,job:active,methods:['image','source'],default_method:'image'}});});
+ await page.locator('#version-entry').click();const panel=dialog(page);await expect(panel.getByLabel('官方镜像（推荐）',{exact:true})).toBeChecked();await expect(panel.locator('#version-update-command')).toContainText('--method image');await page.screenshot({path:'.tmp/version-image-choice.png',animations:'disabled'});
+ await panel.getByLabel('源码构建',{exact:true}).check();await expect(panel.locator('#version-update-command')).toContainText('--method source');
+ await panel.locator('#version-check').click();await panel.locator('#version-upgrade').click();await expect(panel).toContainText('构建镜像');
+ await page.screenshot({path:'.tmp/version-source-choice.png',animations:'disabled'});
+ await panel.locator('#version-confirm-upgrade').click();await expect.poll(()=>methods.length).toBe(1);expect(methods).toEqual(['source']);await expect(panel.getByLabel('官方镜像（推荐）',{exact:true})).toBeDisabled();
+});
+
+test('legacy upgrade helpers display release default and receive the unchanged empty request',async({page})=>{
+ await setup(page,{available:true});const bodies=[];
+ await page.route('**/admin/api/upgrade',async route=>{if(route.request().method()==='POST')bodies.push(route.request().postDataJSON());await route.fulfill({status:route.request().method()==='POST'?202:200,json:{available:true,job:route.request().method()==='POST'?{id:'legacy-job',state:'running',phase:'building',started_at:1000,updated_at:2000}:null}});});
+ await page.locator('#version-entry').click();const panel=dialog(page);await expect(panel).toContainText('版本默认方式');await expect(panel.getByLabel('源码构建',{exact:true})).toBeDisabled();
+ await panel.locator('#version-check').click();await panel.locator('#version-upgrade').click();await panel.locator('#version-confirm-upgrade').click();await expect.poll(()=>bodies.length).toBe(1);expect(bodies).toEqual([{}]);
+});
