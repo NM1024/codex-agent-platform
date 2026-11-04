@@ -20,11 +20,14 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
           path: .tmp/release-source
-      - name: Require exact-commit successful CI and matching stable version
+      - name: Require exact-commit release verification and matching stable version
         run: |
           python3 -B - <<'PY'
           import json, os, re, subprocess
@@ -35,10 +38,7 @@ jobs:
           info = json.load(open('.tmp/release-source/package.json'))
           if info['version'] != tag[1:]:
               raise SystemExit('Tag and package version differ')
-          repo = os.environ['GITHUB_REPOSITORY']
-          runs = json.loads(subprocess.check_output(['gh', 'api', '--method', 'GET', f'repos/{repo}/actions/workflows/ci.yml/runs', '-f', f'head_sha={sha}', '-f', 'status=success', '-f', 'per_page=100']))
-          if not any(run['head_sha'] == sha and run['conclusion'] == 'success' for run in runs['workflow_runs']):
-              raise SystemExit('No successful complete CI run exists on this exact release commit')
+          subprocess.run(['node', 'scripts/verify-release-ci.mjs', os.environ['GITHUB_REPOSITORY'], sha], check=True)
           print(f'Publishing validated tag {tag} from {sha}')
           PY
       - name: Package only the tested Git revision
@@ -52,7 +52,7 @@ jobs:
           notes="docs/releases/$RELEASE_TAG.md"
           if [[ ! -f "$notes" ]]; then
             notes="$RUNNER_TEMP/release-notes.md"
-            printf 'Stable release %s.\n\nThe tagged commit passed complete CI. See README.md for installation and stable-release update instructions.\n' "$RELEASE_TAG" > "$notes"
+            printf 'Stable release %s.\n\nThe tagged commit passed required release verification. See README.md for installation and stable-release update instructions.\n' "$RELEASE_TAG" > "$notes"
           fi
           if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [[ "$draft" != true ]]; then echo 'Stable release already published; refusing to replace its assets.' >&2; exit 1; fi

@@ -1,21 +1,61 @@
 name: CI
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Verification scope
+        type: choice
+        options: [full, release]
+        default: full
+  schedule:
+    - cron: '17 3 * * 1'
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      release: ${{ steps.scope.outputs.release }}
+      tested_sha: ${{ steps.scope.outputs.tested_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+      - name: Select and explain verification scope
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_MODE: ${{ inputs.mode || 'auto' }}
+        run: node scripts/ci.mjs plan
+      - name: Verify scope and release authorization rules
+        run: node --test tests/ci-plan.test.mjs
+      - uses: actions/cache/restore@v4
+        if: steps.scope.outputs.checks == 'true'
+        id: npm-cache
+        continue-on-error: true
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node24-${{ steps.scope.outputs.dependency_key }}
+          restore-keys: npm-${{ runner.os }}-node24-
       - run: npm ci --ignore-scripts
+        if: steps.scope.outputs.checks == 'true'
       - run: npm test
-      - run: npm run check:types
+        if: steps.scope.outputs.checks == 'true'
       - run: npm run check:release
+        if: steps.scope.outputs.checks == 'true'
       - name: Validate stable release packaging
+        if: steps.scope.outputs.release == 'true'
         run: |
           bash -n deploy.sh
           python3 -B scripts/package-release.py --output .tmp/release
@@ -34,26 +74,48 @@ jobs:
           module.extract(archive, directory, tag)
           PY
       - name: Verify isolated code containers and approved network boundary
+        if: steps.scope.outputs.release == 'true'
         run: |
-          docker build -f Dockerfile.sandbox -t codex-agent-platform-sandbox:1.0.6 .tmp/distributable
+          version=$(node -p "require('./package.json').version")
+          docker build -f Dockerfile.sandbox -t "codex-agent-platform-sandbox:$version" .tmp/distributable
           node_bin=$(command -v node)
           sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY,http_proxy,https_proxy,all_proxy,no_proxy env SANDBOX_DOCKER_TEST=1 SANDBOX_REQUIRE_NETWORK_TEST=1 "$node_bin" --test tests/sandbox-runtime.test.mjs tests/sandbox-docker-integration.test.mjs tests/sandbox-network.test.mjs
       - name: Build all release targets
+        if: steps.scope.outputs.release == 'true'
         run: |
           version=$(node -p "require('./package.json').version")
           for target in gateway runner manager test; do
             docker build --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
           done
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
+        if: steps.scope.outputs.release == 'true'
       - name: Verify real Compose self-update with synthetic data
+        if: steps.scope.outputs.release == 'true'
         run: sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+        if: steps.scope.outputs.browser == 'true'
+      - name: Run selected browser verification
+        if: steps.scope.outputs.browser == 'true'
+        run: node scripts/ci.mjs browser
+      - uses: actions/cache/save@v4
+        if: success() && github.ref == 'refs/heads/main' && steps.scope.outputs.checks == 'true' && steps.npm-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node24-${{ steps.scope.outputs.dependency_key }}
       - name: Preserve browser failure evidence
-        if: failure()
+        if: failure() && steps.scope.outputs.browser == 'true'
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: browser-failure-evidence
           path: .tmp/browser-results
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
+  release-verification:
+    name: Release verification (${{ needs.test.outputs.tested_sha }})
+    needs: test
+    if: needs.test.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Required code, browser, image, sandbox and upgrade verification succeeded.'
