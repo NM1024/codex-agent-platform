@@ -371,7 +371,7 @@ npm test
 npm run check:release
 ```
 
-The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. Validation covers 203 platform/deployment checks and 32 browser checks, including Chinese/English switching, desktop/mobile workflows, model selection and CSP. CI builds all four release targets. These checks use synthetic data and fake Codex transports; see [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration) for the exact commands and Docker coverage.
+The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. CI selects affected browser suites and core entry checks from changes and shared imports; deployment/release verification additionally builds all release targets and tests real upgrades. Unknown or foundational changes expand to full checks, which also run weekly and on manual request. PRs only restore dependency caches, and browser failure artifacts expire after 3 days. See [CI scope, release authorization and retention](docs/CI.md) and [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration). Tests use synthetic data and fake Codex transports.
 
 | Document | Purpose |
 | --- | --- |

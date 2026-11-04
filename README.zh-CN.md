@@ -367,7 +367,7 @@ npm test
 npm run check:release
 ```
 
-管理前端已完整使用 React、TypeScript 和 Ant Design，仅提供一个生产构建，不保留旧前端回退。验证覆盖 203 项平台及部署检查和 32 项浏览器检查，包括中英文、桌面及手机布局、模型选择和 CSP。CI 构建全部四个发布目标。检查均使用合成数据和模拟 Codex 传输；具体执行方式及 Docker 环境限制详见[验证范围](docs/VALIDATION.md#model-settings-and-react-admin-migration)。
+管理前端使用 React、TypeScript 和 Ant Design，仅提供一个生产构建。CI 根据修改文件与共享依赖选择关联浏览器用例，并保留登录、导航等基础检查；部署与发布验证额外构建全部发布镜像并实测升级。未知影响或基础依赖变化扩大检查范围，每周及手动请求也可全量验证。PR 仅读取依赖缓存，失败附件保留 3 天。检查使用合成数据和模拟 Codex 传输，详见 [CI 范围、发布验证与历史保留](docs/CI.md)和[验证范围](docs/VALIDATION.md#model-settings-and-react-admin-migration)。
 
 | 文档 | 内容 |
 | --- | --- |
