@@ -224,6 +224,38 @@ with tempfile.TemporaryDirectory() as directory:
   calls.clear();assert m.ensure_sandbox(source,data)==0
   assert not any('restart' in c for c in calls),'successful unchanged helper should remain running'
 `));
+test('web updater read-only system paths delegate only the fixed trusted sandbox installer',()=>python(`
+import tempfile,errno
+from unittest.mock import patch,Mock
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory);source=root/'source';data=root/'data';(source/'scripts').mkdir(parents=True);data.mkdir()
+ for name in m.MODULES:(source/'scripts'/name).write_text('# synthetic helper module\\n')
+ m.HELPER_ROOT=root/'lib';m.CONFIG_ROOT=root/'etc';m.STATE_ROOT=root/'state';m.UNIT_ROOT=root/'units';m.UNIT_ROOT.mkdir()
+ prepare=m.prepare_install;delegated=[]
+ def run(argv,**kwargs):
+  if argv[0]=='systemd-run':
+   delegated.append(argv)
+   assert '--wait' in argv and '--pipe' in argv and '--collect' in argv
+   assert '--no-delegate' in argv and '--source' in argv and '--data' in argv
+   assert str(source/'scripts'/'host-sandbox.py') in argv
+   assert kwargs.get('timeout',0)>0 and kwargs.get('timeout',0)<=120
+   assert not any(x in argv for x in ['/bin/sh','bash','-c'])
+   with patch.object(m,'prepare_install',side_effect=prepare):result=m.setup('ensure-sandbox',source,data)
+   return Mock(returncode=result)
+  return Mock(returncode=0,stdout='enabled\\n')
+ with patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m.os,'chown'),patch.object(m,'systemd_available',return_value=True),patch.object(m.subprocess,'run',side_effect=run),patch.object(m,'prepare_install',side_effect=OSError(errno.EROFS,'Read-only file system')):
+  assert m.ensure_sandbox(source,data)==0
+  assert m.read_policy(data)==True,'read-only updater failed to activate the sandbox'
+  assert len(delegated)==1
+  assert m.load_config(m.CONFIG_ROOT/(m.identity(data)+'.json'))['image']==m.IMAGE
+`));
+test('sandbox installer direct mode fails instead of recursively delegating',()=>python(`
+import errno
+from unittest.mock import patch
+with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'setup',side_effect=OSError(errno.EROFS,'read-only')),patch.object(m.subprocess,'run') as external,patch.object(m.sys,'argv',['host-sandbox.py','ensure-sandbox','--source','/synthetic/source','--data','/synthetic/data','--no-delegate']):
+ assert m.main()==1
+ assert external.call_count==0
+`));
 test('sandbox channel is only mounted read-only into Manager, never Docker socket',()=>{
   const result=spawnSync('docker',['compose','--env-file',root+'/.env.example','-f',root+'/compose.yaml','config','--format','json'],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);const config=JSON.parse(result.stdout);

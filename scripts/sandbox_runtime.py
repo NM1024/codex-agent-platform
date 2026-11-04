@@ -41,7 +41,7 @@ PIDS_PROGRAM = "import os,json; print(json.dumps(sorted(int(x) for x in os.listd
 
 
 class SandboxRuntime:
-    def __init__(self, image='codex-agent-platform-sandbox:1.0.6', installation='default', network=None, docker_command=None):
+    def __init__(self, image='codex-agent-platform-sandbox:1.0.7', installation='default', network=None, docker_command=None):
         if not isinstance(installation, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', installation):
             raise ValueError('Invalid installation identifier')
         self.image, self.installation, self.network = image, installation, network
@@ -64,9 +64,10 @@ class SandboxRuntime:
             raise SandboxError('SANDBOX_UNAVAILABLE', 'Local code runtime rejected the operation', 503)
         return result
 
-    def _readiness(self):
-        if self.ready:
+    def _readiness(self, refresh=False):
+        if self.ready and not refresh:
             return
+        if refresh: self.ready = False
         result = self._docker(['info', '--format', '{{json .}}'])
         try:
             info = json.loads(result.stdout)
@@ -399,6 +400,11 @@ class SandboxRuntime:
         if action == 'recover':
             return self.recover()
         self._accepting()
+        if action == 'health':
+            if conversation_id is not None or args:
+                raise SandboxError('SANDBOX_ARGUMENT', 'Health accepts no owner or arguments')
+            self._readiness(refresh=True)
+            return {'available': True}
         state = self._owner(conversation_id)
         if action == 'context':
             try:

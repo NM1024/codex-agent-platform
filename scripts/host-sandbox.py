@@ -2,6 +2,7 @@
 """Root-owned, installation-scoped local sandbox broker. No host shell API."""
 import argparse
 import ast
+import errno
 import fcntl
 import hashlib
 from http.server import BaseHTTPRequestHandler
@@ -20,7 +21,7 @@ import sys
 import tempfile
 import threading
 
-IMAGE = 'codex-agent-platform-sandbox:1.0.6'
+IMAGE = 'codex-agent-platform-sandbox:1.0.7'
 HELPER_ROOT = Path('/usr/local/lib/codex-agent-platform-sandbox')
 CONFIG_ROOT = Path('/etc/codex-agent-platform-sandbox')
 STATE_ROOT = Path('/var/lib/codex-agent-platform-sandbox')
@@ -29,7 +30,7 @@ POLICY = '.sandbox-policy.json'
 MODULES = ('host-sandbox.py', 'sandbox_runtime.py', 'sandbox_files.py', 'sandbox_network.py')
 PROXIES = ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy')
 ENV = {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
-ACTIONS = {'context', 'files', 'exec', 'process', 'export', 'destroy', 'recover'}
+ACTIONS = {'context', 'files', 'exec', 'process', 'export', 'destroy', 'recover', 'health'}
 MAX_BODY = 30 * 1024 * 1024
 CONTROL_BODY = 512 * 1024
 OWNER = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
@@ -258,12 +259,35 @@ def installation_current(source, data):
 def ensure_sandbox(source, data):
     try:
         return setup('ensure-sandbox', source, data)
+    except OSError as error:
+        if error.errno == errno.EROFS:
+            try:
+                # The host updater keeps /usr and /etc read-only. PID 1 launches
+                # this fixed, trusted installer outside that worker namespace.
+                # Never relax the updater service or delegate an arbitrary command.
+                trusted(source, True); trusted(data, True)
+                script = Path(source).resolve() / 'scripts/host-sandbox.py'; trusted(script)
+                command = ['systemd-run', '--quiet', '--wait', '--pipe', '--collect',
+                           '--unit=codex-agent-platform-sandbox-setup-' + identity(data) + '-' + str(os.getpid()),
+                           '--property=Type=exec', '--property=User=root', '--property=UMask=0077',
+                           '--property=NoNewPrivileges=yes',
+                           '/usr/bin/python3', '-B', str(script), 'ensure-sandbox',
+                           '--source', str(Path(source).resolve()), '--data', str(Path(data).resolve()), '--no-delegate']
+                result = subprocess.run(command, env=ENV, timeout=120)
+                if result.returncode == 0: return 0
+            except Exception:
+                pass
+        return setup_unavailable()
     except Exception:
-        # Optional host capability: setup failure must not stop core deployment.
-        # Do not echo exceptions or config values; proxy URLs may contain secrets.
-        print('Sandbox setup unavailable; core services remain available. '
-              'Inspect with deploy.sh sandbox-status; retry with deploy.sh enable-sandbox.', file=sys.stderr)
-        return 0
+        return setup_unavailable()
+
+
+def setup_unavailable():
+    # Optional host capability: setup failure must not stop core deployment.
+    # Do not echo exceptions or config values; proxy URLs may contain secrets.
+    print('Sandbox setup unavailable; core services remain available. '
+          'Inspect with deploy.sh sandbox-status; retry with deploy.sh enable-sandbox.', file=sys.stderr)
+    return 0
 
 
 def request_body(raw):
@@ -280,12 +304,12 @@ def request_body(raw):
     if not isinstance(action, str) or action not in ACTIONS or not isinstance(args, dict): raise ValueError('Invalid sandbox action')
     fields = {'context': set(), 'files': {'action', 'path', 'text', 'content_base64', 'offset', 'limit', 'expected_revision'},
               'exec': {'request_key', 'command', 'cwd', 'timeout_seconds', 'memory_mb', 'grant'},
-              'process': {'action', 'execution_id'}, 'export': {'path'}, 'destroy': set(), 'recover': set()}
+              'process': {'action', 'execution_id'}, 'export': {'path'}, 'destroy': set(), 'recover': set(), 'health': set()}
     if not set(args) <= fields[action]: raise ValueError('Invalid action fields')
     if action == 'files' and 'expected_revision' in args:
         if args.get('action') not in ('write', 'import', 'delete') or type(args['expected_revision']) is not int or args['expected_revision'] < 0:
             raise ValueError('Invalid expected workspace revision')
-    if action == 'recover':
+    if action in ('recover', 'health'):
         if owner is not None or args: raise ValueError('Invalid recovery request')
     elif not isinstance(owner, str) or not OWNER.fullmatch(owner): raise ValueError('Invalid conversation identity')
     binary = action == 'files' and args.get('action') == 'import'
@@ -418,10 +442,12 @@ def main():
     parser.add_argument('action', choices=('serve', 'ensure-sandbox', 'enable-sandbox', 'disable-sandbox', 'sandbox-status', 'sandbox-foreground'))
     parser.add_argument('--source', type=Path); parser.add_argument('--data', type=Path); parser.add_argument('--project')
     parser.add_argument('--config', type=Path)
+    parser.add_argument('--no-delegate', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(); os.umask(0o077)
     try:
         if args.action == 'ensure-sandbox':
             if not args.data or not args.source: raise ValueError('Source and deployment directory are required')
+            if args.no_delegate: return setup('ensure-sandbox', args.source, args.data)
             return ensure_sandbox(args.source, args.data)
         if os.geteuid() != 0: raise ValueError('Host sandbox requires root')
         if args.action == 'serve':

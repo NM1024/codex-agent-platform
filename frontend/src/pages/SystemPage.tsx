@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Card,Empty,Input,Select,Space,Table,Tabs,Typography} from 'antd';
+import {Alert,Button,Empty,Input,Select,Space,Table,Tabs,Typography} from 'antd';
 import {useConsole} from '../context';
 import {LoadingState,Panel,Status,TableField,TableIdentifier} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
@@ -25,7 +25,9 @@ export default function SystemPage(){
  const cursor=cursors.at(-1)??'';
  const format=(at?:number|null)=>at===undefined||at===null?'—':new Intl.DateTimeFormat(locale,{dateStyle:'short',timeStyle:'medium'}).format(new Date(at));
  const code=(value:string)=>t(systemCodes[value]??'系统操作失败。');
- const progress=(work:SystemWork)=>work.progress_age_ms===null?t('尚无进展记录'):t('无进展 {minutes} 分钟',{minutes:Math.floor(work.progress_age_ms/60000)});
+ const progressing=(work:SystemWork)=>['running','retrying','blocked','unknown'].includes(work.state);
+ const workTime=(work:SystemWork)=>progressing(work)?work.last_progress_at:work.state==='completed'?work.completed_at??work.updated_at:work.updated_at;
+ const progress=(work:SystemWork)=>!progressing(work)?'':work.progress_age_ms===null?t('尚无进展记录'):t('无进展 {minutes} 分钟',{minutes:Math.floor(work.progress_age_ms/60000)});
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;listRequest.current++;summaryRequest.current++;detailRequest.current++;};},[]);
  useEffect(()=>{
   const request=++summaryRequest.current;setStatusLoading(true);
@@ -34,7 +36,7 @@ export default function SystemPage(){
  useEffect(()=>{
   const request=++listRequest.current,key=JSON.stringify({tab,filters,cursor}),query=JSON.stringify({tab,filters});
   if(loadedFilters.current!==query||loadedQuery.current!==key&&!retainRefresh.current){setPage(undefined);setPageError(false);}retainRefresh.current=false;loadedQuery.current=key;loadedFilters.current=query;setLoading(true);
-  const args={limit:pageSize,...(cursor?{cursor}:{}),...(filters.search?{search:filters.search}:{}),...(filters.service?{service:filters.service}:{}),...(filters.module?{module:filters.module}:{}),...(filters.state?{state:filters.state}:{}),...(tab==='logs'&&filters.level?{level:filters.level}:{}),...(tab==='issues'?{resolution:filters.resolution}:{}),...(filters.range==='all'?{}:{after:Date.now()-(filters.range==='24h'?86400000:604800000)}),...(filters.work_id?{work_id:filters.work_id}:{})};
+  const args={limit:pageSize,...(cursor?{cursor}:{}),...(filters.search?{search:filters.search}:{}),...(filters.service?{service:filters.service}:{}),...(filters.module?{module:filters.module}:{}),...(filters.state?{state:filters.state}:{}),...(tab==='logs'&&filters.level?{level:filters.level}:{}),...(tab==='issues'?{resolution:filters.resolution}:{}),...(filters.range==='all'?{}:{[tab==='issues'&&filters.resolution==='recovered'?'resolved_after':'after']:Date.now()-(filters.range==='24h'?86400000:604800000)}),...(filters.work_id?{work_id:filters.work_id}:{})};
   void operation<SystemPageResult>(tab==='issues'?'system_issue':tab==='work'?'system_work':'system_logs',args).then(value=>{if(alive.current&&request===listRequest.current){setPage(previous=>preserveSystemPage(value,previous));setLoadedPage(cursors.length);setPageError(false);}}).catch(()=>{if(alive.current&&request===listRequest.current)setPageError(true);}).finally(()=>{if(alive.current&&request===listRequest.current)setLoading(false);});
  },[operation,tab,filters,cursor,tick]);
  const refresh=()=>{retainRefresh.current=true;setCursors(['']);setTick(value=>value+1);};
@@ -73,9 +75,15 @@ export default function SystemPage(){
  const eventFacts=(item:SystemEvent)=><dl className="system-facts"><dt>{t('首次出现')}</dt><dd>{format(item.first_seen_at)}</dd><dt>{t('最近出现')}</dt><dd>{format(item.last_seen_at)}</dd><dt>{t('创建时间')}</dt><dd>{format(item.created_at)}</dd><dt>{t('问题次数')}</dt><dd>{item.count}</dd><dt>{t('安全原因')}</dt><dd>{code(item.code)} <code>{item.code}</code></dd><dt>{t('服务与编号')}</dt><dd>{serviceName(item.service)} · {item.id}</dd></dl>;
  return <div id="system-page" className="system-page">
   <Typography.Paragraph type="secondary">{t('查看系统内部状态，跟踪异常与处理结果。')}</Typography.Paragraph>
-  <div id="system-metrics" className="system-metrics" aria-busy={statusLoading}>{[
-   ['需要处理',status?.summary.unresolved],['等待重试',status?.summary.states.retrying],['正在运行',status?.summary.states.running],['最近恢复',status?.summary.recovered_24h],
-  ].map(([label,value])=><Card key={label} className="system-metric"><Typography.Text type="secondary">{t(String(label))}</Typography.Text><strong>{value===undefined||allUnavailable(status?.sources)?'—':value}</strong><small>{t(status&&!status.summary.complete?'仅可用来源':label==='最近恢复'?'过去 24 小时':'来源状态')}</small></Card>)}</div>
+  <div id="system-metrics" className="system-metrics" aria-busy={statusLoading} aria-label={t('按概览筛选')}>
+   {[
+    {label:'需要处理',value:status?.summary.unresolved,tab:'issues' as Tab,query:{...initial}},
+    {label:'等待重试',value:status?.summary.states.retrying,tab:'work' as Tab,query:{...initial,state:'retrying'}},
+    {label:'正在运行',value:status?.summary.states.running,tab:'work' as Tab,query:{...initial,state:'running'}},
+    {label:'最近恢复',value:status?.summary.recovered_24h,tab:'issues' as Tab,query:{...initial,resolution:'recovered',range:'24h'}},
+   ].map((item,index)=><Button id={'system-metric-'+index} key={item.label} className="system-metric" title={t(item.label)+(index===3?' · '+t('过去 24 小时'):'')} aria-label={t(item.label)+(index===3?' · '+t('过去 24 小时'):'')+' '+(item.value===undefined||allUnavailable(status?.sources)?'—':item.value)} aria-pressed={tab===item.tab&&JSON.stringify(filters)===JSON.stringify(item.query)} onClick={()=>{setTab(item.tab);setDraftFilters(item.query);setFilters(item.query);setCursors(['']);}}><span>{t(item.label)}{index===3&&<small> · {t('过去 24 小时')}</small>}</span><strong>{item.value===undefined||allUnavailable(status?.sources)?'—':item.value}</strong></Button>)}
+   {status&&!status.summary.complete&&<small className="system-metrics-partial">{t('仅可用来源')}</small>}
+  </div>
   {statusError&&<Alert type="warning" showIcon title={t(status?'刷新失败，数据可能过期；保留上次读取的记录。':'概览暂时无法读取。')}/>}
   {status&&<div className="system-summary-source"><Typography.Text type="secondary">{t('最后采集')} {format(status.sampled_at)}</Typography.Text>{sources(status.sources)}{!status.summary.complete&&sourceWarning}{status.summary.collections.filter(item=>item.gap_count>0||item.pending).map(item=><Alert key={item.service} type="warning" showIcon title={serviceName(item.service)+' · '+t(item.pending?'待补记采集证据':'采集存在缺口')} description={<span>{t('采集失败次数')} {item.failed_operations} · {t('最近采集失败')} {format(item.last_failed_at)} · {t('最近采集恢复')} {format(item.last_recovered_at)}</span>}/>)}</div>}
   <Tabs activeKey={tab} onChange={chooseTab} aria-label={t('系统运维')} items={[{key:'issues',label:t('待处理问题')},{key:'work',label:t('后台工作')},{key:'logs',label:t('系统日志')}]}/>
@@ -103,7 +111,7 @@ export default function SystemPage(){
      {title:t('问题恢复'),key:'resolution',width:'10%',className:'system-resolution-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('问题恢复')}>{row.kind==='work'&&renderRecovery(row)}</TableField>},
      {title:t('核验情况'),key:'verification',width:'10%',className:'system-verification-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('核验情况')}>{row.kind==='work'&&renderVerification(row)}</TableField>},
     ]),
-    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:row.last_progress_at)}{row.kind==='work'&&<><small>{progress(row)}</small>{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
+    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:workTime(row))}{row.kind==='work'&&<>{progressing(row)&&<small>{progress(row)}</small>}{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
     {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('交给管理 Agent')}</Button>}</Space>},
    ]}/>}
    <div id="system-pagination" className="system-pagination"><Button disabled={cursors.length===1||loading||stalePage} onClick={()=>setCursors(value=>value.slice(0,-1))}>{t('上一页')}</Button><Typography.Text type="secondary">{stalePage?t('已知记录 {count} 条；包含过期证据',{count:page?.items.length??0}):t('每页 {limit} 条 · 第 {page} 页 · 本页 {count} 条',{limit:pageSize,page:page?loadedPage:cursors.length,count:page?.items.length??0})}</Typography.Text><Button disabled={!page?.next_cursor||loading||pageError||stalePage} onClick={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}}>{t('下一页')}</Button></div>
@@ -124,7 +132,7 @@ export default function SystemPage(){
       ].map(([label,value])=><div key={String(label)}><dt>{t(String(label))}</dt><dd>{value}</dd></div>)}</dl>
       {work.stale&&<Alert type="warning" showIcon title={t('记录可能过期，请核对来源与进展。')} description={progress(work)}/>}
       <dl className="system-facts">{[
-       ['服务与编号',<TableIdentifier value={work.id}/>],['安全原因',<>{code(work.code)} <code>{work.code}</code></>],['记录版本',work.revision],['创建时间',format(work.created_at)],['首次出现',format(work.issue_opened_at)],['最近进展',<>{format(work.last_progress_at)} · {progress(work)}</>],['首次尝试',format(work.first_attempt_at)],['最近尝试',format(work.last_attempt_at)],['最近成功',format(work.last_success_at)],['下次重试',format(work.next_retry_at)],['尝试次数',work.attempts],['连续失败',work.consecutive_failures],['问题次数',work.issue_count],['待处理数量',work.pending_count],
+       ['服务与编号',<TableIdentifier value={work.id}/>],['安全原因',<>{code(work.code)} <code>{work.code}</code></>],['记录版本',work.revision],['创建时间',format(work.created_at)],['首次出现',format(work.issue_opened_at)],['最近进展',<>{format(workTime(work))}{progressing(work)&&<> · {progress(work)}</>}</>],['首次尝试',format(work.first_attempt_at)],['最近尝试',format(work.last_attempt_at)],['最近成功',format(work.last_success_at)],['下次重试',format(work.next_retry_at)],['尝试次数',work.attempts],['连续失败',work.consecutive_failures],['问题次数',work.issue_count],['待处理数量',work.pending_count],
       ].map(([label,value])=><div className="system-fact" key={String(label)}><dt>{t(String(label))}</dt><dd>{value}</dd></div>)}</dl>
       {actionError&&<Alert type="error" showIcon title={t(actionError)}/>}
       <div className="system-detail-actions"><Button type="primary" disabled={handoffBusy||detailError||staleDetail} onClick={()=>void analyze(work.id)}>{t('交给管理 Agent')}</Button><Button onClick={()=>related(work.id)}>{t('查看关联日志')}</Button></div>

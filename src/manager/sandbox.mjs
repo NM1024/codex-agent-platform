@@ -150,12 +150,14 @@ export class ManagerSandbox {
   async cleanup({limit=50,conversationId,force=conversationId!==undefined}={}){
     if(!Number.isInteger(limit)||limit<1||limit>100)throw error('SANDBOX_INVALID_LIMIT');
     if(conversationId!==undefined&&(typeof conversationId!=='string'||!/^[0-9a-f-]{36}$/.test(conversationId)))throw error('SANDBOX_SCOPE_INVALID');
+    if(conversationId===undefined)await this.probeHealth();
     let cleaned=0,failed=0;
     const rows=this.sql(`SELECT * FROM manager_sandbox_cleanup ${conversationId?'WHERE id=?':''} ORDER BY attempted_at,created_at LIMIT ?`).all(...(conversationId?[conversationId]:[]),limit);
     for(const row of rows){
       if(this.sql('SELECT id FROM manager_conversations WHERE id=?').get(row.id))continue;
       const work={id:'sandbox-cleanup.'+row.id,module:'sandbox',target_id:row.id,allowed_actions:['cleanup_retry'],pending_count:1};
-      if(!systemDue(this.journal,work.id,{force})){this.sql('UPDATE manager_sandbox_cleanup SET attempted_at=? WHERE id=?').run(this.now(),row.id);continue;}
+      const recovered=this.helperAvailable&&row.attempted_at<(this.helperRecoveredAt??0);
+      if(!systemDue(this.journal,work.id,{force:force||recovered,now:this.now()})){this.sql('UPDATE manager_sandbox_cleanup SET attempted_at=? WHERE id=?').run(this.now(),row.id);continue;}
       this.journal?.work({...work,state:'running'});let failure;
       // Stable private attachments do not depend on the optional host helper.
       // Attempt each side independently and retain the durable job until both
@@ -174,5 +176,14 @@ export class ManagerSandbox {
       try{try{const path=await containedPath(this.root,join(this.root,file.conversation_id,file.id));await unlink(path);}catch(e){if(e.code!=='ENOENT')throw e;}this.sql('DELETE FROM manager_sandbox_files WHERE id=? AND deleting=1').run(file.id);}catch{}
     }
     return {cleaned,failed,pending:Boolean(this.sql(`SELECT 1 FROM manager_sandbox_cleanup ${conversationId?'WHERE id=?':''} LIMIT 1`).get(...(conversationId?[conversationId]:[])))};}
+  async probeHealth(){
+    let available=false;
+    try{available=(await this.client.call('health'))?.available===true;}catch{}
+    if(available&&!this.helperAvailable)this.helperRecoveredAt=this.now();
+    this.helperAvailable=available;
+    // Observability must never gate the durable cleanup queue or normal work.
+    try{systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:available?'completed':'unknown',code:available?'SERVICE_RECOVERED':'SANDBOX_UNAVAILABLE',allowed_actions:[],attempted:false,details:{phase:'probe',source:'host'}});}catch{}
+    return available;
+  }
   async recover(){this.sql("UPDATE manager_sandbox_permissions SET status='expired' WHERE status IN ('pending','approved')").run();this.sql("UPDATE manager_sandbox_operations SET result=json_set(result,'$.status','unknown','$.reason','Sandbox restart; no command was replayed.') WHERE json_extract(result,'$.status')='running'").run();try{const result=await this.client.recover();systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:'completed',code:'SERVICE_RECOVERED',details:{phase:'recovery'},allowed_actions:[]});return result;}catch(error){systemObserve(this.journal,{id:'sandbox-helper',module:'sandbox',state:'unknown',code:'SANDBOX_UNAVAILABLE',allowed_actions:[],details:{phase:'recovery',source:'host'}});throw error;}}
 }
