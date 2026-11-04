@@ -102,6 +102,19 @@ class ReleaseUpdateTests(unittest.TestCase):
         self.assertFalse((self.data/'.deployment.json').exists())
         self.assertEqual((self.data/'codex/retained').read_text(),'synthetic')
 
+    def test_legacy_same_version_omitted_method_stays_verified_noop(self):
+        self.update()
+        state=json.loads((self.data/'.deployment.json').read_text())
+        state.pop('method')
+        (self.data/'.deployment.json').write_text(json.dumps(state))
+        active=u.Install(Path(state['source']),self.data,self.install.project)
+        self.calls.clear()
+        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):
+            u.update(active)
+        self.assertFalse(any('pull' in c or 'build' in c or 'stop' in c for c in self.calls))
+        self.assertEqual(len(list((self.data/'backups').glob('*.tar.gz'))),1)
+        self.assertEqual(json.loads((self.data/'.deployment.json').read_text()),state)
+
     def test_same_version_explicit_method_change_prepares_and_backs_up(self):
         self.update()
         state=json.loads((self.data/'.deployment.json').read_text())

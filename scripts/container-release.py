@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 import shutil
 import tempfile
+import tarfile
+import hashlib
 
 import official_images as images
 
@@ -44,6 +46,23 @@ def push_immutable(image_id, tag, run):
         return
     run(['docker', 'tag', image_id, tag])
     run(['docker', 'push', tag])
+
+
+def restore_candidates(source, revision, *, run=images.run_command):
+    """Reuse immutable candidates on reruns, then run normal checks on those IDs."""
+    release = identity(source, revision)
+    restored = []
+    for component in images.COMPONENTS:
+        candidate = images.REGISTRY + component + ':ci-' + revision
+        try:
+            run(['docker', 'pull', candidate], capture=True)
+        except images.ImageError:
+            continue
+        info = inspect(candidate, run)
+        check(info, component, release)
+        run(['docker', 'tag', info['Id'], 'codex-agent-platform-' + component + ':' + release['version']])
+        restored.append(component)
+    return restored
 
 
 def publish_candidates(source, revision, *, run=images.run_command):
@@ -92,13 +111,25 @@ def create_bundle(source, output, revision, *, run=images.run_command, registry=
         result = images.json_object(run(['docker', 'image', 'inspect', tag], capture=True))
         if not isinstance(result, list) or len(result) != 1 or not images.digest(result[0].get('Id')):
             raise images.ImageError('Cannot identify official image')
-        manifest['images'][component] = {'local_tag': tag, 'id': result[0]['Id'], 'registry': registry.get(component) if registry else None}
+        manifest['images'][component] = {'local_tag': tag, 'id': result[0]['Id'], 'config_id': result[0]['Id'], 'registry': registry.get(component) if registry else None}
     images.validate_manifest(manifest, version, revision)
-    images.inspect_images(manifest, run)
+    for component in images.COMPONENTS:
+        check(inspect(manifest['images'][component]['local_tag'], run), component, manifest)
     destination = output / manifest['archive']['name']
     with tempfile.TemporaryDirectory(prefix='official-bundle-', dir=output) as temporary:
         raw = Path(temporary) / 'images.tar'
         run(['docker', 'save', '--output', str(raw), *[manifest['images'][c]['local_tag'] for c in images.COMPONENTS]])
+        with tarfile.open(raw) as tar:
+            entries = images.json_object(tar.extractfile('manifest.json').read())
+            for item in entries:
+                tags = item.get('RepoTags', [])
+                if len(tags) != 1: raise images.ImageError('Unexpected exported image tags')
+                tag = tags[0].removeprefix('docker.io/library/')
+                component = next((c for c in images.COMPONENTS if manifest['images'][c]['local_tag'] == tag), None)
+                if component is None: raise images.ImageError('Unexpected exported image tag')
+                config = tar.extractfile(item['Config']).read(2 * 1024 * 1024 + 1)
+                if len(config) > 2 * 1024 * 1024: raise images.ImageError('Oversized image config')
+                manifest['images'][component]['config_id'] = 'sha256:' + hashlib.sha256(config).hexdigest()
         with raw.open('rb') as src, destination.open('wb') as dst:
             with gzip.GzipFile(fileobj=dst, mode='wb', mtime=0, filename='') as compressed:
                 shutil.copyfileobj(src, compressed, 1024 * 1024)
@@ -116,7 +147,7 @@ def create_bundle(source, output, revision, *, run=images.run_command, registry=
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'bundle', 'revision', 'candidates', 'promote', 'cleanup'))
+    parser.add_argument('action', choices=('prepare', 'bundle', 'revision', 'candidates', 'promote', 'cleanup', 'restore'))
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--data', type=Path)
     parser.add_argument('--output', type=Path)
@@ -138,10 +169,13 @@ def main():
         version = images.json_object((args.source / 'package.json').read_text())['version']
         images.prepare(args.source, args.data, version)
         print('Official release images prepared: v' + version)
-    elif args.action == 'candidates':
+    elif args.action in ('candidates', 'restore'):
         if args.revision is None:
             parser.error('--revision is required')
-        publish_candidates(args.source, args.revision)
+        if args.action == 'restore':
+            print(json.dumps(restore_candidates(args.source, args.revision)))
+        else:
+            publish_candidates(args.source, args.revision)
     else:
         if args.output is None or args.revision is None:
             parser.error('--output and --revision are required')

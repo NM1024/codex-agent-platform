@@ -58,8 +58,8 @@ def validate_manifest(value, version, revision=None):
     fields(value['images'], COMPONENTS)
     for component in COMPONENTS:
         image = value['images'][component]
-        fields(image, ('local_tag', 'id', 'registry'))
-        if image['local_tag'] != 'codex-agent-platform-' + component + ':' + version or not digest(image['id']):
+        fields(image, ('local_tag', 'id', 'config_id', 'registry'))
+        if image['local_tag'] != 'codex-agent-platform-' + component + ':' + version or not digest(image['id']) or not digest(image['config_id']):
             raise ImageError('Invalid official image identity')
         registry = image['registry']
         if registry is not None and (not isinstance(registry, str) or not re.fullmatch(re.escape(REGISTRY + component) + r'@sha256:[a-f0-9]{64}', registry)):
@@ -118,9 +118,24 @@ def verify_archive(path, manifest):
                 seen.add(tag)
                 config = read(item.get('Config'), 2 * 1024 * 1024)
                 component = expected[tag]
-                if 'sha256:' + hashlib.sha256(config).hexdigest() != manifest['images'][component]['id']:
+                config_id = 'sha256:' + hashlib.sha256(config).hexdigest()
+                if config_id != manifest['images'][component]['config_id']:
                     raise ImageError('Official image configuration digest does not match')
                 check_config(json_object(config), component, manifest)
+                # Docker's containerd store identifies the OCI manifest/index, while
+                # classic stores identify the config. Bind either identity to this config.
+                def binds(image_id, depth=0):
+                    if image_id == config_id: return True
+                    if depth > 4 or not digest(image_id): return False
+                    blob = read('blobs/sha256/' + image_id[7:], 2 * 1024 * 1024)
+                    if 'sha256:' + hashlib.sha256(blob).hexdigest() != image_id: return False
+                    value = json_object(blob)
+                    if value.get('config', {}).get('digest') == config_id: return True
+                    children = value.get('manifests', [])
+                    if not isinstance(children, list) or len(children) > 32: return False
+                    return any(binds(child.get('digest'), depth + 1) for child in children if isinstance(child, dict))
+                if not binds(manifest['images'][component]['id']):
+                    raise ImageError('Official image ID does not bind its configuration')
     except (tarfile.TarError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as error:
         raise ImageError('Invalid official image archive metadata') from error
 
@@ -178,15 +193,21 @@ def checksums(body):
     return result
 
 
-def inspect_images(manifest, run=run_command):
+def inspect_images(manifest, run=run_command, *, imported=False):
+    resolved = {}
     for component in COMPONENTS:
         item = manifest['images'][component]
-        values = json_object(run(['docker', 'image', 'inspect', item['id']], capture=True))
-        if not isinstance(values, list) or len(values) != 1 or values[0].get('Id') != item['id']:
+        ref = item['local_tag'] if imported else item['registry'] or item['id']
+        values = json_object(run(['docker', 'image', 'inspect', ref], capture=True))
+        allowed = {item['id'], item['config_id']}
+        if item['registry']: allowed.add(item['registry'].split('@')[1])
+        if not isinstance(values, list) or len(values) != 1 or values[0].get('Id') not in allowed:
             raise ImageError('Loaded image identity differs from official release')
         info = values[0]
         check_config({'architecture': info.get('Architecture'), 'os': info.get('Os'),
                       'config': info.get('Config', {})}, component, manifest)
+        resolved[component] = info['Id']
+    return resolved
 
 
 def prepare(source, data, version, *, run=run_command, download=download_file):
@@ -217,7 +238,7 @@ def prepare(source, data, version, *, run=run_command, download=download_file):
             try:
                 for component in COMPONENTS:
                     run(['docker', 'pull', manifest['images'][component]['registry']])
-                inspect_images(manifest, run)
+                resolved = inspect_images(manifest, run)
             except Exception:
                 registry = False
                 print('Official registry unavailable; using the verified release image archive.', flush=True)
@@ -228,11 +249,11 @@ def prepare(source, data, version, *, run=run_command, download=download_file):
                 raise ImageError('Official image archive checksum or size does not match')
             verify_archive(path, manifest)
             run(['docker', 'load', '--input', str(path)])
-            inspect_images(manifest, run)
+            resolved = inspect_images(manifest, run, imported=True)
         # Keep existing Compose/discovery and old updater identity checks compatible.
         for component in COMPONENTS:
             image = manifest['images'][component]
-            run(['docker', 'tag', image['id'], image['local_tag']])
+            run(['docker', 'tag', resolved[component], image['local_tag']])
         return manifest
 
 

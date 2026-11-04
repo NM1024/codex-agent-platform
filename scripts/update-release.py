@@ -300,7 +300,9 @@ def verify_images(install,source,expected,tag):
         if package!=tag[1:]:raise UpdateError('Deployed package version does not match selected release.')
 
 
-def update(install,event=None,method='image'):
+def update(install,event=None,method=None):
+    explicit_method=method is not None
+    method='image' if method is None else method
     if method not in ('image','source'):
         raise UpdateError('Invalid update method; select image or source.')
     event=event or (lambda phase,**fields:None)
@@ -323,7 +325,7 @@ def update(install,event=None,method='image'):
             event('checking',target_version=tag[1:],release_sha256=digest)
             current=json.loads((install.source/'package.json').read_text())['version']
             state=saved(install.data)
-            if state.get('version')==tag[1:] and current==tag[1:] and state.get('method','source')==method:
+            if state.get('version')==tag[1:] and current==tag[1:] and (state.get('method','source')==method or not explicit_method and 'method' not in state):
                 event('verifying')
                 config=check_mounts(install,install.source)
                 verify_images(install,install.source,expected_images(config,tag),tag)
@@ -401,7 +403,7 @@ def main():
     parser.add_argument('--source',required=True,type=Path)
     parser.add_argument('--data',type=Path)
     parser.add_argument('--project',default=os.environ.get('PLATFORM_PROJECT'))
-    parser.add_argument('--method',choices=('image','source'),default='image')
+    parser.add_argument('--method',choices=('image','source'))
     args=parser.parse_args()
     os.umask(0o077)
     try:
@@ -417,7 +419,7 @@ def main():
             active_version=json.loads(active_package.read_text()).get('version','') if active_package.is_file() else ''
             older=not re.fullmatch(r'\d+\.\d+\.\d+',own_version) or not re.fullmatch(r'\d+\.\d+\.\d+',active_version) or version(own_version)<=version(active_version)
             if __file__!='<stdin>' and older and saved(install.data).get('source') and Path(__file__).resolve()!=active.resolve():
-                os.execv(sys.executable,[sys.executable,'-B',str(active),'update','--source',str(install.source),'--data',str(install.data),'--project',install.project,'--method',args.method])
+                os.execv(sys.executable,[sys.executable,'-B',str(active),'update','--source',str(install.source),'--data',str(install.data),'--project',install.project]+(['--method',args.method] if args.method is not None else []))
             update(install,method=args.method)
     except (UpdateError,OSError,ValueError,KeyError,tarfile.TarError) as error:
         print(f'Update error: {error}',file=sys.stderr)

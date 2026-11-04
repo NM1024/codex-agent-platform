@@ -16,7 +16,7 @@ def bundle(root,extra_tag=False):
   config=json.dumps({'architecture':'amd64','os':'linux','config':{'Labels':labels}}).encode();digest=hashlib.sha256(config).hexdigest();name=digest+'.json';files[name]=config
   tag='codex-agent-platform-'+c+':'+version
   entries.append({'Config':name,'RepoTags':[tag]+(['unrelated-app:latest'] if extra_tag and c=='manager' else []),'Layers':[]})
-  images[c]={'local_tag':tag,'id':'sha256:'+digest,'registry':None}
+  images[c]={'local_tag':tag,'id':'sha256:'+digest,'config_id':'sha256:'+digest,'registry':None}
  files['manifest.json']=json.dumps(entries).encode()
  with tarfile.open(path,'w:gz') as tar:
   for name,data in files.items():
@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory() as d:
   if args[:2]==['docker','info']:return 'linux/x86_64'
   if args[:2]==['docker','pull']:raise m.ImageError('registry unavailable')
   if args[:3]==['docker','image','inspect']:
-   image=next(x for x in value['images'].values() if x['id']==args[-1]);component=next(k for k,v in value['images'].items() if v==image)
+   image=next(x for x in value['images'].values() if args[-1] in (x['id'],x['local_tag'],x['registry']));component=next(k for k,v in value['images'].items() if v==image)
    return json.dumps([{'Id':image['id'],'Architecture':'amd64','Os':'linux','Config':{'Labels':{'org.opencontainers.image.source':'https://github.com/NM1024/codex-agent-platform','org.opencontainers.image.version':version,'org.opencontainers.image.revision':revision,'io.codex-agent-platform.component':component,'io.codex-agent-platform.distribution':'official'}}}])
   return ''
  result=m.prepare(source,root,version,run=run,download=download)
@@ -175,4 +175,36 @@ with tempfile.TemporaryDirectory() as d:
  root=Path(d);revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();archive=p.package(revision,root/'assets');target=root/'staged';target.mkdir();version=json.loads((Path.cwd()/'package.json').read_text())['version']
  legacy.extract(archive,target,'v'+version)
  assert images.source_revision(target)==revision
+`));
+
+test('CI reruns restore and recheck existing exact-revision candidates before rebuilding missing components',()=>python(fixture+`
+import importlib.util
+spec=importlib.util.spec_from_file_location('publisher','scripts/container-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d);_,value=bundle(root);source=root/'source';source.mkdir();(source/'package.json').write_text(json.dumps({'version':version}));calls=[]
+ def run(args,capture=False,**kwargs):
+  calls.append(args)
+  if args[:2]==['docker','pull']:
+   if 'manager:' in args[-1]:raise m.ImageError('manifest unknown')
+   return ''
+  if args[:3]==['docker','image','inspect']:
+   c=next(c for c in components if ('-'+c+':') in args[-1]);return json.dumps([{'Id':value['images'][c]['id'],'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)}}])
+  if args[:2]==['docker','tag']:return ''
+  raise AssertionError(args)
+ restored=p.restore_candidates(source,revision,run=run)
+ assert set(restored)=={'gateway','runner','sandbox'}
+ assert not any('build' in args or 'push' in args for args in calls)
+`));
+
+test('containerd image IDs bind OCI manifests while classic Docker uses the same config digest',()=>python(fixture+`
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d);path,value=bundle(root)
+ with tarfile.open(path) as tar:files={item.name:tar.extractfile(item).read() for item in tar.getmembers()}
+ for c in components:
+  body=json.dumps({'schemaVersion':2,'config':{'digest':value['images'][c]['config_id']},'layers':[]}).encode();digest=hashlib.sha256(body).hexdigest();files['blobs/sha256/'+digest]=body;value['images'][c]['id']='sha256:'+digest
+ with tarfile.open(path,'w:gz') as tar:
+  for name,data in files.items():
+   item=tarfile.TarInfo(name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
+ m.verify_archive(path,value)
+ broken=copy.deepcopy(value);broken['images']['manager']['id']='sha256:'+'f'*64;deny(lambda:m.verify_archive(path,broken))
 `));

@@ -77,11 +77,18 @@ jobs:
           tag = archive.name.removeprefix('codex-agent-platform-').removesuffix('.tar.gz')
           module.extract(archive, directory, tag)
           PY
+      - name: Restore immutable candidates for repeat verification
+        if: steps.scope.outputs.release == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          python3 -B scripts/container-release.py restore --source . --revision "${{ steps.scope.outputs.tested_sha }}"
       - name: Verify isolated code containers and approved network boundary
         if: steps.scope.outputs.release == 'true'
         run: |
           version=$(node -p "require('./package.json').version")
-          docker build --build-arg PLATFORM_VERSION="$version" --build-arg PLATFORM_REVISION="${{ steps.scope.outputs.tested_sha }}" --build-arg PLATFORM_DISTRIBUTION=official -f Dockerfile.sandbox -t "codex-agent-platform-sandbox:$version" .tmp/distributable
+          docker image inspect "codex-agent-platform-sandbox:$version" >/dev/null 2>&1 || docker build --build-arg PLATFORM_VERSION="$version" --build-arg PLATFORM_REVISION="${{ steps.scope.outputs.tested_sha }}" --build-arg PLATFORM_DISTRIBUTION=official -f Dockerfile.sandbox -t "codex-agent-platform-sandbox:$version" .tmp/distributable
           node_bin=$(command -v node)
           sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY,http_proxy,https_proxy,all_proxy,no_proxy env SANDBOX_DOCKER_TEST=1 SANDBOX_REQUIRE_NETWORK_TEST=1 "$node_bin" --test tests/sandbox-runtime.test.mjs tests/sandbox-docker-integration.test.mjs tests/sandbox-network.test.mjs
       - name: Build all release targets
@@ -90,6 +97,7 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           for target in gateway runner manager test; do
+            if [[ "$target" != test ]] && docker image inspect "codex-agent-platform-$target:$version" >/dev/null 2>&1; then continue; fi
             docker build --build-arg PLATFORM_VERSION="$version" --build-arg PLATFORM_REVISION="${{ steps.scope.outputs.tested_sha }}" --build-arg PLATFORM_DISTRIBUTION=official --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
           done
       - name: Verify sandbox setup inside protected systemd updater
