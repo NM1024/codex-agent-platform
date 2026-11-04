@@ -1,3 +1,5 @@
+import {createUpgradeClient} from './manager/version.mjs';
+import {observeSystemUpgrade} from './observability/system-report.mjs';
 import {SystemJournal} from './observability/system-journal.mjs';
 import {createManagerSystem,systemObserve} from './observability/system-maintenance.mjs';
 import {ManagerSandbox} from './manager/sandbox.mjs';
@@ -43,7 +45,8 @@ try {
   const configuration=createManagerConfiguration({store,agent,auth});
   const operations=createManagerOperations({client,store,metrics,configuration,auth,sandbox});
   const mcp=createManagementMcpHandler({store,operations,authorize:token=>agent.authorize(token),executionContext:token=>agent.executionContext(token)});
-  const internal=createServer(mcp),api=createManagerServer({store,agent,operations,metrics,auth,sandbox});
+  const upgradeClient=createUpgradeClient();
+  const internal=createServer(mcp),api=createManagerServer({store,agent,operations,metrics,auth,sandbox,upgradeClient});
   await Promise.all([new Promise(r=>internal.listen(mcpPort,'127.0.0.1',r)),new Promise(r=>api.listen(config.port,'0.0.0.0',r))]);
   console.log(JSON.stringify({service:'manager',event:'listening',port:config.port}));
   try{await sandbox.recover();}catch{console.log(JSON.stringify({service:'manager',event:'sandbox_unavailable'}));}
@@ -51,7 +54,7 @@ try {
   const retention=new HistoryRetentionWorker({db:store.db,journal,
     readPolicy:async()=>{const group=await client.execute('configuration_get',{scope:'retention'});return {...group.values,revision:group.revision};},
     runBatch:createManagerHistoryBatch({store,agent}),
-    maintenance:async()=>{await agent.retryConversationCleanup({limit:50});await inspectionNotifications.retryLifecycle({limit:50});await inspectionNotifications.cleanup({limit:50});await sandbox.cleanup({limit:50});},
+    maintenance:async()=>{observeSystemUpgrade(journal,await upgradeClient.status());await agent.retryConversationCleanup({limit:50});await inspectionNotifications.retryLifecycle({limit:50});await inspectionNotifications.cleanup({limit:50});await sandbox.cleanup({limit:50});},
     compact:()=>compactHistoryDatabase(store.db,{idle:!agent.running.size&&store.isHistoryIdle()}),
     onSweep:state=>console.log(JSON.stringify({service:'manager',event:'history_retention_completed',deleted:state.deleted,failed:state.failed})),
   });
@@ -65,7 +68,6 @@ try {
   operations.system=system;agent.system=system;
   journal.event({module:'system',event:'listening',code:'SYSTEM_OK',details:{phase:'start'}});
   systemObserve(journal,{id:'manager-health',module:'health',state:'completed',code:'SERVICE_RECOVERED',allowed_actions:['health_check']});
-  systemObserve(journal,{id:'host-access',module:'upgrade',state:'disabled',code:'HOST_ACCESS_UNAVAILABLE',allowed_actions:[],details:{source:'host'}});
   let lastInspection=Date.now();
   const inspectionTimer=setInterval(()=>{if(Date.now()-lastInspection>=agent.inspectionIntervalMs){lastInspection=Date.now();inspect();}},1000);inspect();
   async function stop(){

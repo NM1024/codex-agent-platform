@@ -64,7 +64,7 @@ export function normalizeSystemQuery(query={},{issues=false}={}) {
   const out={...query,limit:query.limit??50};
   for(const [key,allowed] of [['service',SYSTEM_SERVICES],['module',SYSTEM_MODULES],['state',SYSTEM_STATES],['level',SYSTEM_LEVELS]])if(out[key]!==undefined&&!allowed.includes(out[key]))throw fail('SYSTEM_QUERY_INVALID');
   if(!Number.isSafeInteger(out.limit)||out.limit<1||out.limit>100)throw fail('SYSTEM_QUERY_INVALID');
-  for(const key of ['after','before'])if(out[key]!==undefined&&!time(out[key]))throw fail('SYSTEM_QUERY_INVALID');
+  for(const key of ['after','before','resolved_after'])if(out[key]!==undefined&&!time(out[key]))throw fail('SYSTEM_QUERY_INVALID');
   if(out.after!==undefined&&out.before!==undefined&&out.after>out.before)throw fail('SYSTEM_QUERY_INVALID');
   if(out.search!==undefined&&(typeof out.search!=='string'||!out.search.length||out.search.length>200))throw fail('SYSTEM_QUERY_INVALID');
   if(out.target_id!==undefined&&!token(out.target_id))throw fail('SYSTEM_QUERY_INVALID');
@@ -233,6 +233,7 @@ export class SystemJournal {
         if(resolution==='recovered')where.push('resolved_at IS NOT NULL');
       }
       for(const [key,op] of [['after','>='],['before','<']])if(q[key]!==undefined){where.push(`${column}${op}?`);params.push(q[key]);}
+      if(issues&&q.resolved_after!==undefined){where.push('resolved_at>=?');params.push(q.resolved_after);}
       if(q.position){where.push(`(${column}<? OR (${column}=? AND id<?))`);params.push(q.position.time,q.position.time,q.position.id);}
       if(q.search!==undefined){
         const fields=['id','service','module','code','message','event','work_id','target_id','title','state','classification'];

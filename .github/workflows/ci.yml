@@ -81,12 +81,16 @@ jobs:
           node_bin=$(command -v node)
           sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY,http_proxy,https_proxy,all_proxy,no_proxy env SANDBOX_DOCKER_TEST=1 SANDBOX_REQUIRE_NETWORK_TEST=1 "$node_bin" --test tests/sandbox-runtime.test.mjs tests/sandbox-docker-integration.test.mjs tests/sandbox-network.test.mjs
       - name: Build all release targets
+        # Host sandbox setup must work from the real updater's protected namespace.
         if: steps.scope.outputs.release == 'true'
         run: |
           version=$(node -p "require('./package.json').version")
           for target in gateway runner manager test; do
             docker build --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
           done
+      - name: Verify sandbox setup inside protected systemd updater
+        if: steps.scope.outputs.release == 'true'
+        run: sudo python3 -B tests/integration/sandbox-systemd-smoke.py --source .tmp/distributable
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
         if: steps.scope.outputs.release == 'true'
       - name: Verify real Compose self-update with synthetic data

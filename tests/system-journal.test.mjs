@@ -351,3 +351,14 @@ test('localized code aliases search work and issue JSON records without requirin
   assert.deepEqual(j.issues({search:'权限'}).items.map(item=>item.id),[work.id]);
  }finally{db.close();}
 });
+
+test('recovery window counts actual recovery even when old work is updated later',t=>{
+ const {journal,tick}=fixture(t);
+ journal.work({id:'old-recovery',module:'health',state:'blocked',code:'SERVICE_UNAVAILABLE'});
+ tick(2000);journal.work({id:'old-recovery',module:'health',state:'completed',code:'SERVICE_RECOVERED'});
+ tick(10000);journal.work({id:'old-recovery',module:'health',state:'idle',code:'WORK_IDLE'});
+ journal.work({id:'recent-recovery',module:'health',state:'blocked',code:'SERVICE_UNAVAILABLE'});
+ tick(11000);journal.work({id:'recent-recovery',module:'health',state:'completed',code:'SERVICE_RECOVERED'});
+ assert.deepEqual(journal.issues({resolution:'recovered',resolved_after:5000}).items.map(row=>row.id),['manager:work:recent-recovery']);
+ assert.throws(()=>journal.works({resolved_after:5000}),/SYSTEM_QUERY_INVALID/);
+});

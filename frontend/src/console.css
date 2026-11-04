@@ -46,7 +46,7 @@ button, input, textarea { font: inherit; }
 .console-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 24px 28px; overflow: auto; scrollbar-gutter: stable; }
 .console-content #notice { flex-shrink: 0; margin-bottom: 20px; }
 #view { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 20px; width: 100%; min-width: 0; max-width: 1680px; margin-inline: auto; }
-.view-tasks #view, .view-plugins #view, .view-schedules #view, .view-overview #view { max-width: none; }
+.view-tasks #view, .view-plugins #view, .view-schedules #view, .view-overview #view, .view-system #view { max-width: none; }
 #view > .ant-space { display: flex; }
 #view .ant-space-item { min-width: 0; }
 #view > .ant-typography { margin-bottom: 0; }

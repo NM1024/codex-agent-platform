@@ -19,7 +19,7 @@ test('real system tabs, literal search, independent resolution filters and bound
  await openWork(page,'manager:work:permissions');await expect(page.locator('#system-detail')).toContainText('尝试次数');await expect(page.locator('#system-detail')).toContainText('最近成功');await page.getByRole('button',{name:'关闭',exact:true}).click();
  await search(page,'%');await expect(rows(page)).toHaveCount(0);await expect(page.locator('#system-records')).toContainText('没有匹配的记录');
  await page.getByRole('tab',{name:'后台工作',exact:true}).click();await search(page,'runner:work:stale');await expect(rows(page)).toContainText('需要核验');await expect(rows(page)).toContainText('无进展');
- await page.getByRole('tab',{name:'待处理问题',exact:true}).click();await choose(page,'#system-resolution','已恢复');await search(page,'runner:work:recovered-idle');await expect(rows(page)).toHaveCount(1);await expect(rows(page)).toContainText('空闲');
+ await page.getByRole('tab',{name:'待处理问题',exact:true}).click();await choose(page,'#system-resolution','已恢复');await search(page,'runner:work:recovered-idle');await expect(rows(page)).toHaveCount(1);await expect(rows(page)).toContainText('空闲');await rows(page).getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail .system-facts')).toBeVisible();await expect(page.locator('#system-detail')).toContainText('空闲');await expect(page.locator('#system-detail')).not.toContainText('无进展');await page.screenshot({path:'.tmp/system-recovered-detail.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'关闭',exact:true}).click();
  await page.getByRole('tab',{name:'系统日志',exact:true}).click();await choose(page,'#system-level','错误');await search(page,'权限');expect(await rows(page).count()).toBeGreaterThan(0);await rows(page).first().getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail')).toContainText('最近出现');await expect(page.locator('#system-detail')).toContainText('首次出现');
 });
 
@@ -100,6 +100,7 @@ test('Chinese and English system UI fits 320px and detail scroll stays inside th
  for(const locale of ['zh-CN','en']){
   if(locale==='en')await choose(page,'#app-language','English');
   await page.setViewportSize({width:320,height:844});
+  for(const metric of await page.locator('#system-metrics .system-metric').all()){const box=await metric.boundingBox(),number=await metric.locator('strong').boundingBox();expect(number.x+number.width).toBeLessThanOrEqual(box.x+box.width-4);}
   for(const name of locale==='en'?['Issues','Background work','System logs']:['待处理问题','后台工作','系统日志']){
    await page.getByRole('tab',{name,exact:true}).click();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);await expect(page.locator('#system-refresh')).toBeVisible();
   }
@@ -124,4 +125,34 @@ test('delayed closed details do not overwrite another owner',async({page})=>{
  await navigate(page,'system');await page.route('**/admin/api/operations',async route=>{const body=route.request().postDataJSON();if(body?.action==='system_issue'&&body.args.id==='manager:work:permissions')await new Promise(r=>setTimeout(r,300));await route.continue();});
  await search(page,'manager:work:permissions');await rows(page).first().getByRole('button',{name:'详情',exact:true}).click();await page.getByRole('button',{name:'关闭',exact:true}).click();
  await openWork(page,'gateway:work:configuration');await expect(page.locator('#system-detail')).toContainText('Runner 不可用');await expect(page.locator('#system-detail')).not.toContainText('权限问题');
+});
+
+test('compact summary selects matching records and shares full page width with task lists',async({page})=>{
+ await page.setViewportSize({width:2560,height:1100});await navigate(page,'tasks');
+ const taskBox=await page.locator('#view').boundingBox();await navigate(page,'system');
+ const systemBox=await page.locator('#view').boundingBox();expect(Math.abs(systemBox.x-taskBox.x)).toBeLessThan(2);expect(Math.abs(systemBox.width-taskBox.width)).toBeLessThan(2);
+ const status=await op(page,'system_status');
+ const counts=[status.summary.unresolved,status.summary.states.retrying,status.summary.states.running,status.summary.recovered_24h];
+ for(let index=0;index<4;index++){
+  await page.locator('#system-search').fill('unrelated search');await page.locator('#system-query').click();await expect(rows(page)).toHaveCount(0);
+  const selected=page.locator('#system-metric-'+index);await selected.click();await expect(selected).toHaveAttribute('aria-pressed','true');await expect(page.locator('#system-search')).toHaveValue('');
+  let count=0;const ids=new Set();
+  for(;;){
+   await expect(page.locator('#system-query')).not.toHaveClass(/ant-btn-loading/);
+   const current=rows(page);count+=await current.count();
+   for(const row of await current.all()){
+    const text=await row.innerText();ids.add(await row.locator('.table-identifier').innerText());
+    if(index===1)expect(text).toContain('等待重试');if(index===2)expect(text).toContain('运行中');if(index===3){expect(text).toContain('已恢复');expect(text).not.toContain('无进展');}
+   }
+   const next=page.getByRole('button',{name:'下一页',exact:true});if(await next.isDisabled())break;
+   const before=await page.locator('#system-pagination').innerText();await next.click();await expect(page.locator('#system-pagination')).not.toHaveText(before);
+  }
+  expect(count).toBe(counts[index]);expect(ids.size).toBe(count);
+ }
+ await page.locator('#system-metric-0').click();await expect(rows(page)).toHaveCount(20);
+ await page.setViewportSize({width:1912,height:1000});expect((await page.locator('#system-metrics').boundingBox()).height).toBeLessThan(65);
+ await page.screenshot({path:'.tmp/system-compact-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});expect((await page.locator('#system-metrics').boundingBox()).height).toBeLessThan(100);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:'.tmp/system-compact-mobile.png',fullPage:true});
 });

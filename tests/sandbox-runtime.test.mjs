@@ -444,3 +444,32 @@ finally:
  stopped.set(); sandbox_runtime.subprocess.Popen=original; r.close()
 `);
 });
+
+test('global health rechecks Docker without allocating or recovering any conversation',()=>{
+ python(`
+from sandbox_runtime import SandboxRuntime,SandboxError
+from subprocess import CompletedProcess
+import importlib.util,json
+spec=importlib.util.spec_from_file_location('host','scripts/host-sandbox.py');host=importlib.util.module_from_spec(spec);spec.loader.exec_module(host)
+assert host.request_body(b'{"action":"health"}')==('health',None,{})
+for request in [{'action':'health','args':{'command':'false'}},{'action':'health','conversation_id':'00000000-0000-4000-8000-000000000001'}]:
+ try:host.request_body(json.dumps(request).encode())
+ except ValueError:pass
+ else:raise AssertionError('global health accepted owner or arbitrary input')
+runtime=SandboxRuntime();calls=[]
+def docker(args,**kwargs):
+ calls.append(args)
+ return CompletedProcess(args,0,b'{"OSType":"linux","CgroupDriver":"systemd","CgroupVersion":"2"}' if args[0]=='info' else b'[]',b'')
+runtime._docker=docker
+assert runtime.dispatch('health')=={'available':True}
+assert runtime.dispatch('health')=={'available':True}
+assert calls==[['info','--format','{{json .}}'],['image','inspect',runtime.image]]*2
+assert runtime.owners=={}
+def unavailable(*args,**kwargs):raise SandboxError('SANDBOX_UNAVAILABLE','offline',503)
+runtime._docker=unavailable
+try:runtime.dispatch('health')
+except SandboxError:pass
+else:raise AssertionError('cached readiness hid an outage')
+assert runtime.owners=={}
+`);
+});

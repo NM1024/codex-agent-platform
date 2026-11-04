@@ -49,3 +49,27 @@ test('UTF-8 Markdown retains its type and source-code attachments can be preview
   const file=await s.sandbox.upload(s.conversation.id,{name,mime:'text/plain',bytes});assert.equal(file.preview_url,null);
  }
 });
+
+test('periodic helper recovery retries old cleanup once without destroying a live workspace',async t=>{
+ const {SystemJournal}=await import('../src/observability/system-journal.mjs');
+ const s=await setup(t),journal=new SystemJournal({db:s.store.db,service:'manager',now:s.sandbox.now});s.sandbox.journal=journal;
+ s.sandbox.queueCleanup(s.store.metadata(s.conversation.id));s.store.db.prepare('DELETE FROM manager_conversations WHERE id=?').run(s.conversation.id);
+ let available=false,destroys=0;const live=s.store.createConversation();
+ s.sandbox.client.call=async(action,owner)=>{if(action==='health'){assert.equal(owner,undefined);if(!available)throw new Error('offline');return {available:true};}assert.equal(action,'destroy');assert.notEqual(owner,live.id);destroys++;throw Object.assign(new Error('offline'),{code:'SANDBOX_UNAVAILABLE'});};
+ await s.sandbox.cleanup();assert.equal(destroys,1);assert.equal(journal.detail('manager:work:sandbox-helper').state,'unknown');
+ s.advance(1);available=true;await s.sandbox.cleanup();assert.equal(destroys,2);assert.equal(journal.detail('manager:work:sandbox-helper').state,'completed');
+ s.advance(1);await s.sandbox.cleanup();assert.equal(destroys,2,'healthy polls must retain failed cleanup backoff');
+ available=false;s.advance(1);await s.sandbox.cleanup();assert.equal(destroys,2);
+ available=true;s.advance(1);s.sandbox.client.call=async action=>action==='health'?{available:true}:(destroys++,{destroyed:true});
+ assert.deepEqual(await s.sandbox.cleanup(),{cleaned:1,failed:0,pending:false});assert.equal(destroys,3);
+ assert.equal(journal.detail('manager:work:sandbox-cleanup.'+s.conversation.id).state,'completed');
+});
+
+test('helper health and cleanup continue when only observability storage is unavailable',async t=>{
+ const {SystemJournal}=await import('../src/observability/system-journal.mjs');const s=await setup(t);
+ s.sandbox.journal=new SystemJournal({db:s.store.db,service:'manager'});
+ s.sandbox.queueCleanup(s.store.metadata(s.conversation.id));s.store.db.prepare('DELETE FROM manager_conversations WHERE id=?').run(s.conversation.id);
+ s.store.db.exec('DROP TABLE system_work;DROP TABLE system_events');
+ s.sandbox.client.call=async action=>action==='health'?{available:true}:{destroyed:true};
+ assert.deepEqual(await s.sandbox.cleanup(),{cleaned:1,failed:0,pending:false});
+});
