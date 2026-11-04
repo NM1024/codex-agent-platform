@@ -19,7 +19,7 @@ test('real system tabs, literal search, independent resolution filters and bound
  await openWork(page,'manager:work:permissions');await expect(page.locator('#system-detail')).toContainText('尝试次数');await expect(page.locator('#system-detail')).toContainText('最近成功');await page.getByRole('button',{name:'关闭',exact:true}).click();
  await search(page,'%');await expect(rows(page)).toHaveCount(0);await expect(page.locator('#system-records')).toContainText('没有匹配的记录');
  await page.getByRole('tab',{name:'后台工作',exact:true}).click();await search(page,'runner:work:stale');await expect(rows(page)).toContainText('需要核验');await expect(rows(page)).toContainText('无进展');
- await page.getByRole('tab',{name:'待处理问题',exact:true}).click();await choose(page,'#system-resolution','已恢复');await search(page,'runner:work:recovered-idle');await expect(rows(page)).toHaveCount(1);await expect(rows(page)).toContainText('空闲');await rows(page).getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail')).not.toContainText('无进展');await page.screenshot({path:'.tmp/system-recovered-detail.png',fullPage:true});await page.getByRole('button',{name:'关闭',exact:true}).click();
+ await page.getByRole('tab',{name:'待处理问题',exact:true}).click();await choose(page,'#system-resolution','已恢复');await search(page,'runner:work:recovered-idle');await expect(rows(page)).toHaveCount(1);await expect(rows(page)).toContainText('空闲');await rows(page).getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail .system-facts')).toBeVisible();await expect(page.locator('#system-detail')).toContainText('空闲');await expect(page.locator('#system-detail')).not.toContainText('无进展');await page.screenshot({path:'.tmp/system-recovered-detail.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'关闭',exact:true}).click();
  await page.getByRole('tab',{name:'系统日志',exact:true}).click();await choose(page,'#system-level','错误');await search(page,'权限');expect(await rows(page).count()).toBeGreaterThan(0);await rows(page).first().getByRole('button',{name:'详情',exact:true}).click();await expect(page.locator('#system-detail')).toContainText('最近出现');await expect(page.locator('#system-detail')).toContainText('首次出现');
 });
 
@@ -100,6 +100,7 @@ test('Chinese and English system UI fits 320px and detail scroll stays inside th
  for(const locale of ['zh-CN','en']){
   if(locale==='en')await choose(page,'#app-language','English');
   await page.setViewportSize({width:320,height:844});
+  for(const metric of await page.locator('#system-metrics .system-metric').all()){const box=await metric.boundingBox(),number=await metric.locator('strong').boundingBox();expect(number.x+number.width).toBeLessThanOrEqual(box.x+box.width-4);}
   for(const name of locale==='en'?['Issues','Background work','System logs']:['待处理问题','后台工作','系统日志']){
    await page.getByRole('tab',{name,exact:true}).click();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);await expect(page.locator('#system-refresh')).toBeVisible();
   }
