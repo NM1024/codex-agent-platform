@@ -1,11 +1,17 @@
 # syntax=docker/dockerfile:1
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+FROM ${NODE_IMAGE} AS dependency-manifests
+WORKDIR /manifests
+COPY package.json package-lock.json ./
+COPY scripts/dependency-manifests.mjs ./
+RUN node dependency-manifests.mjs
 FROM ${NODE_IMAGE} AS admin-build
 WORKDIR /build
-COPY package.json package-lock.json ./
+COPY --from=dependency-manifests /manifests/package.json /manifests/package-lock.json ./
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
-    npm ci --ignore-scripts --no-audit --no-fund --strict-ssl=true
+    npm ci --ignore-scripts --no-audit --no-fund --strict-ssl=true && rm -rf /root/.npm
+COPY package.json package-lock.json ./
 COPY frontend ./frontend
 RUN npm run build:admin
 FROM ${NODE_IMAGE} AS base
@@ -14,25 +20,36 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --chown=1000:1000 package.json package-lock.json ./
+COPY --from=dependency-manifests --chown=1000:1000 /manifests/package.json /manifests/package-lock.json ./
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
-    npm ci --omit=dev --ignore-scripts --no-audit --no-fund --strict-ssl=true
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund --strict-ssl=true && rm -rf /root/.npm
+COPY --chown=1000:1000 package.json package-lock.json ./
 COPY --chown=1000:1000 prompts ./prompts
 COPY --chown=1000:1000 src ./src
 COPY --from=admin-build --chown=1000:1000 /build/src/manager/web-dist ./src/manager/web-dist
 COPY --chown=1000:1000 scripts ./scripts
 RUN node scripts/check-release.mjs
 RUN mkdir -p /data /workspace /codex /management && chown 1000:1000 /data /workspace /codex /management
+ARG PLATFORM_VERSION=1.0.7
+ARG PLATFORM_REVISION=unknown
+ARG PLATFORM_DISTRIBUTION=source
+LABEL org.opencontainers.image.source="https://github.com/NM1024/codex-agent-platform" \
+      org.opencontainers.image.version="$PLATFORM_VERSION" \
+      org.opencontainers.image.revision="$PLATFORM_REVISION" \
+      io.codex-agent-platform.distribution="$PLATFORM_DISTRIBUTION"
 ENV NODE_ENV=production PATH="/app/node_modules/.bin:${PATH}" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 USER 1000:1000
 FROM base AS gateway
+LABEL io.codex-agent-platform.component="gateway"
 CMD ["node", "src/main-gateway.mjs"]
 FROM base AS runner
+LABEL io.codex-agent-platform.component="runner"
 ENV CODEX_HOME=/codex HOME=/codex
 CMD ["node", "src/main-runner.mjs"]
 FROM base AS manager
+LABEL io.codex-agent-platform.component="manager"
 COPY --chown=1000:1000 frontend/src ./frontend/src
 COPY --chown=1000:1000 frontend/tsconfig.json frontend/vite.config.ts ./frontend/
 COPY --chown=1000:1000 docs ./docs
@@ -40,6 +57,7 @@ COPY --chown=1000:1000 README.md README.zh-CN.md Dockerfile Dockerfile.sandbox .
 RUN node scripts/check-release.mjs --manager-source
 CMD ["node", "src/main-manager.mjs"]
 FROM base AS test
+LABEL io.codex-agent-platform.component="test"
 COPY --chown=1000:1000 tests ./tests
 COPY --chown=1000:1000 frontend ./frontend
 CMD ["node", "scripts/container-tests.mjs"]
