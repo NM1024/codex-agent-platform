@@ -12,7 +12,7 @@
 
 这个自托管平台面向开发者和受信任的小团队：你可以把内容审核、结构化报告、图文创作、定时处理等工作接入现有系统。平台负责排队、执行记录、文件保存和日常管理，你主要定义“输入什么、要完成什么、最后返回什么”。
 
-**当前正式版本：v1.0.5。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
+**当前正式版本：v1.0.6。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
 
 ## 目录
 
@@ -92,7 +92,7 @@ Docker 镜像已经包含 Node.js、SQLite 支持和固定版本的 Codex CLI，
 ### 1. 获取代码并初始化私有配置
 
 ```bash
-sudo git clone --branch v1.0.5 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+sudo git clone --branch v1.0.6 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
 cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -107,7 +107,7 @@ sudo ./deploy.sh init /data/codex-agent-platform
 sudo ./deploy.sh build /data/codex-agent-platform
 ```
 
-此命令也构建固定的 Python/Node 沙箱镜像。如需在管理对话中运行临时代码，请在支持的宿主机上明确执行 `sudo ./deploy.sh enable-sandbox /data/codex-agent-platform`。沙箱按对话隔离，支持上传文件、执行代码和下载结果；联网或增加已支持额度需要用户批准。宿主 Shell 和部署源码编辑仍不向 Agent 开放。安装、固定限制、关闭和手动前台运行方式见[本地代码沙箱说明](docs/SANDBOX.md)。可选宿主入口不可用时，其他管理功能仍可使用。
+此命令也构建固定的 Python/Node 沙箱镜像。在支持的、由 root 管理的 Linux/systemd 部署上，`start` 和正式版升级会自动安装或更新沙箱辅助服务，并启用管理对话中的临时代码执行；用户通过 `disable-sandbox` 明确关闭过的设置会保留。沙箱按对话隔离，支持上传文件、执行代码和下载结果；联网或增加已支持额度需要用户批准。宿主 Shell 和部署源码编辑仍不向 Agent 开放。安装、固定限制、关闭和手动前台运行方式见[本地代码沙箱说明](docs/SANDBOX.md)。可选宿主入口不可用时，其他管理功能仍可使用。
 
 这个步骤将锁定版本的依赖安装到镜像中。更新源码或依赖后需要重新构建；通过控制台调整普通运行参数不需要重新构建。
 
@@ -158,6 +158,8 @@ ssh -N -L 3007:127.0.0.1:3007 user@your-server
 ```
 
 把 `user@your-server` 换成自己的 SSH 登录地址，然后在电脑浏览器访问 [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/)。若服务器本身有浏览器，也可以直接访问这个地址。用初始密码登录，在**系统配置 → 安全与登录 → Admin 密码**中填写当前密码和新密码。验证成功后所有网页会话退出；当前密码错误不会退出登录。初始密码文件不会覆盖已经保存在 Manager 数据库中的新密码。
+
+侧边栏各页面有独立地址，例如 `/admin/tasks` 和 `/admin/system`。刷新、直接打开收藏链接或使用浏览器前进后退会保留对应页面；访问仍需 Admin 登录。这些地址不包含页签、筛选条件或未保存的表单内容。
 
 公网域名、HTTPS 证书和外部访问网关，由部署者使用自己的基础设施配置。本教程采用私有 SSH 访问。内部服务端口应保持私有；对接已有网关时需要保留的请求信息见[部署文档](docs/DEPLOYMENT.md#https-and-remote-console-access)。
 

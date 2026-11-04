@@ -20,7 +20,7 @@ import sys
 import tempfile
 import threading
 
-IMAGE = 'codex-agent-platform-sandbox:1.0.5'
+IMAGE = 'codex-agent-platform-sandbox:1.0.6'
 HELPER_ROOT = Path('/usr/local/lib/codex-agent-platform-sandbox')
 CONFIG_ROOT = Path('/etc/codex-agent-platform-sandbox')
 STATE_ROOT = Path('/var/lib/codex-agent-platform-sandbox')
@@ -74,13 +74,14 @@ def read_policy(data):
     return value['enabled']
 
 
-def load_config(path):
+def load_config(path, *, allow_previous_image=False):
     trusted(path)
     if Path(path).stat().st_size > 16384: raise ValueError('Invalid sandbox configuration')
     cfg = json.loads(Path(path).read_text())
     if not isinstance(cfg, dict) or set(cfg) != {'data', 'installation', 'image', 'proxy_env'}:
         raise ValueError('Invalid sandbox configuration')
-    if cfg['image'] != IMAGE or not isinstance(cfg['data'], str) or not Path(cfg['data']).is_absolute():
+    valid_image = cfg['image'] == IMAGE or (allow_previous_image and isinstance(cfg['image'], str) and re.fullmatch(r'codex-agent-platform-sandbox:\d+\.\d+\.\d+', cfg['image']))
+    if not valid_image or not isinstance(cfg['data'], str) or not Path(cfg['data']).is_absolute():
         raise ValueError('Invalid fixed sandbox configuration')
     trusted(cfg['data'], True)
     if cfg['installation'] != identity(cfg['data']): raise ValueError('Invalid installation identity')
@@ -132,7 +133,7 @@ WantedBy=multi-user.target
 '''
 
 
-def prepare_install(source, data):
+def prepare_install(source, data, *, proxy_env=None):
     trusted(source, True); trusted(data, True)
     source, data = Path(source).resolve(), Path(data).resolve()
     trusted(source, True); trusted(data, True)
@@ -147,6 +148,9 @@ def prepare_install(source, data):
     base, config, state = HELPER_ROOT / key, CONFIG_ROOT / (key + '.json'), STATE_ROOT / key
     for folder in (base, CONFIG_ROOT, state):
         folder.mkdir(parents=True, mode=0o700, exist_ok=True); trusted(folder, True); folder.chmod(0o700)
+    # Files can be new while the live process still has the old modules loaded.
+    # Leave this marker on every interrupted or failed installation/restart.
+    atomic(state / 'restart-pending.json', {'pending': True})
     for name, body in bodies.items():
         target = base / name
         if target.is_symlink(): raise ValueError('Refusing symlink helper module')
@@ -156,7 +160,7 @@ def prepare_install(source, data):
             os.chmod(temporary, 0o600); os.replace(temporary, target)
         finally:
             if os.path.exists(temporary): os.unlink(temporary)
-    cfg = {'data': str(data), 'installation': key, 'image': IMAGE, 'proxy_env': {k: os.environ[k] for k in PROXIES if k in os.environ}}
+    cfg = {'data': str(data), 'installation': key, 'image': IMAGE, 'proxy_env': {k: os.environ[k] for k in PROXIES if k in os.environ} if proxy_env is None else proxy_env}
     atomic(config, cfg)
     prepare_channel(data)
     return base, config
@@ -179,7 +183,29 @@ def setup(action, source, data):
     if lock_path.exists() or lock_path.is_symlink(): trusted(lock_path)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if action == 'ensure-sandbox' else 0))
+        proxy_env = None
+        if action == 'ensure-sandbox':
+            policy = data / POLICY
+            if (policy.exists() or policy.is_symlink()) and not read_policy(data):
+                print('Local sandbox remains explicitly disabled for ' + str(data))
+                return 0
+            if not systemd_available():
+                raise ValueError('A running Linux/systemd host is required')
+            if not policy.exists() and (UNIT_ROOT / unit).exists():
+                enabled = subprocess.run(['systemctl', 'is-enabled', unit], env=ENV, capture_output=True, text=True, timeout=10)
+                if enabled.stdout.strip() in ('disabled', 'masked', 'masked-runtime'):
+                    atomic(policy, {'enabled': False})
+                    print('Preserved previously disabled local sandbox for ' + str(data))
+                    return 0
+            if read_policy(data) and installation_current(source, data):
+                active = subprocess.run(['systemctl', 'is-active', '--quiet', unit], env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                if active.returncode == 0:
+                    return 0
+            previous_config = CONFIG_ROOT / (identity(data) + '.json')
+            if previous_config.exists() or previous_config.is_symlink():
+                proxy_env = load_config(previous_config, allow_previous_image=True)['proxy_env']
+            action = 'enable-sandbox'
         if action == 'disable-sandbox':
             atomic(data / POLICY, {'enabled': False})
             if systemd_available() and (UNIT_ROOT / unit).exists():
@@ -191,7 +217,7 @@ def setup(action, source, data):
         if action == 'enable-sandbox' and not systemd_available():
             raise ValueError('A running Linux/systemd host is required; use deploy.sh sandbox-foreground for a manually supervised foreground helper')
         trusted(source, True)
-        base, config = prepare_install(source, data)
+        base, config = prepare_install(source, data, proxy_env=proxy_env)
         atomic(data / POLICY, {'enabled': True})
         if action == 'sandbox-foreground':
             print('Starting foreground local sandbox; keep this root-owned process supervised.', flush=True)
@@ -204,7 +230,39 @@ def setup(action, source, data):
         # enable --now leaves an already-active process on old imported modules.
         # Restart only after every fixed module and the config are staged.
         subprocess.run(['systemctl', 'restart', unit], env=ENV, check=True)
+        (STATE_ROOT / identity(data) / 'restart-pending.json').unlink()
         print('Local sandbox enabled for ' + str(data) + '; unit ' + unit)
+        return 0
+
+
+def installation_current(source, data):
+    """Avoid discarding active temporary workspaces when nothing has changed."""
+    try:
+        trusted(source, True)
+        key = identity(data)
+        pending = STATE_ROOT / key / 'restart-pending.json'
+        if pending.exists() or pending.is_symlink(): return False
+        base, config = HELPER_ROOT / key, CONFIG_ROOT / (key + '.json')
+        cfg = load_config(config)
+        if cfg['data'] != str(data): return False
+        for name in MODULES:
+            original, installed = Path(source) / 'scripts' / name, base / name
+            trusted(original); trusted(installed)
+            if original.read_bytes() != installed.read_bytes(): return False
+        unit = UNIT_ROOT / unit_name(data); trusted(unit)
+        return unit.read_text() == systemd_unit(base, config, data)
+    except (OSError, ValueError):
+        return False
+
+
+def ensure_sandbox(source, data):
+    try:
+        return setup('ensure-sandbox', source, data)
+    except Exception:
+        # Optional host capability: setup failure must not stop core deployment.
+        # Do not echo exceptions or config values; proxy URLs may contain secrets.
+        print('Sandbox setup unavailable; core services remain available. '
+              'Inspect with deploy.sh sandbox-status; retry with deploy.sh enable-sandbox.', file=sys.stderr)
         return 0
 
 
@@ -357,11 +415,14 @@ def serve(cfg):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('serve', 'enable-sandbox', 'disable-sandbox', 'sandbox-status', 'sandbox-foreground'))
+    parser.add_argument('action', choices=('serve', 'ensure-sandbox', 'enable-sandbox', 'disable-sandbox', 'sandbox-status', 'sandbox-foreground'))
     parser.add_argument('--source', type=Path); parser.add_argument('--data', type=Path); parser.add_argument('--project')
     parser.add_argument('--config', type=Path)
     args = parser.parse_args(); os.umask(0o077)
     try:
+        if args.action == 'ensure-sandbox':
+            if not args.data or not args.source: raise ValueError('Source and deployment directory are required')
+            return ensure_sandbox(args.source, args.data)
         if os.geteuid() != 0: raise ValueError('Host sandbox requires root')
         if args.action == 'serve':
             if not args.config: raise ValueError('A trusted configuration is required')

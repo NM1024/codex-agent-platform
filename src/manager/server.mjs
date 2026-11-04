@@ -16,6 +16,7 @@ import {parseSystemId} from '../observability/system-journal.mjs';
 import {observeSystemApiError,observeSystemUpgrade,observeSystemVersion} from '../observability/system-report.mjs';
 
 const webRoot=new URL('./web-dist/index.html',import.meta.url);
+const pagePath=/^\/admin\/(?:overview|chat|tasks|plugins|schedules|system|settings)\/?$/;
 const assetPath=/^\/admin\/(favicon\.svg|third-party-notices\.md|assets\/[a-zA-Z0-9_-]+\.(?:js|css))$/;
 const entityTag=bytes=>'"'+createHash('sha256').update(bytes).digest('base64url')+'"';
 const matchesTag=(header,etag)=>(header??'').split(',').some(value=>value.trim()==='*'||value.trim().replace(/^W\//,'')===etag);
@@ -26,8 +27,8 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       const url=new URL(req.url,'http://local'),path=url.pathname;
       if(req.method==='GET'&&path==='/healthz')return json(res,200,{alive:true});
       if(req.method==='GET'&&path==='/admin'){res.writeHead(308,{location:'/admin/'});return res.end();}
-      if((req.method==='GET'||req.method==='HEAD')&&(path==='/admin/'||assetPath.test(path))) {
-        const index=path==='/admin/',file=index?'index.html':path.slice('/admin/'.length),nonce=randomBytes(18).toString('base64');
+      if((req.method==='GET'||req.method==='HEAD')&&(path==='/admin/'||pagePath.test(path)||assetPath.test(path))) {
+        const index=path==='/admin/'||pagePath.test(path),file=index?'index.html':path.slice('/admin/'.length),nonce=randomBytes(18).toString('base64');
         const hashed=file.startsWith('assets/'),encoding=hashed?staticEncoding(req.headers['accept-encoding']):'identity';
         if(!encoding){res.writeHead(406,{'vary':'Accept-Encoding'});return res.end();}
         let data;

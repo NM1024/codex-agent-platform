@@ -6,7 +6,9 @@ The sandbox is an optional host capability. Without its helper or a working fixe
 
 ## Build and enable
 
-Use a Linux Docker Engine host, Python 3.10+ and the normal root-owned deployment source and runtime directories. Docker must support the specified cgroup memory, swap, CPU and PID limits and bounded tmpfs. Run `init` again on an existing deployment to create its socket channel before recreating Manager:
+Use a Linux Docker Engine host, Python 3.10+ and the normal root-owned deployment source and runtime directories. Docker must support the specified cgroup memory, swap, CPU and PID limits and bounded tmpfs. Normal `start` and stable-release updates automatically install and enable the helper on supported Linux/systemd hosts, including installations that have never enabled it. Saved `disable-sandbox` choices and legacy disabled/masked services remain disabled. Unsupported hosts or installation failures produce a setup warning without failing core deployment. An unchanged active helper is left running; updated modules, configuration or a stopped service trigger installation/restart.
+
+For manual setup or to re-enable an explicitly disabled sandbox, run:
 
 ```bash
 sudo ./deploy.sh init /data/codex-agent-platform
@@ -15,7 +17,7 @@ sudo ./deploy.sh enable-sandbox /data/codex-agent-platform
 sudo ./deploy.sh sandbox-status /data/codex-agent-platform
 ```
 
-`build` also builds the sandbox image alongside the three platform service images. `build-sandbox` builds only `codex-agent-platform-sandbox:1.0.5`. The image contains Python 3.13.8, Node.js 24, pytest, NumPy, pandas, Matplotlib and Pillow with pinned Python dependencies. It contains no Codex, platform source, login files or platform credentials. Rebuild the image and rerun `enable-sandbox` after updating sandbox code; the helper uses its own installed copy of all four Python modules. Enabling stages those modules and configuration, then restarts the service even when already active. This stops current sandbox jobs and discards temporary workspace files; published attachments remain.
+`build` also builds the sandbox image alongside the three platform service images. `build-sandbox` builds only `codex-agent-platform-sandbox:1.0.6`. The image contains Python 3.13.8, Node.js 24, pytest, NumPy, pandas, Matplotlib and Pillow with pinned Python dependencies. It contains no Codex, platform source, login files or platform credentials. Stable-release updates refresh the helper's installed copy of all four Python modules and its fixed image configuration automatically. Explicit `enable-sandbox` stages those modules and configuration, then restarts the service even when already active. Restarting the helper stops current sandbox jobs and discards temporary workspace files; published attachments remain.
 
 For a managed build proxy, preserve the inherited Docker proxy settings. If HTTPS requires an additional CA, pass a trusted combined certificate bundle through the optional BuildKit secret, for example:
 
@@ -24,7 +26,7 @@ sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,NO_PROXY,CODEX_PROXY_CERT \
   ./deploy.sh build-sandbox /data/codex-agent-platform
 ```
 
-`CODEX_PROXY_CERT` names a host certificate bundle; it is mounted only during dependency installation. TLS verification stays enabled, and the bundle is not copied into the image. On hosts with standard public CA trust it is unnecessary. The direct equivalent is `docker build --secret id=proxy_ca,src=/path/to/trusted-combined-ca.pem -f Dockerfile.sandbox -t codex-agent-platform-sandbox:1.0.5 .`.
+`CODEX_PROXY_CERT` names a host certificate bundle; it is mounted only during dependency installation. TLS verification stays enabled, and the bundle is not copied into the image. On hosts with standard public CA trust it is unnecessary. The direct equivalent is `docker build --secret id=proxy_ca,src=/path/to/trusted-combined-ca.pem -f Dockerfile.sandbox -t codex-agent-platform-sandbox:1.0.6 .`.
 
 Setup copies the fixed helper modules into `/usr/local/lib/codex-agent-platform-sandbox/<installation>/`, writes a root-only configuration under `/etc/codex-agent-platform-sandbox/` and creates a separate `codex-agent-platform-sandbox-<installation>.service`. The installation ID derives from the runtime directory. This service is independent of the host updater. Source, configuration and their ancestor directories must be root-owned and unwritable by other users; setup refuses symlinks. It never accepts a Docker endpoint, arbitrary image, mount, source path or host command from the Agent.
 
