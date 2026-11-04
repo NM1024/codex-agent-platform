@@ -198,6 +198,7 @@ def release(work):
 def extract(archive, directory, tag):
     prefix=f'codex-agent-platform-{tag}'
     with tarfile.open(archive,'r:gz') as tar:
+        revision=tar.pax_headers.get('comment','')
         members=tar.getmembers()
         if len(members)>20000 or sum(m.size for m in members)>256*1024*1024:
             raise UpdateError('Release archive exceeds extraction limits.')
@@ -217,6 +218,8 @@ def extract(archive, directory, tag):
                 with tar.extractfile(item) as src, target.open('xb') as dst:
                     shutil.copyfileobj(src,dst)
                 target.chmod(0o700 if item.mode & 0o111 else 0o600)
+    if re.fullmatch(r'[a-f0-9]{40}',revision):
+        (directory/'.release-revision').write_text(revision+'\n')
     for name in ('compose.yaml','deploy.sh','scripts/update-release.py','package.json'):
         if not (directory/name).is_file():
             raise UpdateError(f'Release archive is missing {name}.')
@@ -296,9 +299,11 @@ def verify_images(install,source,expected,tag):
         if package!=tag[1:]:raise UpdateError('Deployed package version does not match selected release.')
 
 
-def update(install,event=None):
+def update(install,event=None,method='image'):
+    if method not in ('image','source'):
+        raise UpdateError('Invalid update method; select image or source.')
     event=event or (lambda phase,**fields:None)
-    event('checking')
+    event('checking',method=method)
     compose_version=run(['docker','compose','version','--short'],capture=True).strip()
     match=re.match(r'v?(\d+)\.(\d+)\.(\d+)',compose_version)
     if not match or tuple(map(int,match.groups()))<(2,20,0):
@@ -317,7 +322,7 @@ def update(install,event=None):
             event('checking',target_version=tag[1:],release_sha256=digest)
             current=json.loads((install.source/'package.json').read_text())['version']
             state=saved(install.data)
-            if state.get('version')==tag[1:] and current==tag[1:]:
+            if state.get('version')==tag[1:] and current==tag[1:] and state.get('method','source')==method:
                 event('verifying')
                 config=check_mounts(install,install.source)
                 verify_images(install,install.source,expected_images(config,tag),tag)
@@ -346,8 +351,8 @@ def update(install,event=None):
             # Verify the original Compose resolves the same data before using it to stop services.
             check_mounts(install,install.source)
             env={**os.environ,'PLATFORM_PROJECT':install.project}
-            event('building')
-            run(['bash',str(staged/'deploy.sh'),'build',str(install.data)],env={**env,'PLATFORM_UPDATE_STAGED':'1'})
+            event('pulling' if method=='image' else 'building')
+            run(['bash',str(staged/'deploy.sh'),'pull' if method=='image' else 'build',str(install.data)],env={**env,'PLATFORM_UPDATE_STAGED':'1','PLATFORM_UPDATE_METHOD':method})
             expected=expected_images(config,tag)
             backup_path=backups/(time.strftime('%Y%m%dT%H%M%SZ',time.gmtime())+'-'+str(time.time_ns())+'.tar.gz')
             try:
@@ -377,9 +382,9 @@ def update(install,event=None):
                                   'Do not downgrade migrated databases; see docs/DEPLOYMENT.md recovery instructions.') from None
             event('verifying')
             verify_images(install,staged,expected,tag)
-            launcher='#!/usr/bin/env bash\n# Codex Agent Platform generated launcher\nset -euo pipefail\nexec bash '+shlex.quote(str(staged/'deploy.sh'))+' "${1:-status}" '+shlex.quote(str(install.data))+'\n'
+            launcher='#!/usr/bin/env bash\n# Codex Agent Platform generated launcher\nset -euo pipefail\nexec bash '+shlex.quote(str(staged/'deploy.sh'))+' "${1:-status}" '+shlex.quote(str(install.data))+' \"${@:2}\"\n'
             atomic(install.data/STATE,json.dumps({'source':str(staged),'project':install.project,
-                   'version':tag[1:],'sha256':digest,'previous_source':str(install.source),
+                   'version':tag[1:],'method':method,'sha256':digest,'previous_source':str(install.source),
                    'backup':str(backup_path),'launcher':str(launcher_path)},indent=2)+'\n')
             atomic(launcher_path,launcher,0o700)
             event('completed',installed_version=tag[1:])
@@ -395,6 +400,7 @@ def main():
     parser.add_argument('--source',required=True,type=Path)
     parser.add_argument('--data',type=Path)
     parser.add_argument('--project',default=os.environ.get('PLATFORM_PROJECT'))
+    parser.add_argument('--method',choices=('image','source'),default='image')
     args=parser.parse_args()
     os.umask(0o077)
     try:
@@ -404,9 +410,14 @@ def main():
         else:
             # An original checkout must use updater fixes from its active installed release.
             active=install.source/'scripts/update-release.py'
-            if __file__!='<stdin>' and saved(install.data).get('source') and Path(__file__).resolve()!=active.resolve():
-                os.execv(sys.executable,[sys.executable,'-B',str(active),'update','--source',str(install.source),'--data',str(install.data),'--project',install.project])
-            update(install)
+            own_package=Path(__file__).resolve().parents[1]/'package.json' if __file__!='<stdin>' else None
+            own_version=json.loads(own_package.read_text()).get('version','') if own_package and own_package.is_file() else ''
+            active_package=install.source/'package.json'
+            active_version=json.loads(active_package.read_text()).get('version','') if active_package.is_file() else ''
+            older=not re.fullmatch(r'\d+\.\d+\.\d+',own_version) or not re.fullmatch(r'\d+\.\d+\.\d+',active_version) or version(own_version)<=version(active_version)
+            if __file__!='<stdin>' and older and saved(install.data).get('source') and Path(__file__).resolve()!=active.resolve():
+                os.execv(sys.executable,[sys.executable,'-B',str(active),'update','--source',str(install.source),'--data',str(install.data),'--project',install.project,'--method',args.method])
+            update(install,method=args.method)
     except (UpdateError,OSError,ValueError,KeyError,tarfile.TarError) as error:
         print(f'Update error: {error}',file=sys.stderr)
         return 1

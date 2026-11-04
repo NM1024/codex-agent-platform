@@ -81,7 +81,53 @@ class ReleaseUpdateTests(unittest.TestCase):
 
     def update(self):
         with patch.object(u, 'download', self.download), patch.object(u, 'run', self.run_command):
-            u.update(self.install)
+            u.update(self.install,method='source')
+
+    def test_official_image_method_prepares_without_source_build(self):
+        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):
+            u.update(self.install,method='image')
+        self.assertTrue(any('pull' in c for c in self.calls))
+        self.assertFalse(any('build' in c for c in self.calls))
+        self.assertEqual(json.loads((self.data/'.deployment.json').read_text())['method'],'image')
+
+    def test_image_acquisition_failure_keeps_running_services_and_data(self):
+        original=self.run_command
+        def unavailable(args,**kwargs):
+            if 'pull' in args:raise u.UpdateError('official images unavailable')
+            return original(args,**kwargs)
+        with patch.object(u,'download',self.download),patch.object(u,'run',unavailable):
+            with self.assertRaisesRegex(u.UpdateError,'official images unavailable'):
+                u.update(self.install,method='image')
+        self.assertFalse(any('stop' in c or 'validate' in c for c in self.calls))
+        self.assertFalse((self.data/'.deployment.json').exists())
+        self.assertEqual((self.data/'codex/retained').read_text(),'synthetic')
+
+    def test_same_version_explicit_method_change_prepares_and_backs_up(self):
+        self.update()
+        state=json.loads((self.data/'.deployment.json').read_text())
+        active=u.Install(Path(state['source']),self.data,self.install.project)
+        self.calls.clear()
+        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):
+            u.update(active,method='image')
+        self.assertTrue(any('pull' in c for c in self.calls))
+        self.assertTrue(any('stop' in c for c in self.calls))
+        self.assertEqual(len(list((self.data/'backups').glob('*.tar.gz'))),2)
+        self.assertEqual(json.loads((self.data/'.deployment.json').read_text())['method'],'image')
+
+    def test_invalid_method_is_rejected_before_any_external_command(self):
+        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):
+            with self.assertRaisesRegex(u.UpdateError,'method'):
+                u.update(self.install,method='arbitrary')
+        self.assertEqual(self.calls,[])
+
+    def test_runtime_launcher_forwards_method_arguments(self):
+        self.update()
+        state=json.loads((self.data/'.deployment.json').read_text())
+        (Path(state['source'])/'scripts/update-release.py').write_text('import json,sys;print(json.dumps(sys.argv[1:]))')
+        result=subprocess.run(['bash',str(self.data/'deploy.sh'),'update','--method','image'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        args=json.loads(result.stdout)
+        self.assertEqual(args[-2:],['--method','image'])
 
     def test_verified_update_retains_data_backups_and_activates_only_after_health(self):
         self.update()
@@ -117,7 +163,7 @@ class ReleaseUpdateTests(unittest.TestCase):
         state=json.loads((self.data/'.deployment.json').read_text())
         active=u.Install(Path(state['source']),self.data,self.install.project)
         self.calls.clear()
-        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):u.update(active)
+        with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command):u.update(active,method='source')
         ensure=[x for x in self.calls if 'ensure-web-update' in x]
         self.assertEqual(len(ensure),1)
         self.assertEqual(ensure[0][:3],['bash',str(active.source/'deploy.sh'),'ensure-web-update'])
@@ -174,7 +220,7 @@ class ReleaseUpdateTests(unittest.TestCase):
     def test_old_compose_is_refused_before_download_or_stop(self):
         with patch.object(u,'run',return_value='2.17.0'),patch.object(u,'download') as download:
             with self.assertRaisesRegex(u.UpdateError,'Compose'):
-                u.update(self.install)
+                u.update(self.install,method='source')
             download.assert_not_called()
 
     def test_checksum_mismatch_and_traversal_never_build_or_stop(self):
@@ -204,7 +250,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             return self.run_command(args,**kwargs)
         with patch.object(u,'download',self.download),patch.object(u,'run',fail):
             with self.assertRaisesRegex(u.UpdateError,'build failed'):
-                u.update(self.install)
+                u.update(self.install,method='source')
         self.assertFalse((self.data/'.deployment.json').exists())
         self.assertFalse(any('stop' in c for c in self.calls))
 
@@ -215,7 +261,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             return self.run_command(args,**kwargs)
         with patch.object(u,'download',self.download),patch.object(u,'run',fail):
             with self.assertRaisesRegex(u.UpdateError,'backup'):
-                u.update(self.install)
+                u.update(self.install,method='source')
         self.assertFalse((self.data/'.deployment.json').exists())
         self.assertEqual(sum('up' in c for c in self.calls),0)
         self.assertEqual(len(list((self.data/'backups').glob('*.tar.gz'))),1)
@@ -256,7 +302,7 @@ class ReleaseUpdateTests(unittest.TestCase):
     def test_backup_failure_restarts_old_services_and_never_migrates(self):
         with patch.object(u,'download',self.download),patch.object(u,'run',self.run_command),patch.object(u,'backup',side_effect=OSError('disk full')):
             with self.assertRaisesRegex(u.UpdateError,'Backup failed'):
-                u.update(self.install)
+                u.update(self.install,method='source')
         self.assertTrue(any('start' in c for c in self.calls))
         self.assertFalse(any('validate' in c for c in self.calls))
         self.assertFalse((self.data/'.deployment.json').exists())
@@ -269,7 +315,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             return original(args,**kwargs)
         with patch.object(u,'download',self.download),patch.object(u,'run',failing_restart),patch.object(u,'backup',side_effect=OSError('disk full')):
             with self.assertRaisesRegex(u.UpdateError,'attempted to restart'):
-                u.update(self.install)
+                u.update(self.install,method='source')
         self.assertFalse((self.data/'.deployment.json').exists())
 
     def test_concurrent_updates_are_rejected(self):
@@ -307,7 +353,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             return result
         with patch.object(u,'download',self.download),patch.object(u,'run',mismatch):
             with self.assertRaisesRegex(u.UpdateError,'mount'):
-                u.update(self.install)
+                u.update(self.install,method='source')
         self.assertFalse(any('stop' in c for c in self.calls))
 
 if __name__=='__main__':

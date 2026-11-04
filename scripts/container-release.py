@@ -48,13 +48,16 @@ def create_bundle(source, output, revision, *, run=images.run_command, registry=
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'bundle'))
+    parser.add_argument('action', choices=('prepare', 'bundle', 'revision'))
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--data', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--revision')
     args = parser.parse_args()
-    if args.action == 'prepare':
+    if args.action == 'revision':
+        try: print(images.source_revision(args.source))
+        except images.ImageError: print('unknown')
+    elif args.action == 'prepare':
         if args.data is None:
             parser.error('--data is required')
         version = images.json_object((args.source / 'package.json').read_text())['version']
