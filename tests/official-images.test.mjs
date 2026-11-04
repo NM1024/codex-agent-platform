@@ -201,10 +201,15 @@ with tempfile.TemporaryDirectory() as d:
  root=Path(d);path,value=bundle(root)
  with tarfile.open(path) as tar:files={item.name:tar.extractfile(item).read() for item in tar.getmembers()}
  for c in components:
-  body=json.dumps({'schemaVersion':2,'config':{'digest':value['images'][c]['config_id']},'layers':[]}).encode();digest=hashlib.sha256(body).hexdigest();files['blobs/sha256/'+digest]=body;value['images'][c]['id']='sha256:'+digest
+  body=json.dumps({'schemaVersion':2,'config':{'digest':value['images'][c]['config_id']},'layers':[]}).encode();digest=hashlib.sha256(body).hexdigest();files['blobs/sha256/'+digest]=body
+  index=json.dumps({'schemaVersion':2,'manifests':[{'digest':'sha256:'+digest,'platform':{'os':'linux','architecture':'amd64'}}]}).encode();index_id=hashlib.sha256(index).hexdigest();files['blobs/sha256/'+index_id]=index;value['images'][c]['id']='sha256:'+index_id
  with tarfile.open(path,'w:gz') as tar:
   for name,data in files.items():
    item=tarfile.TarInfo(name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
  m.verify_archive(path,value)
+ def classic(args,capture=False,**kwargs):
+  c=next(c for c in components if value['images'][c]['local_tag']==args[-1]);return json.dumps([{'Id':value['images'][c]['config_id'],'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)}}])
+ resolved=m.inspect_images(value,run=classic,imported=True)
+ assert all(resolved[c]==value['images'][c]['config_id'] for c in components)
  broken=copy.deepcopy(value);broken['images']['manager']['id']='sha256:'+'f'*64;deny(lambda:m.verify_archive(path,broken))
 `));
