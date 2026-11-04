@@ -94,12 +94,16 @@ CONFIG
   ensure-sandbox|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground)
     exec python3 -B "$agent_source_dir/scripts/host-sandbox.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
     ;;
+  cleanup-images)
+    if [[ "$#" -gt 3 || ( "$#" == 3 && "$3" != --apply ) ]]; then echo 'Usage: ./deploy.sh cleanup-images [deployment-directory] [--apply]' >&2; exit 2; fi
+    exec python3 -B "$agent_source_dir/scripts/container-release.py" cleanup --source "$agent_source_dir" "${@:3}"
+    ;;
   pull)
     exec python3 -B "$agent_source_dir/scripts/container-release.py" prepare --source "$agent_source_dir" --data "$agent_deploy_dir"
     ;;
   build-sandbox)
     agent_build_options
-    agent_sandbox_build=(docker build "${agent_build_args[@]}" -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.7)
+    agent_sandbox_build=(docker build "${agent_build_args[@]}" -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.8)
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then agent_sandbox_build+=(--secret "id=proxy_ca,src=$CODEX_PROXY_CERT"); fi
     "${agent_sandbox_build[@]}" "$agent_source_dir"
     ;;
@@ -119,9 +123,9 @@ CONFIG
     agent_build_options
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.7 "$agent_source_dir"
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.7 "$agent_source_dir"
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.7 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.8 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.8 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.8 "$agent_source_dir"
     else agent_compose build "${agent_build_args[@]}"; fi
     "$agent_source_dir/deploy.sh" build-sandbox "$agent_deploy_dir"
     ;;
@@ -138,5 +142,5 @@ CONFIG
   login)
     agent_compose run --rm --no-deps --entrypoint codex runner login --device-auth
     ;;
-  *) echo 'Usage: ./deploy.sh init|validate|build|pull|build-sandbox|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground [deployment-directory]' >&2; exit 2 ;;
+  *) echo 'Usage: ./deploy.sh init|validate|build|pull|cleanup-images|build-sandbox|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground [deployment-directory]' >&2; exit 2 ;;
 esac

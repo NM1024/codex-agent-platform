@@ -105,3 +105,61 @@ with tempfile.TemporaryDirectory() as d:
  def download(*args):raise AssertionError('unsupported host should not acquire images')
  deny(lambda:m.prepare(source,root,version,run=run,download=download));assert calls==[['docker','info','--format','{{.OSType}}/{{.Architecture}}']]
 `));
+
+test('publisher promotes the tested candidate IDs and refuses to replace a different stable image',()=>python(fixture+`
+import importlib.util
+spec=importlib.util.spec_from_file_location('publisher','scripts/container-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d);_,value=bundle(root);source=root/'source';source.mkdir();(source/'package.json').write_text(json.dumps({'version':version}));calls=[];remote={};local={x['local_tag']:x['id'] for x in value['images'].values()}
+ def run(args,capture=False,**kwargs):
+  calls.append(args)
+  if args[:2]==['docker','pull']:
+   if args[-1] not in remote:raise m.ImageError('manifest unknown')
+   local[args[-1]]=remote[args[-1]];return ''
+  if args[:2]==['docker','tag']:local[args[-1]]=local.get(args[-2],args[-2]);return ''
+  if args[:2]==['docker','push']:remote[args[-1]]=local[args[-1]];return ''
+  if args[:3]==['docker','image','inspect']:
+   image_id=local.get(args[-1],args[-1]);c=next(c for c,x in value['images'].items() if x['id']==image_id)
+   return json.dumps([{'Id':image_id,'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)},'RepoDigests':[m.REGISTRY+c+'@sha256:'+'b'*64]}])
+  raise AssertionError(args)
+ p.publish_candidates(source,revision,run=run)
+ assert len(remote)==4 and all(key.endswith(':ci-'+revision) for key in remote)
+ refs=p.promote(source,revision,run=run);assert set(refs)==set(components)
+ assert len(remote)==8 and not any('build' in args for args in calls)
+ remote[m.REGISTRY+'manager:'+version]='sha256:'+'f'*64
+ def conflict(args,capture=False,**kwargs):
+  if args[:3]==['docker','image','inspect'] and args[-1]==m.REGISTRY+'manager:'+version:return json.dumps([{'Id':'sha256:'+'f'*64}])
+  return run(args,capture=capture,**kwargs)
+ deny(lambda:p.promote(source,revision,run=conflict))
+`));
+
+test('downloaded update bootstrap forwards only source/image methods and optional runtime directory',()=>python(`
+import importlib.util,subprocess,tempfile,json
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('packager','scripts/package-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+with tempfile.TemporaryDirectory() as d:
+ script=Path(d)/'update.sh';script.write_text(p.bootstrap_text('import sys,json; print(json.dumps(sys.argv[1:]))'))
+ for args,expected in [(['update','--method','source'],['update','--source',str(Path.cwd()),'--method','source']),(['update','/existing/runtime','--method','image'],['update','--source',str(Path.cwd()),'--data','/existing/runtime','--method','image']),([],['update','--source',str(Path.cwd())])]:
+  r=subprocess.run(['bash',str(script),*args],capture_output=True,text=True);assert r.returncode==0,r.stderr;assert json.loads(r.stdout)==expected
+ for args in [['update','--method','other'],['update','--registry','elsewhere'],['update','one','two']]:assert subprocess.run(['bash',str(script),*args],capture_output=True).returncode!=0
+`));
+
+test('image cleanup previews scoped old tags and preserves current versions plus all container images',()=>python(fixture+`
+rows=[]
+for v in ['1.0.1','1.0.2','1.0.3','1.0.4','1.0.5']:
+ for c in components:rows.append({'Repository':'codex-agent-platform-'+c,'Tag':v,'ID':'sha256:'+v[-1]*64})
+rows += [{'Repository':'unrelated-app','Tag':'0.0.1','ID':'sha256:'+'9'*64},{'Repository':m.REGISTRY+'manager','Tag':'ci-'+revision,'ID':'sha256:'+'8'*64}]
+calls=[]
+def run(args,capture=False,**kwargs):
+ calls.append(args)
+ if args[:3]==['docker','image','ls']:return '\\n'.join(json.dumps(row) for row in rows)
+ if args[:3]==['docker','ps','--all']:return 'container-stopped\\n'
+ if args[:3]==['docker','container','inspect']:return json.dumps([{'Image':'sha256:'+'1'*64}])
+ if args[:3]==['docker','image','rm']:return ''
+ raise AssertionError(args)
+preview=m.cleanup(run=run);assert preview==['codex-agent-platform-'+c+':1.0.2' for c in sorted(components)]
+assert not any(x[:3]==['docker','image','rm'] for x in calls)
+assert m.cleanup(apply=True,run=run)==preview
+removed=[x for x in calls if x[:3]==['docker','image','rm']];assert len(removed)==4
+assert all(len(x)==4 and x[-1].endswith(':1.0.2') for x in removed)
+`));

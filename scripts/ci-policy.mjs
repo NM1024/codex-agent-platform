@@ -45,7 +45,7 @@ export function planChecks({files,specs,baseAvailable=true,mode='auto',dependenc
   }
   if(file.startsWith('tests/integration/')||file.startsWith('tests/helpers/')||/^tests\/sandbox-/.test(file)){add('versions','Container, host fixture or upgrade integration changed');release=true;continue;}
   if(file.startsWith('tests/'))continue;
-  if(/^(Dockerfile(?:\.sandbox)?|compose\.yaml|deploy\.sh|\.dockerignore|\.env\.example)$/.test(file)||file==='scripts/update-release.py'||file==='scripts/host-updater.py'||file==='scripts/package-release.py'){
+  if(/^(Dockerfile(?:\.sandbox)?|compose\.yaml|deploy\.sh|\.dockerignore|\.env\.example)$/.test(file)||file==='scripts/update-release.py'||file==='scripts/host-updater.py'||file==='scripts/package-release.py'||file==='scripts/official_images.py'||file==='scripts/container-release.py'||file==='scripts/dependency-manifests.mjs'){
    add('versions','Deployment or release packaging changed');release=true;continue;
   }
   if(/^scripts\/(?:host-sandbox|sandbox[_-]).*/.test(file)){

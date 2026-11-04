@@ -13,7 +13,7 @@ COPY scripts/sandbox-requirements.txt /opt/sandbox-requirements.txt
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi; \
     python3 -m pip install --no-cache-dir --disable-pip-version-check --requirement /opt/sandbox-requirements.txt
-ARG PLATFORM_VERSION=1.0.7
+ARG PLATFORM_VERSION=1.0.8
 ARG PLATFORM_REVISION=unknown
 ARG PLATFORM_DISTRIBUTION=source
 LABEL org.opencontainers.image.source="https://github.com/NM1024/codex-agent-platform" \

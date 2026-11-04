@@ -12,7 +12,7 @@
 
 这个自托管平台面向开发者和受信任的小团队：你可以把内容审核、结构化报告、图文创作、定时处理等工作接入现有系统。平台负责排队、执行记录、文件保存和日常管理，你主要定义“输入什么、要完成什么、最后返回什么”。
 
-**当前正式版本：v1.0.7。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
+**当前正式版本：v1.0.8。** Admin 控制台支持中英文：在登录页或页面右上角选择语言，浏览器会记住选择。切换时保留当前未保存的表单，不会翻译业务提示词或任务数据。README 也提供中英文版本。平台使用你自己的 ChatGPT 账户，通过 OpenAI 服务执行模型任务。本项目由社区独立开发，并非 OpenAI 官方产品。
 
 ## 目录
 
@@ -92,7 +92,7 @@ Docker 镜像已经包含 Node.js、SQLite 支持和固定版本的 Codex CLI，
 ### 1. 获取代码并初始化私有配置
 
 ```bash
-sudo git clone --branch v1.0.7 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+sudo git clone --branch v1.0.8 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
 cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -101,15 +101,15 @@ sudo ./deploy.sh init /data/codex-agent-platform
 
 首次启动前，在服务器上私下检查 `/data/codex-agent-platform/.env`。打开控制台后，先配置插件的入口地址和入口密钥，再启用或提交任务；回调地址可以留空。不要把 `.env.example` 中的占位密钥直接用于部署。
 
-### 2. 构建三个服务的镜像
+### 2. 下载官方镜像（也可源码构建）
 
 ```bash
-sudo ./deploy.sh build /data/codex-agent-platform
+sudo ./deploy.sh pull /data/codex-agent-platform
 ```
 
-此命令也构建固定的 Python/Node 沙箱镜像。在支持的、由 root 管理的 Linux/systemd 部署上，`start` 和正式版升级会自动安装或更新沙箱辅助服务，并启用管理对话中的临时代码执行；用户通过 `disable-sandbox` 明确关闭过的设置会保留。沙箱按对话隔离，支持上传文件、执行代码和下载结果；联网或增加已支持额度需要用户批准。宿主 Shell 和部署源码编辑仍不向 Agent 开放。安装、固定限制、关闭和手动前台运行方式见[本地代码沙箱说明](docs/SANDBOX.md)。可选宿主入口不可用时，其他管理功能仍可使用。
+此命令下载并验证三个服务和固定的 Python/Node 沙箱镜像。在支持的、由 root 管理的 Linux/systemd 部署上，`start` 和正式版升级会自动安装或更新沙箱辅助服务，并启用管理对话中的临时代码执行；用户通过 `disable-sandbox` 明确关闭过的设置会保留。沙箱按对话隔离，支持上传文件、执行代码和下载结果；联网或增加已支持额度需要用户批准。宿主 Shell 和部署源码编辑仍不向 Agent 开放。安装、固定限制、关闭和手动前台运行方式见[本地代码沙箱说明](docs/SANDBOX.md)。可选宿主入口不可用时，其他管理功能仍可使用。
 
-这个步骤将锁定版本的依赖安装到镜像中。更新源码或依赖后需要重新构建；通过控制台调整普通运行参数不需要重新构建。
+如需从源码构建，将上面的 `pull` 换成 `build`。通过控制台调整普通运行参数不需要重新构建。
 
 ### 3. 允许设备码登录，再完成授权
 
@@ -278,9 +278,29 @@ sudo bash /data/codex-agent-platform/deploy.sh status
 sudo bash /data/codex-agent-platform/deploy.sh logs
 ```
 
-将路径换成你的实际运行目录。只选择 GitHub 最新已发布的正式 Release，校验版本包的 SHA-256，不跟随 `main`、草稿或预发布版本。先下载并构建镜像，再停服并一致备份运行数据（停服时长取决于数据量），重启并检查健康状态。保留 `.env`、账户授权和历史数据，不改原来的 Git 工作区。
+将路径换成你的实际运行目录。只选择 GitHub 最新已发布的正式 Release，校验版本包的 SHA-256，不跟随 `main`、草稿或预发布版本。先下载并准备所选方式的镜像，再停服并一致备份运行数据（停服时长取决于数据量），重启并检查健康状态。保留 `.env`、账户授权和历史数据，不改原来的 Git 工作区。
 
 备份含有密钥与授权文件，必须私密保存；磁盘需为备份和镜像构建预留空间。健康检查失败会报告备份位置，不会自动降级已迁移的数据库。详见[更新与恢复说明](docs/DEPLOYMENT.md#stable-release-updates)。
+
+默认使用官方预构建镜像，也可以明确选择源码构建：
+
+```bash
+sudo bash /tmp/codex-platform-update.sh update --method image
+sudo bash /tmp/codex-platform-update.sh update --method source
+```
+
+新安装的 `pull` 下载四个官方 Linux amd64 镜像；需要在本机构建或使用其他架构时，将 `pull` 换成 `build`。两种方式共用原有 Compose 服务、数据目录、备份和健康检查。官方镜像由公开 GitHub CI 构建并检查，更新器验证版本、源码提交、组件、平台、镜像 ID 和校验和。先尝试固定 GHCR 摘要地址，不可用时下载同一 Release 的公开镜像包，无需服务器登录镜像仓库。新建 GHCR 包可能需要所有者首次设置为公开，但公开 Release 镜像包仍可使用。镜像方式失败不会自动改为本地编译，用户可自行选择源码方式。
+
+网页升级弹窗提供相同选择。旧版宿主机更新服务尚未支持选择时，会明确显示“版本默认方式”，升级后即可选择。
+
+镜像方式避免服务器本地构建缓存；镜像层、历史镜像和私密备份仍占空间。以下命令先预览可删除的旧项目镜像标签，加入 `--apply` 才执行：
+
+```bash
+sudo ./deploy.sh cleanup-images /data/codex-agent-platform
+sudo ./deploy.sh cleanup-images /data/codex-agent-platform --apply
+```
+
+保留最新三个项目版本及所有运行中、已停止容器引用的镜像；只移除本项目的旧版本标签，不执行全局 Docker 清理，不删除其他应用标签、数据卷、运行数据或备份。备份需由用户确认后单独处理。
 
 ### 顶栏版本信息与网页升级
 

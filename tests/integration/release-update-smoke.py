@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import subprocess
 import tempfile
 from unittest.mock import patch
 import uuid
@@ -20,6 +21,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',required=True,type=Path)
     parser.add_argument('--archive',required=True,type=Path)
+    parser.add_argument('--method',choices=('source','image'),required=True)
     args=parser.parse_args()
     if os.geteuid()!=0:
         parser.error("Run this isolated container test as root so init assigns mounted directories to container UID 1000.")
@@ -41,13 +43,26 @@ def main():
                     for name in (archive.name,'SHA256SUMS')]}
                 path.write_text(json.dumps(info))
             elif url.endswith('SHA256SUMS'):
-                path.write_text(hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
+                shutil.copyfile(archive.parent/'SHA256SUMS',path)
             else:
                 shutil.copyfile(archive,path)
         def port():
             with socket.socket() as sock:
                 sock.bind(('127.0.0.1',0))
                 return sock.getsockname()[1]
+        # Only test transport boundaries: production keeps fixed official URLs and repositories.
+        environment = os.environ.copy()
+        if args.method == 'image':
+            tools = Path(temp)/'test-tools'
+            tools.mkdir()
+            docker = shutil.which('docker')
+            curl = tools/'curl'
+            curl.write_text('#!/usr/bin/env python3\nimport sys,shutil\nfrom pathlib import Path\na=sys.argv[1:]\nurl=a[-1]\nprefix='+repr(f'https://github.com/{u.REPO}/releases/download/{tag}/')+'\nassert url.startswith(prefix),url\nname=url[len(prefix):]\nassert name in '+repr(['SHA256SUMS','container-images.json',f'codex-agent-platform-images-{tag}-linux-amd64.tar.gz'])+'\nshutil.copyfile(Path('+repr(str(archive.parent))+')/name,a[a.index("--output")+1])\n')
+            curl.chmod(0o755)
+            wrapper=tools/'docker'
+            wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\nassert "build" not in sys.argv[1:],"Image update attempted a source build"\nif sys.argv[1:2]==["pull"]:sys.exit(1)\nos.execv('+repr(docker)+',['+repr(docker)+',*sys.argv[1:]])\n')
+            wrapper.chmod(0o755)
+            environment['PATH']=str(tools)+os.pathsep+environment['PATH']
         try:
             u.run(['bash',str(source/'deploy.sh'),'init',str(data)])
             # This synthetic test must never install a root service on the CI host.
@@ -60,10 +75,10 @@ def main():
             u.run(u.compose(install)+['up','-d','--no-build','--wait','--wait-timeout','120'])
             found=u.discover(source,None,project)
             assert found.data==data and found.project==project
-            with patch.object(u,'download',fixture):
-                u.update(found)
+            with patch.object(u,'download',fixture), patch.dict(os.environ,environment):
+                u.update(found,method=args.method)
             state=json.loads((data/u.STATE).read_text())
-            assert state['version']==version
+            assert state['version']==version and state['method']==args.method
             assert Path(state['source'])!=source
             assert (data/'.env').read_bytes()==before
             assert json.loads((data/'.web-update-policy.json').read_text())=={'enabled':False}
@@ -71,10 +86,10 @@ def main():
             assert Path(state['backup']).is_file()
             u.run(['bash',str(data/'deploy.sh'),'status'])
             found=u.discover(source,None,project)
-            with patch.object(u,'download',fixture):
-                u.update(found)
+            with patch.object(u,'download',fixture), patch.dict(os.environ,environment):
+                u.update(found,method=args.method)
             assert json.loads((data/u.STATE).read_text())==state,'second update must be a no-op'
-            print('Real Compose update: discovery, backup, health, launcher, data preservation and no-op passed.')
+            print('Real Compose '+args.method+' update: discovery, backup, health, launcher, data preservation and no-op passed.')
         finally:
             u.run(u.compose(install)+['down','--remove-orphans'])
 

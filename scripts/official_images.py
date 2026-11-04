@@ -130,7 +130,9 @@ def run_command(args, capture=False, **kwargs):
                             stdout=subprocess.PIPE if capture else None,
                             stderr=subprocess.PIPE if capture else None, **kwargs)
     if result.returncode:
-        raise ImageError('Official image command failed: ' + ' '.join(map(str, args[:2])))
+        error = ImageError('Official image command failed: ' + ' '.join(map(str, args[:2])))
+        error.stderr = result.stderr or ''
+        raise error
     return result.stdout or ''
 
 
@@ -232,3 +234,25 @@ def prepare(source, data, version, *, run=run_command, download=download_file):
             image = manifest['images'][component]
             run(['docker', 'tag', image['id'], image['local_tag']])
         return manifest
+
+
+def cleanup(*, apply=False, run=run_command):
+    """Remove only old fixed-project version tags; never force or prune shared Docker state."""
+    rows = [json_object(line) for line in run(['docker', 'image', 'ls', '--no-trunc', '--format', '{{json .}}'], capture=True).splitlines() if line.strip()]
+    ids = run(['docker', 'ps', '--all', '--quiet', '--no-trunc'], capture=True).split()
+    protected = set()
+    if ids:
+        for offset in range(0, len(ids), 100):
+            containers = json_object(run(['docker', 'container', 'inspect', *ids[offset:offset + 100]], capture=True))
+            if not isinstance(containers, list) or any(not digest(item.get('Image')) for item in containers):
+                raise ImageError('Cannot identify container images; cleanup cancelled')
+            protected.update(item['Image'] for item in containers)
+    repositories = {'codex-agent-platform-' + c for c in COMPONENTS} | {REGISTRY + c for c in COMPONENTS}
+    selected = [item for item in rows if item.get('Repository') in repositories and isinstance(item.get('Tag'), str) and VERSION.fullmatch(item['Tag'])]
+    versions = sorted({item['Tag'] for item in selected}, key=lambda v: tuple(map(int, v.split('.'))), reverse=True)
+    keep = set(versions[:3])
+    candidates = sorted({item['Repository'] + ':' + item['Tag'] for item in selected if item['Tag'] not in keep and item.get('ID') not in protected and digest(item.get('ID'))})
+    if apply:
+        for tag in candidates:
+            run(['docker', 'image', 'rm', tag])
+    return candidates

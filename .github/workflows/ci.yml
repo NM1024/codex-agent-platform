@@ -21,9 +21,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
     outputs:
       release: ${{ steps.scope.outputs.release }}
       tested_sha: ${{ steps.scope.outputs.tested_sha }}
+      images_published: ${{ steps.images.outputs.published }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,7 +81,7 @@ jobs:
         if: steps.scope.outputs.release == 'true'
         run: |
           version=$(node -p "require('./package.json').version")
-          docker build -f Dockerfile.sandbox -t "codex-agent-platform-sandbox:$version" .tmp/distributable
+          docker build --build-arg PLATFORM_VERSION="$version" --build-arg PLATFORM_REVISION="${{ steps.scope.outputs.tested_sha }}" --build-arg PLATFORM_DISTRIBUTION=official -f Dockerfile.sandbox -t "codex-agent-platform-sandbox:$version" .tmp/distributable
           node_bin=$(command -v node)
           sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,NO_PROXY,http_proxy,https_proxy,all_proxy,no_proxy env SANDBOX_DOCKER_TEST=1 SANDBOX_REQUIRE_NETWORK_TEST=1 "$node_bin" --test tests/sandbox-runtime.test.mjs tests/sandbox-docker-integration.test.mjs tests/sandbox-network.test.mjs
       - name: Build all release targets
@@ -86,21 +90,36 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           for target in gateway runner manager test; do
-            docker build --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
+            docker build --build-arg PLATFORM_VERSION="$version" --build-arg PLATFORM_REVISION="${{ steps.scope.outputs.tested_sha }}" --build-arg PLATFORM_DISTRIBUTION=official --target "$target" -t "codex-agent-platform-$target" -t "codex-agent-platform-$target:$version" .tmp/distributable
           done
       - name: Verify sandbox setup inside protected systemd updater
         if: steps.scope.outputs.release == 'true'
         run: sudo python3 -B tests/integration/sandbox-systemd-smoke.py --source .tmp/distributable
       - run: docker run --rm --network none --read-only --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,size=512m,mode=1777 -e HOME=/tmp codex-agent-platform-test
         if: steps.scope.outputs.release == 'true'
-      - name: Verify real Compose self-update with synthetic data
+      - name: Package exact tested images for the public release transport
         if: steps.scope.outputs.release == 'true'
-        run: sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive .tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz
+        run: python3 -B scripts/container-release.py bundle --source . --output .tmp/release --revision "${{ steps.scope.outputs.tested_sha }}"
+      - name: Verify real Compose source and image updates with synthetic data
+        if: steps.scope.outputs.release == 'true'
+        run: |
+          archive=".tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz"
+          sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive "$archive" --method source
+          sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive "$archive" --method image
       - run: npx playwright install --with-deps chromium
         if: steps.scope.outputs.browser == 'true'
       - name: Run selected browser verification
         if: steps.scope.outputs.browser == 'true'
         run: node scripts/ci.mjs browser
+      - name: Preserve successfully tested official image candidates
+        id: images
+        if: steps.scope.outputs.release == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          python3 -B scripts/container-release.py candidates --source . --revision "${{ steps.scope.outputs.tested_sha }}"
+          echo 'published=true' >> "$GITHUB_OUTPUT"
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main' && steps.scope.outputs.checks == 'true' && steps.npm-cache.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -119,7 +138,7 @@ jobs:
   release-verification:
     name: Release verification (${{ needs.test.outputs.tested_sha }})
     needs: test
-    if: needs.test.outputs.release == 'true'
+    if: needs.test.outputs.release == 'true' && needs.test.outputs.images_published == 'true'
     runs-on: ubuntu-latest
     steps:
       - run: echo 'Required code, browser, image, sandbox and upgrade verification succeeded.'
