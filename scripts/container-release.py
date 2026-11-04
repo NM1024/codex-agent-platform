@@ -53,7 +53,7 @@ def restore_candidates(source, revision, *, run=images.run_command):
     release = identity(source, revision)
     restored = []
     for component in images.COMPONENTS:
-        candidate = images.REGISTRY + component + ':ci-' + revision
+        candidate = images.REGISTRY + ':' + component + '-ci-' + revision
         try:
             run(['docker', 'pull', candidate], capture=True)
         except images.ImageError:
@@ -70,7 +70,7 @@ def publish_candidates(source, revision, *, run=images.run_command):
     for component in images.COMPONENTS:
         info = inspect('codex-agent-platform-' + component + ':' + release['version'], run)
         check(info, component, release)
-        push_immutable(info['Id'], images.REGISTRY + component + ':ci-' + revision, run)
+        push_immutable(info['Id'], images.REGISTRY + ':' + component + '-ci-' + revision, run)
 
 
 def promote(source, revision, *, run=images.run_command):
@@ -79,16 +79,16 @@ def promote(source, revision, *, run=images.run_command):
     # Check every candidate before publishing stable tags.
     candidates = {}
     for component in images.COMPONENTS:
-        candidate = images.REGISTRY + component + ':ci-' + revision
+        candidate = images.REGISTRY + ':' + component + '-ci-' + revision
         run(['docker', 'pull', candidate])
         info = inspect(candidate, run)
         check(info, component, release)
         candidates[component] = info['Id']
     for component, image_id in candidates.items():
-        stable = images.REGISTRY + component + ':' + release['version']
+        stable = images.REGISTRY + ':' + component + '-' + release['version']
         push_immutable(image_id, stable, run)
         info = inspect(stable, run)
-        prefix = images.REGISTRY + component + '@sha256:'
+        prefix = images.REGISTRY + '@sha256:'
         refs = [value for value in info.get('RepoDigests', []) if isinstance(value, str) and value.startswith(prefix) and images.digest(value.split('@')[-1])]
         if len(set(refs)) != 1:
             raise images.ImageError('Cannot identify published official registry digest')

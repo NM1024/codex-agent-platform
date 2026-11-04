@@ -10,7 +10,8 @@ import tempfile
 
 REPO = 'NM1024/codex-agent-platform'
 SOURCE = 'https://github.com/' + REPO
-REGISTRY = 'ghcr.io/nm1024/codex-agent-platform-'
+# One verified writable project package; component-prefixed tags share its access policy.
+REGISTRY = 'ghcr.io/nm1024/codex-agent-platform-gateway'
 COMPONENTS = ('gateway', 'runner', 'manager', 'sandbox')
 PLATFORM = 'linux/amd64'
 MAX_ARCHIVE = 2 * 1024 ** 3
@@ -62,7 +63,7 @@ def validate_manifest(value, version, revision=None):
         if image['local_tag'] != 'codex-agent-platform-' + component + ':' + version or not digest(image['id']) or not digest(image['config_id']):
             raise ImageError('Invalid official image identity')
         registry = image['registry']
-        if registry is not None and (not isinstance(registry, str) or not re.fullmatch(re.escape(REGISTRY + component) + r'@sha256:[a-f0-9]{64}', registry)):
+        if registry is not None and (not isinstance(registry, str) or not re.fullmatch(re.escape(REGISTRY) + r'@sha256:[a-f0-9]{64}', registry)):
             raise ImageError('Invalid official image repository')
     return copy.deepcopy(value)
 
@@ -268,11 +269,18 @@ def cleanup(*, apply=False, run=run_command):
             if not isinstance(containers, list) or any(not digest(item.get('Image')) for item in containers):
                 raise ImageError('Cannot identify container images; cleanup cancelled')
             protected.update(item['Image'] for item in containers)
-    repositories = {'codex-agent-platform-' + c for c in COMPONENTS} | {REGISTRY + c for c in COMPONENTS}
-    selected = [item for item in rows if item.get('Repository') in repositories and isinstance(item.get('Tag'), str) and VERSION.fullmatch(item['Tag'])]
-    versions = sorted({item['Tag'] for item in selected}, key=lambda v: tuple(map(int, v.split('.'))), reverse=True)
+    repositories = {'codex-agent-platform-' + c for c in COMPONENTS}
+    selected = []
+    for item in rows:
+        tag = item.get('Tag')
+        if not isinstance(tag, str): continue
+        version = tag if item.get('Repository') in repositories else None
+        if item.get('Repository') == REGISTRY:
+            version = next((tag[len(c) + 1:] for c in COMPONENTS if tag.startswith(c + '-')), None)
+        if version is not None and VERSION.fullmatch(version): selected.append({**item, 'version': version})
+    versions = sorted({item['version'] for item in selected}, key=lambda v: tuple(map(int, v.split('.'))), reverse=True)
     keep = set(versions[:3])
-    candidates = sorted({item['Repository'] + ':' + item['Tag'] for item in selected if item['Tag'] not in keep and item.get('ID') not in protected and digest(item.get('ID'))})
+    candidates = sorted({item['Repository'] + ':' + item['Tag'] for item in selected if item['version'] not in keep and item.get('ID') not in protected and digest(item.get('ID'))})
     if apply:
         for tag in candidates:
             run(['docker', 'image', 'rm', tag])

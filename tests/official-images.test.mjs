@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as d:
 test('registry acquisition failure falls back to the verified official archive without source builds',()=>python(fixture+`
 with tempfile.TemporaryDirectory() as d:
  root=Path(d);path,value=bundle(root);source=root/'source';source.mkdir();(source/'package.json').write_text(json.dumps({'version':version}));(source/'.release-revision').write_text(revision)
- for c in components:value['images'][c]['registry']='ghcr.io/nm1024/codex-agent-platform-'+c+'@sha256:'+'c'*64
+ for c in components:value['images'][c]['registry']=m.REGISTRY+'@sha256:'+hashlib.sha256(c.encode()).hexdigest()
  body=json.dumps(value).encode();sums=hashlib.sha256(body).hexdigest()+'  container-images.json\\n'+value['archive']['sha256']+'  '+value['archive']['name']+'\\n';calls=[]
  def download(url,dest,limit):
   if url.endswith('container-images.json'):dest.write_bytes(body)
@@ -120,15 +120,15 @@ with tempfile.TemporaryDirectory() as d:
   if args[:2]==['docker','push']:remote[args[-1]]=local[args[-1]];return ''
   if args[:3]==['docker','image','inspect']:
    image_id=local.get(args[-1],args[-1]);c=next(c for c,x in value['images'].items() if x['id']==image_id)
-   return json.dumps([{'Id':image_id,'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)},'RepoDigests':[m.REGISTRY+c+'@sha256:'+'b'*64]}])
+   return json.dumps([{'Id':image_id,'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)},'RepoDigests':[m.REGISTRY+'@sha256:'+hashlib.sha256(c.encode()).hexdigest()]}])
   raise AssertionError(args)
  p.publish_candidates(source,revision,run=run)
- assert len(remote)==4 and all(key.endswith(':ci-'+revision) for key in remote)
+ assert len(remote)==4 and all(key.endswith('-ci-'+revision) and key.rsplit(':',1)[0]==m.REGISTRY for key in remote)
  refs=p.promote(source,revision,run=run);assert set(refs)==set(components)
  assert len(remote)==8 and not any('build' in args for args in calls)
- remote[m.REGISTRY+'manager:'+version]='sha256:'+'f'*64
+ remote[m.REGISTRY+':manager-'+version]='sha256:'+'f'*64
  def conflict(args,capture=False,**kwargs):
-  if args[:3]==['docker','image','inspect'] and args[-1]==m.REGISTRY+'manager:'+version:return json.dumps([{'Id':'sha256:'+'f'*64}])
+  if args[:3]==['docker','image','inspect'] and args[-1]==m.REGISTRY+':manager-'+version:return json.dumps([{'Id':'sha256:'+'f'*64}])
   return run(args,capture=capture,**kwargs)
  deny(lambda:p.promote(source,revision,run=conflict))
 `));
@@ -148,7 +148,7 @@ test('image cleanup previews scoped old tags and preserves current versions plus
 rows=[]
 for v in ['1.0.1','1.0.2','1.0.3','1.0.4','1.0.5']:
  for c in components:rows.append({'Repository':'codex-agent-platform-'+c,'Tag':v,'ID':'sha256:'+v[-1]*64})
-rows += [{'Repository':'unrelated-app','Tag':'0.0.1','ID':'sha256:'+'9'*64},{'Repository':m.REGISTRY+'manager','Tag':'ci-'+revision,'ID':'sha256:'+'8'*64}]
+rows += [{'Repository':m.REGISTRY,'Tag':'manager-1.0.2','ID':'sha256:'+'2'*64},{'Repository':m.REGISTRY,'Tag':'unknown-1.0.2','ID':'sha256:'+'7'*64},{'Repository':'unrelated-app','Tag':'0.0.1','ID':'sha256:'+'9'*64},{'Repository':m.REGISTRY,'Tag':'manager-ci-'+revision,'ID':'sha256:'+'8'*64}]
 calls=[]
 def run(args,capture=False,**kwargs):
  calls.append(args)
@@ -157,11 +157,11 @@ def run(args,capture=False,**kwargs):
  if args[:3]==['docker','container','inspect']:return json.dumps([{'Image':'sha256:'+'1'*64}])
  if args[:3]==['docker','image','rm']:return ''
  raise AssertionError(args)
-preview=m.cleanup(run=run);assert preview==['codex-agent-platform-'+c+':1.0.2' for c in sorted(components)]
+preview=m.cleanup(run=run);assert preview==sorted(['codex-agent-platform-'+c+':1.0.2' for c in components]+[m.REGISTRY+':manager-1.0.2'])
 assert not any(x[:3]==['docker','image','rm'] for x in calls)
 assert m.cleanup(apply=True,run=run)==preview
-removed=[x for x in calls if x[:3]==['docker','image','rm']];assert len(removed)==4
-assert all(len(x)==4 and x[-1].endswith(':1.0.2') for x in removed)
+removed=[x for x in calls if x[:3]==['docker','image','rm']];assert len(removed)==5
+assert all(len(x)==4 and x[-1].endswith('1.0.2') for x in removed)
 `));
 
 test('packaged source identifies its tested revision even when extracted by the old updater',()=>python(`
@@ -185,10 +185,10 @@ with tempfile.TemporaryDirectory() as d:
  def run(args,capture=False,**kwargs):
   calls.append(args)
   if args[:2]==['docker','pull']:
-   if 'manager:' in args[-1]:raise m.ImageError('manifest unknown')
+   if ':manager-' in args[-1]:raise m.ImageError('manifest unknown')
    return ''
   if args[:3]==['docker','image','inspect']:
-   c=next(c for c in components if ('-'+c+':') in args[-1]);return json.dumps([{'Id':value['images'][c]['id'],'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)}}])
+   c=next(c for c in components if args[-1].split(':')[-1].startswith(c+'-'));return json.dumps([{'Id':value['images'][c]['id'],'Architecture':'amd64','Os':'linux','Config':{'Labels':m.labels_for(c,value)}}])
   if args[:2]==['docker','tag']:return ''
   raise AssertionError(args)
  restored=p.restore_candidates(source,revision,run=run)

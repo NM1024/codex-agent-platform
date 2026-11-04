@@ -28,3 +28,7 @@ Tests use synthetic data. Cover closed method requests, durable duplicate-job ad
 ## Alternatives
 
 Keeping source-only updates leaves server build/cache pressure unchanged. Registry-only delivery depends on GHCR visibility and server connectivity. The selected design keeps source build and supports both official registry and versioned image archives, trading one extra release asset for a reliable official-container path.
+
+## Publication access adjustment
+
+Real publication verified writes to `ghcr.io/nm1024/codex-agent-platform-gateway` and rejected a separate Manager package. All four component tags therefore use the single verified package, retaining the existing CI package permission. Component labels, config IDs and digest checks remain mandatory. CI stores immutable `COMPONENT-ci-SHA` tags; the publisher promotes `COMPONENT-VERSION` and creates the public Release image bundle. The test job gains no repository-content write permission. Deployment still falls back to the public bundle when registry access is unavailable.
