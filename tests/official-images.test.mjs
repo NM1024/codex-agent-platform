@@ -163,3 +163,16 @@ assert m.cleanup(apply=True,run=run)==preview
 removed=[x for x in calls if x[:3]==['docker','image','rm']];assert len(removed)==4
 assert all(len(x)==4 and x[-1].endswith(':1.0.2') for x in removed)
 `));
+
+test('packaged source identifies its tested revision even when extracted by the old updater',()=>python(`
+import importlib.util,subprocess,tempfile,types,sys,json
+from pathlib import Path
+import official_images as images
+spec=importlib.util.spec_from_file_location('packager','scripts/package-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+legacy=types.ModuleType('legacy_release');sys.modules[legacy.__name__]=legacy
+exec(compile(subprocess.check_output(['git','show','6a3955fdcddb2e0de278832db5696b418cab4897:scripts/update-release.py']),'<legacy-updater>','exec'),legacy.__dict__)
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d);revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();archive=p.package(revision,root/'assets');target=root/'staged';target.mkdir();version=json.loads((Path.cwd()/'package.json').read_text())['version']
+ legacy.extract(archive,target,'v'+version)
+ assert images.source_revision(target)==revision
+`));

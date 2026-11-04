@@ -48,6 +48,17 @@ def package(revision, output):
     with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
         if any(not (member.isfile() or member.isdir()) for member in tar.getmembers()):
             raise ValueError('Release source must not contain symlinks or special files')
+    # Older installed updaters do not derive the Git PAX comment after extraction.
+    # Include the exact tested revision as data so their staged build hook can verify images.
+    buffer=io.BytesIO(raw)
+    with tarfile.open(fileobj=buffer,mode='a') as tar:
+        marker=(commit+'\n').encode()
+        item=tarfile.TarInfo(f'codex-agent-platform-{tag}/.release-revision')
+        item.size=len(marker)
+        item.mode=0o644
+        item.mtime=0
+        tar.addfile(item,io.BytesIO(marker))
+    raw=buffer.getvalue()
     # gzip mtime=0 avoids machine/time dependent checksums.
     import gzip
     body=gzip.compress(raw,mtime=0)
