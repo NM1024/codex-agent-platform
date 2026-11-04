@@ -107,6 +107,8 @@ test('official release helpers require container verification and trusted public
  try{workflow=await readFile('.github/workflows/ci.yml','utf8');}catch(error){if(error.code==='ENOENT'){t.skip('Workflow files are validated on the CI host, outside the distributable image');return;}throw error;}
  assert.match(workflow,/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
  assert.match(workflow,/needs\.test\.outputs\.images_published == 'true'/);
- assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')>workflow.indexOf('Run selected browser verification'));
+ assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')>workflow.indexOf('Verify real Compose source and image updates'));
+ assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')<workflow.indexOf('Run selected browser verification'));
+ assert.equal(releaseEvidence({head_sha:'a'.repeat(40),conclusion:'failure'},[{name:'test',conclusion:'failure'},{name:'Release verification ('+'a'.repeat(40)+')',conclusion:'success'}],'a'.repeat(40)),false,'saved candidates cannot authorize a failed browser run');
  const release=await readFile('.github/workflows/release.yml','utf8');assert.match(release,/container-release\.py promote/);assert.doesNotMatch(release,/docker build/);
 });

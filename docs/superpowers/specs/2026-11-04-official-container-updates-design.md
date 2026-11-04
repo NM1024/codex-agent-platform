@@ -32,3 +32,5 @@ Keeping source-only updates leaves server build/cache pressure unchanged. Regist
 ## Publication access adjustment
 
 Real publication verified writes to `ghcr.io/nm1024/codex-agent-platform-gateway` and rejected a separate Manager package. All four component tags therefore use the single verified package, retaining the existing CI package permission. Component labels, config IDs and digest checks remain mandatory. CI stores immutable `COMPONENT-ci-SHA` tags; the publisher promotes `COMPONENT-VERSION` and creates the public Release image bundle. The test job gains no repository-content write permission. Deployment still falls back to the public bundle when registry access is unavailable.
+
+Candidate images are CI intermediate artifacts preserved after image/upgrade checks and before browser checks. Release verification still requires the entire exact-head CI run, including browser checks, to succeed; saved candidates alone never authorize publication.

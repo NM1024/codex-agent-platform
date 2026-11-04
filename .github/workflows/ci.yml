@@ -114,11 +114,6 @@ jobs:
           archive=".tmp/release/codex-agent-platform-v$(node -p "require('./package.json').version").tar.gz"
           sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive "$archive" --method source
           sudo python3 -B tests/integration/release-update-smoke.py --source .tmp/distributable --archive "$archive" --method image
-      - run: npx playwright install --with-deps chromium
-        if: steps.scope.outputs.browser == 'true'
-      - name: Run selected browser verification
-        if: steps.scope.outputs.browser == 'true'
-        run: node scripts/ci.mjs browser
       - name: Preserve successfully tested official image candidates
         id: images
         if: steps.scope.outputs.release == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -128,6 +123,11 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
           python3 -B scripts/container-release.py candidates --source . --revision "${{ steps.scope.outputs.tested_sha }}"
           echo 'published=true' >> "$GITHUB_OUTPUT"
+      - run: npx playwright install --with-deps chromium
+        if: steps.scope.outputs.browser == 'true'
+      - name: Run selected browser verification
+        if: steps.scope.outputs.browser == 'true'
+        run: node scripts/ci.mjs browser
       - uses: actions/cache/save@v4
         if: success() && github.ref == 'refs/heads/main' && steps.scope.outputs.checks == 'true' && steps.npm-cache.outputs.cache-hit != 'true'
         continue-on-error: true
