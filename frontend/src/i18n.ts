@@ -449,8 +449,6 @@ const english: Record<string, string> = {
   下一页: "Next",
   "从第 {start} 条开始 · 本页 {count} 条":
     "Starting at {start} · {count} on this page",
-  "执行完成不等于所有业务项都成功。查看详情可区分最终结果、具体错误与交付状态。":
-    "A completed execution may contain unsuccessful business items. Open details to check results, errors and delivery status.",
 
   执行状态: "Execution status",
   错误: "Error",

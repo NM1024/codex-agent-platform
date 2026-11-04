@@ -20,9 +20,13 @@ interface ConsoleContext {
   queueDrafts:Record<string,string>;setQueueDraft:(id:string,text:string|undefined)=>void;
 }
 const Context=createContext<ConsoleContext|null>(null);
+const viewFromLocation=():View=>{
+  const match=window.location.pathname.match(/^\/admin\/(overview|chat|tasks|plugins|schedules|system|settings)\/?$/);
+  return match?match[1] as View:'overview';
+};
 export const useConsole=()=>{const value=useContext(Context);if(!value)throw new Error('Console context missing');return value;};
 export function ConsoleProvider({children}:{children:ReactNode}) {
-  const [locale,updateLocale]=useState(getLocale()),[authenticated,updateAuthenticated]=useState(false),[view,setView]=useState<View>('overview');
+  const [locale,updateLocale]=useState(getLocale()),[authenticated,updateAuthenticated]=useState(false),[view,setView]=useState<View>(viewFromLocation);
   const [pending,setPending]=useState(0),[notice,notify]=useState(''),[chatId,setChatId]=useState<string|null>(null),[catalog,setCatalog]=useState<Catalog>({models:[]});
   const [chatDraft,updateChatDraft]=useState('');
   const [chatImages,setChatImages]=useState<ChatImage[]>([]);
@@ -116,7 +120,12 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   useEffect(()=>{void api('/session').then(()=>setAuthenticated(true)).catch(()=>{});},[api]);
   useEffect(()=>{if(authenticated)void refreshCatalog();},[authenticated,refreshCatalog]);
   useEffect(()=>{document.documentElement.lang=locale;document.title='Codex Agent Platform';},[locale]);
+  useEffect(()=>{
+    const restore=()=>{notify('');setView(viewFromLocation());};
+    window.addEventListener('popstate',restore);
+    return()=>window.removeEventListener('popstate',restore);
+  },[]);
   const changeLocale=(value:string)=>{setLocale(value);updateLocale(getLocale());};
-  const navigate=(next:View)=>{notify('');setView(next);};
+  const navigate=(next:View)=>{const path='/admin/'+next;if(window.location.pathname!==path)window.history.pushState(null,'',path);notify('');setView(next);};
   return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatFiles,setChatFiles,uploadChatFile,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
 }

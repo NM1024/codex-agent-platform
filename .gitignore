@@ -26,6 +26,9 @@ workspace/
 /.update.lock
 /.web-update.lock
 /.web-update-policy.json
+/.sandbox-policy.json
+/.sandbox-setup.lock
+/sandbox/
 /platform-deploy.sh
 /releases/
 /backups/

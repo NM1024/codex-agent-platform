@@ -81,3 +81,19 @@ test('Manager serves only the React bundle, nonce styles and referenced immutabl
   const notices=await fetch(root+'/admin/third-party-notices.md');assert.equal(notices.status,200);assert.match(await notices.text(),/react/i);
   for(const path of ['/admin/app.js','/admin/style.css','/admin/i18n.js','/admin/agent-picker.js','/admin/assets/missing.js','/admin/assets/%2e%2e%2fserver.mjs'])assert.equal((await fetch(root+path)).status,404,path);
 });
+
+test('Admin page links serve the shell while unknown paths and API requests remain distinct',async t=>{
+  const store=new ManagerStore(':memory:');
+  const server=createManagerServer({store,agent:{},operations:{},auth:{authorize:()=>false},metrics:{}});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  t.after(async()=>{await new Promise(resolve=>server.close(resolve));store.close();});
+  const root=`http://127.0.0.1:${server.address().port}`;
+  for(const view of ['overview','chat','tasks','plugins','schedules','system','settings']){
+    const path='/admin/'+view,response=await fetch(root+path);
+    assert.equal(response.status,200,path);assert.match(response.headers.get('content-type'),/text\/html/);
+    assert.equal(response.headers.get('cache-control'),'no-store');assert.match(await response.text(),/<div id="root"><\/div>/);
+    const head=await fetch(root+path+'/',{method:'HEAD'});assert.equal(head.status,200);assert.equal((await head.arrayBuffer()).byteLength,0);
+  }
+  for(const path of ['/admin/unknown','/admin/tasks/unknown','/admin/assets/missing.js'])assert.equal((await fetch(root+path)).status,404,path);
+  const api=await fetch(root+'/admin/api/session');assert.equal(api.status,401);assert.match(api.headers.get('content-type'),/application\/json/);
+});

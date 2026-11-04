@@ -132,6 +132,98 @@ with tempfile.TemporaryDirectory() as directory:
  try:m.trusted(link);raise AssertionError('accepted symlink')
  except ValueError:pass
 `));
+test('automatic sandbox setup installs once, refreshes changed modules and respects explicit disable',()=>python(`
+import json,tempfile
+from unittest.mock import patch,Mock
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory);source=root/'source';data=root/'data';(source/'scripts').mkdir(parents=True);data.mkdir()
+ for name in m.MODULES:(source/'scripts'/name).write_text('# synthetic helper module\\n')
+ m.HELPER_ROOT=root/'lib';m.CONFIG_ROOT=root/'etc';m.STATE_ROOT=root/'state';m.UNIT_ROOT=root/'units';m.UNIT_ROOT.mkdir()
+ calls=[]
+ def run(argv,**kwargs):calls.append(argv);return Mock(returncode=0,stdout='enabled\\n')
+ with patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m.os,'chown'),patch.object(m,'systemd_available',return_value=True),patch.object(m.subprocess,'run',side_effect=run):
+  assert m.ensure_sandbox(source,data)==0
+  assert m.read_policy(data)==True
+  assert ['systemctl','restart',m.unit_name(data)] in calls
+  cfg=m.load_config(m.CONFIG_ROOT/(m.identity(data)+'.json'));assert cfg['image']==m.IMAGE
+  calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert not any('restart' in c for c in calls),calls
+  (source/'scripts'/'sandbox_runtime.py').write_text('# updated synthetic helper\\n')
+  calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert ['systemctl','restart',m.unit_name(data)] in calls
+  assert (m.HELPER_ROOT/m.identity(data)/'sandbox_runtime.py').read_text()=='# updated synthetic helper\\n'
+  config=m.CONFIG_ROOT/(m.identity(data)+'.json');cfg=json.loads(config.read_text());cfg['image']='codex-agent-platform-sandbox:0.0.1';config.write_text(json.dumps(cfg))
+  calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert m.load_config(config)['image']==m.IMAGE and ['systemctl','restart',m.unit_name(data)] in calls
+  m.setup('disable-sandbox',source,data);calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert m.read_policy(data)==False and calls==[]
+  (data/m.POLICY).unlink()
+  with patch.object(m.subprocess,'run',return_value=Mock(returncode=1,stdout='disabled\\n')) as command:
+   assert m.ensure_sandbox(source,data)==0 and m.read_policy(data)==False
+   assert command.call_count==1 and command.call_args.args[0]==['systemctl','is-enabled',m.unit_name(data)]
+`));
+test('automatic sandbox setup reports unsupported hosts without blocking deployment or swallowing opt-out',()=>python(`
+import tempfile,io,contextlib
+from unittest.mock import patch
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory);data=root/'data';data.mkdir()
+ with patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m,'systemd_available',return_value=False):
+  with contextlib.redirect_stderr(io.StringIO()) as log:assert m.ensure_sandbox(root/'source',data)==0
+  assert 'Sandbox setup unavailable' in log.getvalue()
+  assert not (data/m.POLICY).exists()
+ with patch.object(m.os,'geteuid',return_value=1000),patch.object(m.sys,'argv',['host-sandbox.py','ensure-sandbox','--source',str(root/'source'),'--data',str(data)]):
+  with contextlib.redirect_stderr(io.StringIO()) as log:assert m.main()==0
+  assert 'Sandbox setup unavailable' in log.getvalue()
+`));
+test('automatic sandbox setup does not wait for a foreground helper holding the setup lock',()=>python(`
+import tempfile,threading,fcntl
+from unittest.mock import patch
+with tempfile.TemporaryDirectory() as directory:
+ data=Path(directory);result=[]
+ with (data/'.sandbox-setup.lock').open('a') as held,patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m,'systemd_available',return_value=False):
+  fcntl.flock(held,fcntl.LOCK_EX)
+  worker=threading.Thread(target=lambda:result.append(m.ensure_sandbox(data/'source',data)));worker.start();worker.join(1)
+  returned_while_busy=not worker.is_alive()
+  fcntl.flock(held,fcntl.LOCK_UN);worker.join(2)
+  assert returned_while_busy,'optional sandbox setup blocked core deployment on a foreground helper'
+  assert result==[0]
+`));
+test('automatic sandbox refresh preserves installed upstream proxy policy across sanitized web updates',()=>python(`
+import tempfile,os
+from unittest.mock import patch,Mock
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory);source=root/'source';data=root/'data';(source/'scripts').mkdir(parents=True);data.mkdir()
+ for name in m.MODULES:(source/'scripts'/name).write_text('# synthetic helper module\\n')
+ m.HELPER_ROOT=root/'lib';m.CONFIG_ROOT=root/'etc';m.STATE_ROOT=root/'state';m.UNIT_ROOT=root/'units';m.UNIT_ROOT.mkdir()
+ with patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m.os,'chown'),patch.object(m,'systemd_available',return_value=True),patch.object(m.subprocess,'run',return_value=Mock(returncode=0,stdout='enabled\\n')):
+  with patch.dict(os.environ,{'HTTPS_PROXY':'http://synthetic:private@proxy.example.invalid:8080'},clear=True):m.setup('enable-sandbox',source,data)
+  config=m.CONFIG_ROOT/(m.identity(data)+'.json');original=m.load_config(config)['proxy_env']
+  cfg=m.load_config(config);cfg['image']='codex-agent-platform-sandbox:0.0.1';config.write_text(__import__('json').dumps(cfg))
+  (source/'scripts'/'sandbox_runtime.py').write_text('# newer synthetic runtime\\n')
+  with patch.dict(os.environ,{},clear=True):assert m.ensure_sandbox(source,data)==0
+  assert m.load_config(config)['proxy_env']==original,'automatic update discarded saved upstream proxy policy'
+`));
+test('automatic setup retries an incomplete refresh even while the old helper is still active',()=>python(`
+import tempfile,subprocess
+from unittest.mock import patch,Mock
+with tempfile.TemporaryDirectory() as directory:
+ root=Path(directory);source=root/'source';data=root/'data';(source/'scripts').mkdir(parents=True);data.mkdir()
+ for name in m.MODULES:(source/'scripts'/name).write_text('# synthetic helper module\\n')
+ m.HELPER_ROOT=root/'lib';m.CONFIG_ROOT=root/'etc';m.STATE_ROOT=root/'state';m.UNIT_ROOT=root/'units';m.UNIT_ROOT.mkdir()
+ calls=[]
+ def run(argv,**kwargs):calls.append(argv);return Mock(returncode=0,stdout='enabled\\n')
+ def fail_reload(argv,**kwargs):
+  if argv==['systemctl','daemon-reload']:raise subprocess.CalledProcessError(1,argv)
+  return run(argv,**kwargs)
+ with patch.object(m,'trusted'),patch.object(m.os,'geteuid',return_value=0),patch.object(m.os,'chown'),patch.object(m,'systemd_available',return_value=True),patch.object(m.subprocess,'run',side_effect=run):
+  m.setup('enable-sandbox',source,data)
+  (source/'scripts'/'sandbox_runtime.py').write_text('# updated synthetic module\\n')
+  with patch.object(m.subprocess,'run',side_effect=fail_reload):assert m.ensure_sandbox(source,data)==0
+  calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert ['systemctl','restart',m.unit_name(data)] in calls,'old active process was mistaken for an updated helper'
+  calls.clear();assert m.ensure_sandbox(source,data)==0
+  assert not any('restart' in c for c in calls),'successful unchanged helper should remain running'
+`));
 test('sandbox channel is only mounted read-only into Manager, never Docker socket',()=>{
   const result=spawnSync('docker',['compose','--env-file',root+'/.env.example','-f',root+'/compose.yaml','config','--format','json'],{encoding:'utf8'});
   assert.equal(result.status,0,result.stderr);const config=JSON.parse(result.stdout);

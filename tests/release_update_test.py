@@ -104,11 +104,13 @@ class ReleaseUpdateTests(unittest.TestCase):
 
     def test_backup_preserves_explicit_web_update_opt_out(self):
         (self.data/'.web-update-policy.json').write_text('{"enabled":false}')
+        (self.data/'.sandbox-policy.json').write_text('{"enabled":false}')
         self.update()
         backup=next((self.data/'backups').glob('*.tar.gz'))
         with tarfile.open(backup) as archive:
             self.assertIn('.web-update-policy.json',archive.getnames())
             self.assertEqual(json.load(archive.extractfile('.web-update-policy.json')),{'enabled':False})
+            self.assertEqual(json.load(archive.extractfile('.sandbox-policy.json')),{'enabled':False})
 
     def test_same_version_update_ensures_missing_host_service_after_verification(self):
         self.update()
@@ -119,6 +121,9 @@ class ReleaseUpdateTests(unittest.TestCase):
         ensure=[x for x in self.calls if 'ensure-web-update' in x]
         self.assertEqual(len(ensure),1)
         self.assertEqual(ensure[0][:3],['bash',str(active.source/'deploy.sh'),'ensure-web-update'])
+        sandbox=[x for x in self.calls if 'ensure-sandbox' in x]
+        self.assertEqual(len(sandbox),1)
+        self.assertEqual(sandbox[0][:3],['bash',str(active.source/'deploy.sh'),'ensure-sandbox'])
 
     def test_original_and_runtime_launchers_follow_activated_source(self):
         self.update()

@@ -51,7 +51,6 @@ function PluginTasksPage({tabs}:{tabs:ReactNode}){
   };
   if(loading&&loadedRows===undefined)return <DataLoading/>;
   return <>{tabs}<Space orientation="vertical" size="large" className="full-width">
-    <Typography.Paragraph type="secondary">{t('执行完成不等于所有业务项都成功。查看详情可区分最终结果、具体错误与交付状态。')}</Typography.Paragraph>
     <div className="task-filters"><Select id="task-status" aria-label={t('任务状态')} value={status} options={[{value:'',label:t('全部状态')},...taskStatuses.map(value=>({value,label:<Status value={value}/>}))]} onChange={setStatus}/><Input id="task-search" aria-label={t('搜索任务')} placeholder={t('搜索请求编号或输入内容')} value={search} onChange={event=>setSearch(event.target.value)} onPressEnter={()=>{if(!loading)submit();}}/><Button type="primary" aria-label={t('查询')} aria-busy={loading} loading={loading} onClick={submit}>{t('查询')}</Button></div>
     <Panel title={t('执行记录')}><Table<Task> loading={loading} rowKey="task_id" dataSource={rows} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
       {title:t('业务类型'),key:'type',width:'10%',className:'table-name-cell',render:(_,row)=><TableField label={t('业务类型')}><span className="table-summary" title={row.type}>{row.type}</span></TableField>},

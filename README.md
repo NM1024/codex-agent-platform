@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Stable release: v1.0.5.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Stable release: v1.0.6.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -86,7 +86,7 @@ Run the server commands from the same cloned source directory. Keep runtime data
 ### 1. Get the source and initialize private configuration
 
 ```bash
-sudo git clone --branch v1.0.5 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+sudo git clone --branch v1.0.6 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
 cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -103,7 +103,7 @@ sudo ./deploy.sh build /data/codex-agent-platform
 
 This step installs the locked runtime dependencies into the images. Rebuild after a source or dependency upgrade. Routine configuration changes through Admin do not require a build.
 
-The fixed Python/Node sandbox image is built too. To enable local code execution in Management chat, explicitly run `sudo ./deploy.sh enable-sandbox /data/codex-agent-platform` on a supported host. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
+The fixed Python/Node sandbox image is built too. On supported root-owned Linux/systemd deployments, `start` and stable-release updates automatically install or refresh the sandbox helper and enable local code execution in Management chat. An explicit `disable-sandbox` choice is preserved. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
 
 ### 3. Allow device-code login and sign in
 
@@ -152,6 +152,8 @@ ssh -N -L 3007:127.0.0.1:3007 user@your-server
 ```
 
 Replace `user@your-server` with your SSH login, then open [http://127.0.0.1:3007/admin/](http://127.0.0.1:3007/admin/). On a host with a local browser, you can open that address directly. Select **English** on the sign-in page, then sign in with the initial password. Open **Settings → Security & sign-in → Admin password** and enter your current password and a new password. Successful changes sign out every web session; an incorrect current password leaves sessions active. The initial-password file does not override a password already saved in the Manager database.
+
+Each sidebar page has its own address, such as `/admin/tasks` or `/admin/system`. Refreshing, opening a saved link and browser Back/Forward preserve the selected page. Page links still require Admin authentication; filters, tabs and unsaved form values are not encoded in these addresses.
 
 A public domain, HTTPS certificates and the external access gateway are managed by the deployment operator using their own infrastructure. This tutorial uses private SSH access. Keep internal service ports private; connection requirements for an existing gateway are described in the [deployment guide](docs/DEPLOYMENT.md#https-and-remote-console-access).
 
