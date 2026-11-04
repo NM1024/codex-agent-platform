@@ -156,3 +156,22 @@ test('latest route returns a localized service failure while running version sti
   assert.equal((await response.json()).error.code,'VERSION_CHECK_UNAVAILABLE');
   assert.equal((await send(base,'version')).status,200);
 });
+
+test('explicit upgrade methods are capability-checked and passed through the fixed Unix operation',async t=>{
+ const received=[];const methods=['image','source'];
+ const socketPath=await unix(t,async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;received.push([req.method,body]);res.writeHead(req.method==='POST'?202:200,{'content-type':'application/json'});res.end(JSON.stringify({available:true,job:req.method==='POST'?{...job,method:JSON.parse(body).method}:null,methods,default_method:'image'}));});
+ const client=createUpgradeClient({socketPath});
+ for(const method of methods){const value=await client.start(method);assert.equal(value.job.method,method);assert.deepEqual(value.methods,methods);}
+ assert.deepEqual(received.filter(x=>x[0]==='POST').map(x=>JSON.parse(x[1])),[{method:'image'},{method:'source'}]);
+});
+test('legacy helper method absence preserves empty-body upgrades and rejects unsupported explicit choices truthfully',async t=>{
+ const bodies=[];const socketPath=await unix(t,async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;if(req.method==='POST')bodies.push(body);res.writeHead(req.method==='POST'?202:200,{'content-type':'application/json'});res.end(JSON.stringify({available:true,job:req.method==='POST'?job:null}));});
+ const client=createUpgradeClient({socketPath});const unsupported=await client.start('source');assert.equal(unsupported.available,true);assert.equal(unsupported.error_code,'UPDATER_METHOD_UNSUPPORTED');assert.deepEqual(bodies,[]);
+ assert.equal((await client.start()).job.id,job.id);assert.deepEqual(bodies,['{}']);
+});
+test('human upgrade API accepts only the fixed method selector',async t=>{
+ const selected=[];const base=await manager(t,{upgradeClient:{start:async method=>{selected.push(method);return {available:true,job:{...job,method}};}}});
+ for(const method of ['image','source']){const response=await send(base,'upgrade',{method:'POST',headers:{cookie:'synthetic-human','content-type':'application/json'},body:JSON.stringify({method})});assert.equal(response.status,202);}
+ for(const body of [{method:'other'},{method:'image',registry:'example.invalid'},{method:['source']}])assert.equal((await send(base,'upgrade',{method:'POST',headers:{cookie:'synthetic-human','content-type':'application/json'},body:JSON.stringify(body)})).status,400);
+ assert.deepEqual(selected,['image','source']);
+});

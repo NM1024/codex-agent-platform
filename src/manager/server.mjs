@@ -58,8 +58,9 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       if(req.method==='GET'&&path==='/admin/api/upgrade'){const value=await upgradeClient.status();observeSystemUpgrade(operations.system?.journal,value);return json(res,200,value);}
       if(req.method==='POST'&&path==='/admin/api/upgrade') {
         const body=await readJson(req,1024);
-        if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length||url.search)throw new HttpError(400,'INVALID_INPUT','升级操作仅接受空对象。');
-        const status=await upgradeClient.start();
+        if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>key!=='method')||body.method!==undefined&&!['image','source'].includes(body.method)||url.search)throw new HttpError(400,'INVALID_INPUT','升级操作仅接受官方镜像或源码构建方式。');
+        const status=await upgradeClient.start(body.method);
+        if(status.error_code==='UPDATER_METHOD_UNSUPPORTED')throw new HttpError(409,'UPDATER_METHOD_UNSUPPORTED','当前升级服务尚不支持选择升级方式，请使用默认升级或命令行更新。');
         observeSystemUpgrade(operations.system?.journal,status);
         return json(res,status.available&&status.job?202:503,status);
       }

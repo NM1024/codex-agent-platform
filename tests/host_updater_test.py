@@ -215,6 +215,26 @@ class HostUpdaterTests(unittest.TestCase):
         self.assertEqual(job['error_code'],'launch_failed')
         self.assertNotIn('synthetic',json.dumps(job))
 
+    def test_methods_are_closed_and_duplicate_jobs_keep_original_method(self):
+        h=self.host()
+        for method in ('image','source'):
+            self.assertEqual(h.upgrade_body(json.dumps({'method':method}).encode()),{'method':method})
+        for body in (b'{"method":"other"}',b'{"method":"image","url":"https://example.invalid"}',b'{"method":"image","method":"source"}'):
+            with self.assertRaises(ValueError):h.upgrade_body(body)
+        store=h.JobStore(self.root/'method-jobs')
+        first=store.admit(lambda job:None,method='source')
+        self.assertEqual(first['method'],'source')
+        self.assertEqual(store.admit(lambda job:None,method='image'),first)
+
+    def test_worker_keeps_new_method_support_when_active_source_has_older_updater(self):
+        h=self.host();store=h.JobStore(self.root/'method-state');job=store.admit(lambda job:None,method='source');received=[]
+        def update(install,event,method):received.append(method);event('completed',installed_version='1.2.3')
+        current=SimpleNamespace(UPDATE_METHODS=('image','source'),discover=lambda *args:SimpleNamespace(source=self.root),update=update,UpdateError=RuntimeError)
+        legacy=SimpleNamespace(update=lambda *args:(_ for _ in ()).throw(AssertionError('old updater chosen')))
+        with patch.object(h,'updater_module',side_effect=[current,legacy]),patch.object(h,'trusted'),patch.object(h,'refresh_helper',return_value=False):
+            result=h.worker({'state':str(self.root/'method-state'),'source':str(self.root),'data':str(self.root),'project':'synthetic'},job['id'])
+        self.assertEqual(result,0);self.assertEqual(received,['source']);self.assertEqual(store.read()['method'],'source')
+
     def test_request_input_has_no_options(self):
         h=self.host()
         for body in (b'{"tag":"v1.2.3"}',b'[]',b'null',b'',b'{"data":"/tmp"}'):
@@ -271,7 +291,7 @@ class HostUpdaterTests(unittest.TestCase):
                 response=conn.getresponse()
                 return response.status,json.loads(response.read())
             finally:conn.close()
-        status,body=request('GET','/status');self.assertEqual((status,body),(200,{'available':True,'job':None}))
+        status,body=request('GET','/status');self.assertEqual((status,body),(200,{'available':True,'job':None,'methods':['image','source'],'default_method':'image'}))
         status,body=request('POST','/upgrade',b'{}');self.assertEqual(status,202)
         job=body['job'];self.assertEqual(job['state'],'queued')
         status,body=request('POST','/upgrade',b'{}');self.assertEqual(body['job']['id'],job['id'])
@@ -294,11 +314,11 @@ class HostUpdaterTests(unittest.TestCase):
 
     def test_worker_records_phase_failure_and_bounds_private_subprocess_log(self):
         h=self.host();store=h.JobStore(self.root/'state');job=store.admit(lambda job:None)
-        def update(install,event):
+        def update(install,event,method='image'):
             event('building',target_version='1.2.3')
             fake.run([sys.executable,'-c','print("x"*300000)'])
             raise RuntimeError('synthetic private error')
-        fake=SimpleNamespace(discover=lambda *args:SimpleNamespace(source=self.root),update=update,UpdateError=RuntimeError)
+        fake=SimpleNamespace(UPDATE_METHODS=('image','source'),discover=lambda *args:SimpleNamespace(source=self.root),update=update,UpdateError=RuntimeError)
         with patch.object(h,'updater_module',return_value=fake),patch.object(h,'trusted'):
             code=h.worker({'state':str(self.root/'state'),'source':str(self.root),'data':str(self.root),'project':'synthetic'},job['id'])
         self.assertEqual(code,1);self.assertEqual(store.read()['error_code'],'building_failed')

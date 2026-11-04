@@ -100,3 +100,15 @@ test('the real Git planner includes both sides of renames and writes safe Action
  run('git',['mv','frontend/src/pages/TasksPage.tsx','frontend/src/pages/Renamed.tsx']);run('git',['commit','--quiet','-m','rename']);
  run(process.execPath,['scripts/ci.mjs','plan'],{CI_BASE_SHA:base,CI_MODE:'auto',GITHUB_EVENT_NAME:'pull_request'});p=JSON.parse(await readFile(join(root,'.tmp/ci-plan.json'),'utf8'));assert.ok(p.files.includes('frontend/src/pages/TasksPage.tsx'));assert.ok(p.files.includes('frontend/src/pages/Renamed.tsx'));assert.equal(p.full,true);
 });
+
+test('official release helpers require container verification and trusted publication gates release proof',async t=>{
+ for(const file of ['scripts/official_images.py','scripts/container-release.py','scripts/dependency-manifests.mjs'])assert.equal(plan([file]).release,true,file);
+ let workflow;
+ try{workflow=await readFile('.github/workflows/ci.yml','utf8');}catch(error){if(error.code==='ENOENT'){t.skip('Workflow files are validated on the CI host, outside the distributable image');return;}throw error;}
+ assert.match(workflow,/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+ assert.match(workflow,/needs\.test\.outputs\.images_published == 'true'/);
+ assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')>workflow.indexOf('Verify real Compose source and image updates'));
+ assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')<workflow.indexOf('Run selected browser verification'));
+ assert.equal(releaseEvidence({head_sha:'a'.repeat(40),conclusion:'failure'},[{name:'test',conclusion:'failure'},{name:'Release verification ('+'a'.repeat(40)+')',conclusion:'success'}],'a'.repeat(40)),false,'saved candidates cannot authorize a failed browser run');
+ const release=await readFile('.github/workflows/release.yml','utf8');assert.match(release,/container-release\.py promote/);assert.doesNotMatch(release,/docker build/);
+});

@@ -10,6 +10,24 @@ import subprocess
 import tarfile
 
 
+def bootstrap_text(helper):
+    return r'''#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+usage() { echo 'Usage: bash update.sh update [deployment-directory] [--method image|source]' >&2; exit 2; }
+[[ "${1:-update}" == update ]] || usage
+if [[ "$#" -gt 0 ]]; then shift; fi
+args=(update --source "$PWD")
+if [[ "$#" -gt 0 && "$1" != --* ]]; then args+=(--data "$1"); shift; fi
+if [[ "$#" -gt 0 ]]; then
+  [[ "$#" == 2 && "$1" == --method && ( "$2" == image || "$2" == source ) ]] || usage
+  args+=(--method "$2")
+fi
+command -v python3 >/dev/null || { echo 'Install Python 3.10+ first (apt install python3).' >&2; exit 1; }
+python3 -B - "${args[@]}" <<'PLATFORM_RELEASE_UPDATE_PYTHON'
+''' + helper + '\nPLATFORM_RELEASE_UPDATE_PYTHON\n'
+
+
 def package(revision, output):
     root=Path(__file__).resolve().parents[1]
     def git(*args):
@@ -30,13 +48,24 @@ def package(revision, output):
     with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
         if any(not (member.isfile() or member.isdir()) for member in tar.getmembers()):
             raise ValueError('Release source must not contain symlinks or special files')
+    # Older installed updaters do not derive the Git PAX comment after extraction.
+    # Include the exact tested revision as data so their staged build hook can verify images.
+    buffer=io.BytesIO(raw)
+    with tarfile.open(fileobj=buffer,mode='a') as tar:
+        marker=(commit+'\n').encode()
+        item=tarfile.TarInfo(f'codex-agent-platform-{tag}/.release-revision')
+        item.size=len(marker)
+        item.mode=0o644
+        item.mtime=0
+        tar.addfile(item,io.BytesIO(marker))
+    raw=buffer.getvalue()
     # gzip mtime=0 avoids machine/time dependent checksums.
     import gzip
     body=gzip.compress(raw,mtime=0)
     (output/name).write_bytes(body)
     digest=hashlib.sha256(body).hexdigest()
     helper=git('show',commit+':scripts/update-release.py').decode()
-    bootstrap='#!/usr/bin/env bash\nset -euo pipefail\numask 077\nif [[ "${1:-update}" != update || "$#" -gt 2 ]]; then echo \'Usage: bash update.sh update [deployment-directory]\' >&2; exit 2; fi\ncommand -v python3 >/dev/null || { echo \'Install Python 3.10+ first (apt install python3).\' >&2; exit 1; }\nargs=(update --source "$PWD")\nif [[ -n "${2:-}" ]]; then args+=(--data "$2"); fi\npython3 -B - "${args[@]}" <<\'PLATFORM_RELEASE_UPDATE_PYTHON\'\n'+helper+'\nPLATFORM_RELEASE_UPDATE_PYTHON\n'
+    bootstrap=bootstrap_text(helper)
     (output/'update.sh').write_text(bootstrap)
     bootstrap_digest=hashlib.sha256(bootstrap.encode()).hexdigest()
     (output/'SHA256SUMS').write_text(f'{digest}  {name}\n{bootstrap_digest}  update.sh\n')

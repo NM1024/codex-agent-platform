@@ -90,6 +90,9 @@ test('chat image previews stay in-page with zoom rotation navigation keyboard cl
     await preview.getByRole('button',{name:'关闭预览',exact:true}).click();await expect(preview).toHaveCount(0);
   }
   await page.locator('.assistant .message-images button').first().focus();await page.keyboard.press('Enter');await expect(preview).toBeVisible();
+  // Keyboard input follows the completed opening transition and focus setup.
+  await expect(preview).not.toHaveClass(/-(?:enter|appear)(?:-|\s|$)/);
+  await expect.poll(()=>preview.evaluate(element=>element.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape');await expect(preview).toHaveCount(0);
 });
 

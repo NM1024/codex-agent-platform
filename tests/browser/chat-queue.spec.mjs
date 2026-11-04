@@ -16,6 +16,8 @@ async function setup(page) {
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();await navigate(page,'chat');
   await expect(page.locator('.chat-header')).toContainText('Queue controls');
   const row=page.locator(`[data-queue-message-id="${queued.id}"]`);
+  // The title can render from the sidebar before the initial message snapshot commits.
+  await expect(row).toContainText(queued.text);
   return {conversation,queued,active,row};
 }
 

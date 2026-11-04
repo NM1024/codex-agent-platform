@@ -4,18 +4,24 @@ umask 077
 agent_source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 agent_action="${1:-status}"
 agent_deploy_dir="${2:-/data/codex-agent-platform}"
+if [[ "$agent_action" == update ]]; then
+  shift
+  agent_update_args=(--source "$agent_source_dir")
+  if [[ $# -gt 0 && "$1" != --* ]]; then agent_update_args+=(--data "$1"); shift; fi
+  if [[ -n "${PLATFORM_PROJECT:-}" ]]; then agent_update_args+=(--project "$PLATFORM_PROJECT"); fi
+  exec python3 -B "$agent_source_dir/scripts/update-release.py" update "${agent_update_args[@]}" "$@"
+fi
 # Updates run from a verified staged release; other commands follow active source.
-if [[ "$agent_action" == update || ( "$agent_action" != init && "${PLATFORM_UPDATE_STAGED:-}" != 1 ) ]]; then
+if [[ "$agent_action" != init && "${PLATFORM_UPDATE_STAGED:-}" != 1 ]]; then
   command -v python3 >/dev/null || { echo 'Python 3.10+ is required (apt install python3).' >&2; exit 1; }
   agent_resolve_args=(--source "$agent_source_dir")
   if [[ -n "${2:-}" ]]; then agent_resolve_args+=(--data "$2"); fi
   if [[ -n "${PLATFORM_PROJECT:-}" ]]; then agent_resolve_args+=(--project "$PLATFORM_PROJECT"); fi
-  if [[ "$agent_action" == update ]]; then exec python3 -B "$agent_source_dir/scripts/update-release.py" update "${agent_resolve_args[@]}"; fi
   agent_resolved="$(python3 -B "$agent_source_dir/scripts/update-release.py" resolve "${agent_resolve_args[@]}")"
   mapfile -t agent_paths <<< "$agent_resolved"
   agent_deploy_dir="${agent_paths[1]}"
   export PLATFORM_PROJECT="${agent_paths[2]}"
-  if [[ "${agent_paths[0]}" != "$agent_source_dir" ]]; then exec bash "${agent_paths[0]}/deploy.sh" "$agent_action" "$agent_deploy_dir"; fi
+  if [[ "${agent_paths[0]}" != "$agent_source_dir" ]]; then exec bash "${agent_paths[0]}/deploy.sh" "$agent_action" "$agent_deploy_dir" "${@:3}"; fi
 fi
 agent_project="${PLATFORM_PROJECT:-codex-agent-platform}"
 if [[ ! "$agent_project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then echo 'Invalid PLATFORM_PROJECT' >&2; exit 1; fi
@@ -25,6 +31,12 @@ agent_ensure_sandbox() {
   if ! python3 -B "$agent_source_dir/scripts/host-sandbox.py" ensure-sandbox --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"; then
     echo 'Sandbox setup unavailable; core deployment continues.' >&2
   fi
+}
+agent_build_options() {
+  agent_build_version="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$agent_source_dir/package.json")"
+  agent_build_revision="${PLATFORM_BUILD_REVISION:-$(python3 -B "$agent_source_dir/scripts/container-release.py" revision --source "$agent_source_dir")}"
+  if [[ "$agent_build_revision" != unknown && ! "$agent_build_revision" =~ ^[a-f0-9]{40}$ ]]; then echo 'Invalid build revision' >&2; exit 1; fi
+  agent_build_args=(--build-arg "PLATFORM_VERSION=$agent_build_version" --build-arg "PLATFORM_REVISION=$agent_build_revision")
 }
 case "$agent_action" in
   init)
@@ -82,8 +94,16 @@ CONFIG
   ensure-sandbox|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground)
     exec python3 -B "$agent_source_dir/scripts/host-sandbox.py" "$agent_action" --source "$agent_source_dir" --data "$agent_deploy_dir" --project "$agent_project"
     ;;
+  cleanup-images)
+    if [[ "$#" -gt 3 || ( "$#" == 3 && "$3" != --apply ) ]]; then echo 'Usage: ./deploy.sh cleanup-images [deployment-directory] [--apply]' >&2; exit 2; fi
+    exec python3 -B "$agent_source_dir/scripts/container-release.py" cleanup --source "$agent_source_dir" "${@:3}"
+    ;;
+  pull)
+    exec python3 -B "$agent_source_dir/scripts/container-release.py" prepare --source "$agent_source_dir" --data "$agent_deploy_dir"
+    ;;
   build-sandbox)
-    agent_sandbox_build=(docker build -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.7)
+    agent_build_options
+    agent_sandbox_build=(docker build "${agent_build_args[@]}" -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.8)
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then agent_sandbox_build+=(--secret "id=proxy_ca,src=$CODEX_PROXY_CERT"); fi
     "${agent_sandbox_build[@]}" "$agent_source_dir"
     ;;
@@ -95,12 +115,18 @@ CONFIG
     if [[ "${PLATFORM_UPDATE_STAGED:-}" == 1 ]]; then agent_ensure_web_update; agent_ensure_sandbox; fi
     ;;
   build)
+    if [[ "${PLATFORM_UPDATE_STAGED:-}" == 1 ]]; then
+      agent_selected_method="${PLATFORM_UPDATE_METHOD:-image}"
+      if [[ "$agent_selected_method" == image ]]; then exec python3 -B "$agent_source_dir/scripts/container-release.py" prepare --source "$agent_source_dir" --data "$agent_deploy_dir"; fi
+      if [[ "$agent_selected_method" != source ]]; then echo 'Invalid update method' >&2; exit 1; fi
+    fi
+    agent_build_options
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.7 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.7 "$agent_source_dir"
-      docker build --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.7 "$agent_source_dir"
-    else agent_compose build; fi
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.8 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.8 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.8 "$agent_source_dir"
+    else agent_compose build "${agent_build_args[@]}"; fi
     "$agent_source_dir/deploy.sh" build-sandbox "$agent_deploy_dir"
     ;;
   start)
@@ -116,5 +142,5 @@ CONFIG
   login)
     agent_compose run --rm --no-deps --entrypoint codex runner login --device-auth
     ;;
-  *) echo 'Usage: ./deploy.sh init|validate|build|build-sandbox|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground [deployment-directory]' >&2; exit 2 ;;
+  *) echo 'Usage: ./deploy.sh init|validate|build|pull|cleanup-images|build-sandbox|start|stop|status|logs|login|update|enable-web-update|disable-web-update|web-update-status|enable-sandbox|disable-sandbox|sandbox-status|sandbox-foreground [deployment-directory]' >&2; exit 2 ;;
 esac

@@ -6,7 +6,7 @@
 
 This self-hosted platform is for developers and small, trusted teams that want to put Codex to work inside an existing system: reviewing content, writing structured reports, producing illustrated stories, or running scheduled tasks. It handles the queue, task records, files and administration, so you can focus on the instructions and the result your application needs.
 
-**Stable release: v1.0.7.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
+**Stable release: v1.0.8.** The Admin console supports Chinese and English: use the language selector on the sign-in page or in the top bar. Your browser remembers the choice. Switching languages preserves current form drafts and does not translate business prompts or task data. This README is also available in both languages. The platform uses your own ChatGPT account and runs models through OpenAI services. This is an independent project, not an official OpenAI product.
 
 ## Contents
 
@@ -86,7 +86,7 @@ Run the server commands from the same cloned source directory. Keep runtime data
 ### 1. Get the source and initialize private configuration
 
 ```bash
-sudo git clone --branch v1.0.7 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
+sudo git clone --branch v1.0.8 --depth 1 https://github.com/NM1024/codex-agent-platform.git /opt/codex-agent-platform
 cd /opt/codex-agent-platform
 sudo ./deploy.sh init /data/codex-agent-platform
 ```
@@ -95,15 +95,15 @@ sudo ./deploy.sh init /data/codex-agent-platform
 
 Before first start, review `/data/codex-agent-platform/.env` locally. After opening Admin, configure a plugin's entry address and entry key before enabling it or submitting work. A callback URL is optional. Never use `.env.example` placeholder credentials in a deployment.
 
-### 2. Build the service images and optional sandbox image
+### 2. Download official images (or build from source) and optional sandbox image
 
 ```bash
-sudo ./deploy.sh build /data/codex-agent-platform
+sudo ./deploy.sh pull /data/codex-agent-platform
 ```
 
-This step installs the locked runtime dependencies into the images. Rebuild after a source or dependency upgrade. Routine configuration changes through Admin do not require a build.
+This downloads and verifies the four official Linux amd64 images. To build locally instead (including other architectures), replace `pull` with `build`. Both use the same Compose services and persistent directories. Routine configuration changes through Admin do not require a build.
 
-The fixed Python/Node sandbox image is built too. On supported root-owned Linux/systemd deployments, `start` and stable-release updates automatically install or refresh the sandbox helper and enable local code execution in Management chat. An explicit `disable-sandbox` choice is preserved. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
+The fixed Python/Node sandbox image is included too. On supported root-owned Linux/systemd deployments, `start` and stable-release updates automatically install or refresh the sandbox helper and enable local code execution in Management chat. An explicit `disable-sandbox` choice is preserved. See [sandbox setup, limits and manual foreground operation](docs/SANDBOX.md); chat remains usable when this optional helper is unavailable.
 
 ### 3. Allow device-code login and sign in
 
@@ -284,7 +284,7 @@ sudo bash /data/codex-agent-platform/deploy.sh status
 sudo bash /data/codex-agent-platform/deploy.sh logs
 ```
 
-Use your actual runtime path. Update selects GitHub's latest published stable Release and verifies its versioned source asset with SHA-256; it never follows `main`, drafts or prereleases. It stages source and builds before a maintenance interruption, backs up runtime state, then restarts with health checks. `.env`, account authorization and history remain. Backups include secrets: retain them privately and plan space for both backup and image builds. A failed health check reports the backup and does not automatically downgrade a migrated database. See [update and recovery details](docs/DEPLOYMENT.md#stable-release-updates).
+Use your actual runtime path. Update selects GitHub's latest published stable Release and verifies its versioned source asset with SHA-256; it never follows `main`, drafts or prereleases. It stages source and prepares the selected images before a maintenance interruption, backs up runtime state, then restarts with health checks. `.env`, account authorization and history remain. Backups include secrets: retain them privately and plan space for both backup and image builds. A failed health check reports the backup and does not automatically downgrade a migrated database. See [update and recovery details](docs/DEPLOYMENT.md#stable-release-updates).
 
 ### Automatically delete expired history
 
@@ -295,6 +295,17 @@ Use **Settings → History retention** to enable automatic deletion and choose 3
 Management conversations default to two simultaneous rounds, independently of business concurrency. Change this in **Settings → Manager** (1–5). Pending conversations wait in SQLite; normal continuation no longer returns complete history to the management service. Full records and the native context-compaction policy remain unchanged. See [memory controls and measurement](docs/MEMORY.md).
 
 ### Version information and browser upgrades
+
+Choose the update method explicitly (the default is `image`):
+
+```bash
+sudo bash /tmp/codex-platform-update.sh update --method image
+sudo bash /tmp/codex-platform-update.sh update --method source
+```
+
+Official images are built and tested in our public GitHub CI. The updater checks exact release revision, component, platform, IDs and checksums. It tries fixed GHCR digest references, then the identical public GitHub Release image archive if GHCR is unavailable. A new GHCR package can require its owner to set public visibility once; Release archive downloads remain available without registry login. Image mode never falls back to compiling; select source mode explicitly if needed. The Admin version dialog offers the same choices when the installed host updater advertises them; older helpers retain their release default until updated.
+
+Official mode avoids local builds and their cache, but downloaded layers, retained images and private backups still need space. To preview old project image tags eligible for removal, run `sudo ./deploy.sh cleanup-images /data/codex-agent-platform`; add `--apply` to remove only those tags. Cleanup keeps the newest three project versions and all images used by running or stopped containers. It never globally prunes Docker, touches volumes/data, removes other application tags or deletes backups.
 
 The topbar shows the version reported by the running Manager image. Open it to check the latest published stable release, read its release notes or copy the server update command. Checking does not start a model task or upgrade.
 
