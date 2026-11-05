@@ -8,7 +8,7 @@ const models=[
   {model:'fixture-fixed',displayName:'Fixture Fixed',defaultReasoningEffort:'high',supportedReasoningEfforts:[{reasoningEffort:'high'}]},
   {model:'fixture-unknown',displayName:'Fixture Unknown',supportedReasoningEfforts:[]},
 ];
-async function setup(page,{execution={},catalog={models},globalEffort='medium'}={}) {
+async function setup(page,{execution={},catalog={models},globalEffort='medium',title='Synthetic model picker'}={}) {
   await page.route('**/admin/api/operations',route=>{
     const body=route.request().postDataJSON();
     if(body.action==='models')return route.fulfill({json:catalog});
@@ -17,7 +17,7 @@ async function setup(page,{execution={},catalog={models},globalEffort='medium'}=
   });
   await page.goto('/admin/');await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台',exact:true}).click();
   await expect(page.locator('#workspace')).toBeVisible();
-  const response=await page.request.post('/admin/api/conversations',{data:{title:'Synthetic model picker',execution}});expect(response.ok()).toBeTruthy();const conversation=await response.json();
+  const response=await page.request.post('/admin/api/conversations',{data:{title,execution}});expect(response.ok()).toBeTruthy();const conversation=await response.json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(conversation.title);
   return {id:conversation.id,saved:async()=>(await(await page.request.get('/admin/api/conversations/'+conversation.id)).json()).execution};
 }
@@ -35,14 +35,14 @@ test('stale browser model edits preserve concurrent settings and reload before a
     await route.continue();
   });
   await open(page);await panel(page).getByRole('button',{name:'high',exact:true}).click();
-  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toBeVisible();
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
   expect(await saved()).toEqual({model:'fixture-fast'});
   await expect(page.locator('#chat-model')).toContainText('Fixture Fast');
   await expect(page.locator('#message-input')).toHaveValue('Synthetic preserved conflict draft');
-  await page.screenshot({path:'.tmp/inspection-handoff/chat-model-conflict.png'});
+  await page.screenshot({path:'.tmp/inspection-handoff/chat-model-conflict.png',animations:'disabled'});
   await panel(page).getByRole('button',{name:'high',exact:true}).click();
   await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});
-  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toHaveCount(0);
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
 });
 
 test('queued local model edits compare against the preceding successful save',async({page})=>{
@@ -115,13 +115,12 @@ test('model changes reset the previous effort and use only the new model support
   await expect(panel(page).getByRole('slider')).toHaveCount(0);await expect(panel(page)).toContainText('仅支持此档位');
 });
 
-test('reset and model default remain distinct and opening never materializes inherited values',async({page})=>{
+test('reset preserves inherited values and legacy model defaults stay readable',async({page})=>{
   const {saved}=await setup(page,{execution:{reasoningEffort:null}});await open(page);
   const slider=panel(page).getByRole('slider');await expect(slider).toHaveAttribute('aria-valuetext','low');await expect(page.locator('#chat-model')).toHaveText('Fixture Default - low');expect(await saved()).toEqual({reasoningEffort:null});
   await panel(page).getByRole('button',{name:'恢复默认思考程度',exact:true}).click();
   await expect.poll(saved).toEqual({});await expect(slider).toHaveAttribute('aria-valuetext','medium');await expect(panel(page)).toContainText('继承全局设置');
-  await panel(page).getByRole('button',{name:'使用模型默认',exact:true}).click();
-  await expect.poll(saved).toEqual({reasoningEffort:null});await expect(slider).toHaveAttribute('aria-valuetext','low');
+  await expect(panel(page).getByRole('button',{name:'使用模型默认',exact:true})).toHaveCount(0);
 });
 
 test('saved unsupported models and efforts stay readable when the catalog is unavailable',async({page})=>{
@@ -143,9 +142,25 @@ test('long catalogs can be searched and failed writes retain the choice with an 
   await page.route('**/admin/api/conversations/'+id,route=>route.request().method()==='POST'&&failing?route.fulfill({status:503,json:{error:{message:'Synthetic save failure'}}}):route.continue());
   await open(page);await panel(page).getByRole('searchbox',{name:'搜索模型',exact:true}).fill('选择 8');
   await panel(page).getByRole('radio',{name:extras[8].displayName,exact:true}).click();
-  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName+' - low');expect(await saved()).toEqual({});
-  failing=false;await panel(page).getByRole('button',{name:'重试保存',exact:true}).click();await expect.poll(saved).toEqual({model:'extra-8'});
-  await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await expect(page.locator('#chat-model')).toHaveText(extras[8].displayName+' - low');expect(await saved()).toEqual({});
+  await page.locator('.ant-message').getByRole('button',{name:'关闭提示',exact:true}).click();await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);await page.keyboard.press('Escape');
+  await page.locator('#message-input').fill('Synthetic draft stays when pre-send settings fail');await page.getByRole('button',{name:'发送',exact:true}).click();
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
+  await expect(page.locator('#notice')).toHaveCount(0);await expect(page.locator('#message-input')).toHaveValue('Synthetic draft stays when pre-send settings fail');
+  expect((await(await page.request.get('/admin/api/conversations/'+id)).json()).messages.filter(item=>item.role==='user')).toHaveLength(0);
+  failing=false;await page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true}).click();await expect.poll(saved).toEqual({model:'extra-8'});
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
+});
+
+test('model save failure notifications remain owned by their conversation across navigation',async({page})=>{
+  const {id,saved}=await setup(page,{title:'Synthetic toast ownership'});let failing=true;
+  await page.route('**/admin/api/conversations/'+id,route=>route.request().method()==='POST'&&failing?route.fulfill({status:503,json:{error:{message:'Synthetic owned save failure'}}}):route.continue());
+  await open(page);await panel(page).getByRole('radio',{name:'Fixture Fast',exact:true}).click();
+  const retry=page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true});await expect(retry).toBeVisible();
+  await page.keyboard.press('Escape');await page.getByRole('button',{name:'＋ 新对话',exact:true}).click();
+  await expect(page.locator('.chat-header')).toContainText('新对话');await expect(retry).toHaveCount(0);expect(await saved()).toEqual({});
+  await page.locator('.conversation-sidebar').getByRole('button',{name:'Synthetic toast ownership',exact:true}).click();await expect(retry).toBeVisible();
+  failing=false;await retry.click();await expect.poll(saved).toEqual({model:'fixture-fast'});await expect(retry).toHaveCount(0);
 });
 
 test('a long model group uses one tab stop and supports horizontal arrow navigation',async({page})=>{
@@ -167,7 +182,7 @@ test('actual desktop and phone panels stay within view and keep labels and compo
       await page.setViewportSize(viewport);await expect(page.locator('#chat-model')).toBeVisible();await open(page);
       const box=await panel(page).boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(viewport.width);expect(box.y).toBeGreaterThanOrEqual(0);expect(box.y+box.height).toBeLessThanOrEqual(viewport.height);
       await expect(panel(page).getByRole('slider')).toBeVisible();
-      await expect(panel(page).getByRole('button',{name:locale==='en'?'Use model default':'使用模型默认',exact:true})).toBeInViewport({ratio:1});
+      await expect(panel(page).getByRole('button',{name:locale==='en'?'Reset reasoning to default':'恢复默认思考程度',exact:true})).toBeInViewport({ratio:1});
       await page.screenshot({path:`.tmp/model-picker/${locale}-${viewport.width}x${viewport.height}.png`,animations:'disabled'});
       await page.keyboard.press('Escape');await expect(panel(page)).toHaveCount(0);await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
       await expect(page.locator('#message-input')).toHaveValue('Unsent layout draft');
@@ -191,7 +206,7 @@ test('the open phone sheet follows a short visual viewport and retains the messa
 test('save feedback moving the composer keeps a short desktop popover inside the viewport',async({page})=>{
   await page.setViewportSize({width:1440,height:390});const {id}=await setup(page);
   await page.route('**/admin/api/conversations/'+id,route=>route.request().method()==='POST'?route.fulfill({status:503,json:{error:{message:'Synthetic short-window failure'}}}):route.continue());
-  await open(page);await panel(page).getByRole('radio',{name:'Fixture Fast',exact:true}).click();await expect(panel(page).getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
+  await open(page);await panel(page).getByRole('radio',{name:'Fixture Fast',exact:true}).click();await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
   const box=await panel(page).boundingBox();expect(box.y).toBeGreaterThanOrEqual(0);expect(box.y+box.height).toBeLessThanOrEqual(390);
 });
 

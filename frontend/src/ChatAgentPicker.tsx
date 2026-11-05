@@ -1,5 +1,5 @@
 import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties} from 'react';
-import {Button,Drawer,Grid,Input,Popover,Switch} from 'antd';
+import {Button,Drawer,Grid,Input,Popover,Tooltip} from 'antd';
 import {useConsole} from './context';
 import {Icon} from './Icon';
 import {changeAgentModel} from './modelOptions';
@@ -8,10 +8,10 @@ import type {AgentSettings} from './types';
 const effortOrder=['none','minimal','low','medium','high','xhigh'];
 interface Props {
   value:AgentSettings;defaults:AgentSettings;onChange:(value:AgentSettings)=>void;
-  disabled?:boolean;saving?:boolean;saveError?:string;onRetry:()=>void;
+  disabled?:boolean;
 }
 
-export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=false,saveError,onRetry}:Props) {
+export function ChatAgentPicker({value,defaults,onChange,disabled=false}:Props) {
   const {catalog,t}=useConsole(),screens=Grid.useBreakpoint(),mobile=!screens.lg;
   const [open,setOpen]=useState(false),[search,setSearch]=useState('');
   const [placement,setPlacement]=useState<'topLeft'|'bottomLeft'>('topLeft'),[availableHeight,setAvailableHeight]=useState(560);
@@ -89,8 +89,12 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         {!filtered.length&&<p className="chat-agent-empty">{t(catalog.models.length?'没有匹配的模型':'模型列表暂不可用，保留当前配置。')}</p>}
       </div>
       <section className="chat-effort-card" aria-label={t('思考程度')}>
-        <div className="chat-effort-heading"><strong aria-live="polite">{label(shown)}</strong><Button type="text" size="small" icon={<Icon name="reset"/>} aria-label={t('恢复默认思考程度')} title={t('恢复默认思考程度')} disabled={disabled||!overridden} onClick={reset}/></div>
-        <div className="chat-effort-caption"><span title={modelName}>{modelName}</span><small id="chat-reasoning-source">{source}</small></div>
+        <div className="chat-effort-heading">
+          <Tooltip trigger={['hover','focus']} title={!fastSupported?t('当前模型暂不支持快速模式；可选择普通模式。'):<div className="chat-fast-tooltip"><strong>{t('更快响应')}</strong><span>{t('用量更多')}</span></div>}>
+            <span className="chat-fast-control"><Button type="text" size="small" className="chat-fast-toggle" icon={<Icon name="bolt"/>} role="switch" aria-label={t('快速模式')} aria-checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onClick={()=>onChange({...value,serviceTier:serviceTier==='priority'?'default':'priority'})}/></span>
+          </Tooltip>
+          <strong id="chat-reasoning-source" title={modelName}>{modelName}</strong><Button type="text" size="small" icon={<Icon name="reset"/>} aria-label={t('恢复默认思考程度')} title={t('恢复默认思考程度')} disabled={disabled||!overridden} onClick={reset}/>
+        </div>
         {efforts.length>1&&effectiveIndex>=0&&<div className="chat-effort-track" style={{'--effort-percent':`${Math.max(0,preview)/(efforts.length-1)*100}%`} as CSSProperties}>
           <input id="chat-reasoningEffort" type="range" min={0} max={efforts.length-1} step={1} value={Math.max(0,preview)} disabled={disabled} aria-label={t('思考程度')} aria-valuetext={label(shown)} aria-describedby="chat-reasoning-source"
             onChange={event=>{const index=Number(event.target.value);previewRef.current=index;dirty.current=true;setPreview(index);}}
@@ -100,15 +104,11 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false,saving=f
         </div>}
         {!!efforts.length&&<div className="chat-effort-labels" style={{gridTemplateColumns:`repeat(${efforts.length},minmax(0,1fr))`}}>{efforts.map(item=><button type="button" key={item.reasoningEffort} data-effort={item.reasoningEffort} aria-pressed={shown===item.reasoningEffort} title={item.description??item.reasoningEffort} disabled={disabled} onClick={()=>setEffort(item.reasoningEffort)}>{label(item.reasoningEffort)}</button>)}</div>}
         {!efforts.length&&<p className="chat-agent-empty">{t('暂时无法获取思考档位，保留当前设置。')}</p>}
+        {!efforts.length&&overridden&&typeof effective==='string'&&<p className="chat-agent-empty">{t('当前保存值：{value}',{value:effective})}</p>}
         {!!efforts.length&&effectiveIndex<0&&<p className="chat-agent-empty">{t('当前保存值：{value}',{value:label(effective)})} · {t('请选择可用档位。')}</p>}
         {efforts.length===1&&<p className="chat-agent-empty">{t('仅支持此档位')}</p>}
-        <div className="chat-effort-defaults"><span>{overridden?label(effective):t('跟随默认')}</span>{!differentModel&&<button type="button" disabled={disabled||value.reasoningEffort===null} aria-pressed={value.reasoningEffort===null} onClick={()=>onChange({...value,reasoningEffort:null})}>{t('使用模型默认')}</button>}</div>
-        <div className="chat-speed-row"><span>{t('快速模式')}</span><div>{value.serviceTier!==undefined&&<Button size="small" type="text" aria-label={t('恢复默认响应速度')} title={t('恢复默认响应速度')} disabled={disabled} onClick={()=>{const next={...value};delete next.serviceTier;onChange(next);}}><Icon name="reset"/></Button>}<Switch size="small" aria-label={t('快速模式')} checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onChange={enabled=>onChange({...value,serviceTier:enabled?'priority':'default'})}/></div></div>
-        <p className="chat-speed-note">{t(!fastSupported?'当前模型暂不支持快速模式；可选择普通模式。':'快速模式会增加额度消耗。')}</p>
       </section>
-      {saveError&&<div className="chat-agent-save-error" role="alert"><span title={saveError}>{t('保存失败，请检查当前设置后重试。')}</span><Button type="link" size="small" disabled={disabled} onClick={onRetry}>{t('重试保存')}</Button></div>}
     </div>
-    <div className="chat-agent-footnote" role={saving?'status':undefined}>{t(saving?'正在保存…':'下一轮对话生效')}</div>
   </div>;
   const button=<Button ref={trigger} id="chat-model" type="text" className="chat-agent-trigger" aria-label={t('模型与思考设置')} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} title={`${modelName} · ${label(effective)} · ${t(serviceTier==='priority'?'快速模式':'普通模式')} · ${source}`} onClick={()=>{if(mobile)setOpen(!open);}}>
     {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><span className="chat-agent-trigger-effort"> - {label(effective)}</span><Icon name="chevron"/>

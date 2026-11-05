@@ -1,6 +1,6 @@
 import {Fragment,useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
+import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography,message} from 'antd';
 import {ApiError} from '../api';
 import {CatalogNote, LoadingState, Status} from '../components';
 import {ChatAgentPicker} from '../ChatAgentPicker';
@@ -52,7 +52,9 @@ export default function ChatPage() {
   const prependAnchor=useRef<{height:number;top:number;messageId?:string;offset?:number}|null>(null);
   const [defaults, setDefaults] = useState<AgentSettings>({});
   const [selections, setSelections] = useState<Record<string, AgentSettings>>({});
-  const [saveErrors, setSaveErrors] = useState<Record<string, string | undefined>>({});
+  const [saveMessage,saveMessageHolder]=message.useMessage({maxCount:1});
+  const pendingSaveErrors=useRef<Record<string,{text:string;value:AgentSettings}>>({});
+  const selectionsRef=useRef(selections);selectionsRef.current=selections;
   const [conversation, setConversation] = useState<ChatConversation>();
   const [saving, setSaving] = useState<Record<string,boolean>>({});
   const [compressing,setCompressing]=useState(false);
@@ -140,6 +142,7 @@ export default function ChatPage() {
 
   const forgetConversation=(id:string)=>{
     deletedIds.current.add(id);
+    delete pendingSaveErrors.current[id];saveMessage.destroy('model-save-'+id);
     setConversations(current=>current.filter(item=>item.id!==id));
     if(currentId.current===id){
       initialSelectionDone.current=true;currentId.current=null;navigation.current++;
@@ -332,20 +335,30 @@ export default function ChatPage() {
     selectionBases.current[id]=saved.execution??{};
     return saved;
   };
+  const showSaveFailure=(id:string,failure:{text:string;value:AgentSettings})=>{
+    if(!mounted.current||currentId.current!==id||deletedIds.current.has(id))return;
+    const key='model-save-'+id;
+    void saveMessage.open({key,type:'error',duration:0,content:<span className="chat-model-save-toast" role="alert"><span>{t('模型设置保存失败。')} {t(failure.text)}</span><Button type="link" size="small" onClick={()=>{if(mounted.current&&currentId.current===id&&!deletedIds.current.has(id)&&!submitting.current)persistSelection(id,selectionsRef.current[id]??selectionBases.current[id]??failure.value);}}>{t('重试保存')}</Button><Button type="text" size="small" icon={<Icon name="close"/>} aria-label={t('关闭提示')} onClick={()=>{delete pendingSaveErrors.current[id];saveMessage.destroy(key);}}/></span>});
+  };
   const persistSelection = (id: string, value: AgentSettings) => {
     selectionBases.current[id]??=selected?.id===id?selected.execution??{}:{};
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
     unsavedSelections.current[id]=true;
     setSaving(current=>({...current,[id]:true}));
-    setSaveErrors(current => ({...current, [id]:undefined}));
+    delete pendingSaveErrors.current[id];
+    saveMessage.destroy('model-save-'+id);
     void serialize(id, () => writeSelection(id,value)).then(() => {
       if (!mounted.current || selectionVersions.current[id] !== version) return;
       unsavedSelections.current[id]=false;
+      delete pendingSaveErrors.current[id];
       setConversations(current => current.map(item => item.id === id ? {...item, execution:value} : item));
-      setSaveErrors(current => ({...current, [id]:undefined}));
+      saveMessage.destroy('model-save-'+id);
     }).catch(async error => {
-      if (mounted.current && selectionVersions.current[id] === version) setSaveErrors(current => ({...current, [id]:error instanceof Error ? error.message : String(error)}));
+      if(mounted.current&&selectionVersions.current[id]===version&&!deletedIds.current.has(id)){
+        const failure={text:error instanceof Error?error.message:String(error),value};
+        pendingSaveErrors.current[id]=failure;showSaveFailure(id,failure);
+      }
       if(error instanceof ApiError&&error.status===409&&selectionVersions.current[id]===version){
         try{
           const latest=await api<ChatConversation>('/conversations/'+id);
@@ -357,6 +370,12 @@ export default function ChatPage() {
       }
     }).finally(()=>{if(mounted.current && selectionVersions.current[id]===version)setSaving(current=>({...current,[id]:false}));});
   };
+  useEffect(()=>{
+    saveMessage.destroy();
+    const failure=chatId&&pendingSaveErrors.current[chatId];
+    if(chatId&&failure)showSaveFailure(chatId,failure);
+    return()=>saveMessage.destroy();
+  },[chatId,saveMessage]);
 
   const addImages=async(files:File[])=>{
     if(compressLock.current || !files.length)return;
@@ -394,7 +413,7 @@ export default function ChatPage() {
     if(!lease)return;
     initialSelectionDone.current = true;
     submitting.current = true;
-    let released=false;
+    let released=false,modelSaveFailed=false;
     const releaseSend=()=>{if(released)return;released=true;submitting.current=false;lease.release();};
     const text = draft, sentImages=[...images],sentFiles=[...files], execution = {...selection}, generation = navigation.current;
     let id = chatId;
@@ -429,7 +448,17 @@ export default function ChatPage() {
       if(mounted.current)setUploading(false);
       const accepted=await serialize(sentId, async () => {
         if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
-        if(unsavedSelections.current[sentId]){await writeSelection(sentId,execution);unsavedSelections.current[sentId]=false;}
+        if(unsavedSelections.current[sentId]){
+          try{await writeSelection(sentId,execution);unsavedSelections.current[sentId]=false;}
+          catch(error){
+            modelSaveFailed=true;
+            if(mounted.current&&!deletedIds.current.has(sentId)){
+              const failure={text:error instanceof Error?error.message:String(error),value:execution};
+              pendingSaveErrors.current[sentId]=failure;showSaveFailure(sentId,failure);
+            }
+            throw error;
+          }
+        }
         if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
         return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{}),...(uploaded.length?{file_ids:uploaded.map(file=>file.file_id)}:{})});
       });
@@ -437,7 +466,8 @@ export default function ChatPage() {
       // Clear accepted input before reading the conversation; a read failure must never suggest resending it.
       lease.accepted();
       if (mounted.current) {
-        setSaveErrors(current => ({...current, [sentId]:undefined}));
+        delete pendingSaveErrors.current[sentId];
+        saveMessage.destroy('model-save-'+sentId);
       }
       if(stillSelected() && currentId.current===sentId && !deletedIds.current.has(sentId)){
         const optimistic:Message={id:accepted.id??crypto.randomUUID(),role:'user',text,status:'queued',created_at:Date.now(),...(uploaded.length?{files:uploaded}:{}),...accepted};
@@ -455,7 +485,7 @@ export default function ChatPage() {
       syncSelection(sentId,updated.execution??{});
       if (stillSelected() && currentId.current === sentId && reads.current[sentId] === read) setConversation(current=>mergeConversation(current,updated));
     } catch (error) {
-      if (lease.active()&&stillSelected()) notify(t(error instanceof Error ? error.message : String(error)));
+      if (lease.active()&&stillSelected()&&!modelSaveFailed) notify(t(error instanceof Error ? error.message : String(error)));
     } finally {
       if(mounted.current)setUploading(false);
       releaseSend();
@@ -524,6 +554,7 @@ export default function ChatPage() {
       {chatId&&<span className={'chat-stream-status '+streamStatus} role="status" title={t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}>{t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}</span>}</div>
   </div>;
   return <SandboxProvider conversationId={chatId}><div className="chat-layout">
+    {saveMessageHolder}
     <Modal title={t('删除对话')} open={!!deleteTarget} okText={t('删除')} cancelText={t('取消')} okButtonProps={{danger:true,loading:!!deleting,'aria-label':t('删除')}} cancelButtonProps={{disabled:!!deleting}} closable={!deleting} maskClosable={!deleting} keyboard={!deleting} onOk={()=>void deleteConversation()} onCancel={()=>{if(!deleteLock.current)setDeleteTarget(undefined);}}>
       <p>{t('确定删除“{title}”吗？删除后无法恢复。',{title:deleteTarget?.title??''})}</p>
       {deleteError&&<Alert type="error" title={t(deleteError)}/>}
@@ -584,7 +615,7 @@ export default function ChatPage() {
             if (!event.shiftKey || event.ctrlKey || event.metaKey) {event.preventDefault(); void send();}
           }}/>
         <div className="composer-toolbar">
-          <ChatAgentPicker key={selectedKey} value={selection} defaults={defaults} disabled={busy} onChange={changeSelection} saving={!!chatId&&saving[chatId]} saveError={chatId?saveErrors[chatId]:undefined} onRetry={()=>{if(chatId)persistSelection(chatId,{...selection});}}/>
+          <ChatAgentPicker key={selectedKey} value={selection} defaults={defaults} disabled={busy} onChange={changeSelection}/>
           <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
           <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
           <input ref={genericFileInput} id="chat-file-input" type="file" multiple hidden onChange={event=>{addFiles(Array.from(event.target.files??[]));event.target.value='';}}/>
@@ -595,7 +626,7 @@ export default function ChatPage() {
         <div className="composer-footer"><Typography.Text type="secondary" className="composer-hint">{t('Enter 发送，Shift + Enter 换行')}</Typography.Text>
           {draft.length>20000 && <span className="danger-text">{t('消息不能超过 20000 个字符。')}</span>}
           {chatId && saving[chatId] && <span role="status">{t('正在保存模型设置…')}</span>}
-          {chatId && saveErrors[chatId] && <Button type="link" size="small" danger title={saveErrors[chatId]} disabled={busy} onClick={() => persistSelection(chatId, {...selection})}>{t('保存失败，重试')}</Button>}</div>
+          </div>
       </div>
     </section>
   </div></SandboxProvider>;

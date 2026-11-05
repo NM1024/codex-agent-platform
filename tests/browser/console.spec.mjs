@@ -220,10 +220,10 @@ test('chat failed model saves retain the choice and offer a working retry',{tag:
   await page.route('**/admin/api/conversations/'+created.id,async route=>{
     if(route.request().method()==='POST'&&failing)await route.fulfill({status:503,json:{error:{code:'SYNTHETIC_SAVE_FAILURE',message:'Synthetic save failure'}}});else await route.continue();
   });
-  await choose(page,'#chat-model','fixture-fast');await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toBeVisible();
+  await choose(page,'#chat-model','fixture-fast');await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
   await expectChoice(page,'#chat-model','fixture-fast');failing=false;
-  await page.getByRole('button',{name:'保存失败，重试',exact:true}).click();
-  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toHaveCount(0);
+  await page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true}).click();
+  await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toHaveCount(0);
   await expect.poll(async()=> (await (await page.request.get('/admin/api/conversations/'+created.id)).json()).execution.model).toBe('fixture-fast');
 });
 
