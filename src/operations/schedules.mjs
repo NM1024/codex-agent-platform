@@ -5,6 +5,7 @@ import { HttpError } from '../errors.mjs';
 import {assertNotificationCapability} from '../notifications/catalog.mjs';
 
 const invalid=message=>new HttpError(400,'INVALID_SCHEDULE',`INVALID_SCHEDULE: ${message}`);
+const terminalInspectionSql="(status='cancelled' OR (status='accepted' AND execution_state IN ('completed','failed','cancelled')))";
 function nextAt(cron,timezone,now) {
   try {
     if (typeof cron!=='string' || cron.trim().split(/\s+/).length!==5) throw new Error();
@@ -26,13 +27,14 @@ export class ScheduleStore {
     if(!this.db.prepare('PRAGMA table_info(platform_inspections)').all().some(column=>column.name==='finished_at')) {
       this.db.exec('ALTER TABLE platform_inspections ADD COLUMN finished_at INTEGER');
     }
-    // Repair interrupted upgrades too. Legacy admission time does not establish
-    // when an inspection finished, so unknown terminal ages start at migration.
+    // Repair interrupted upgrades too. Admission alone does not establish
+    // completion; only confirmed terminal records can acquire a retention age.
     this.db.exec('CREATE INDEX IF NOT EXISTS platform_inspection_expiry ON platform_inspections(finished_at,id)');
     if(!this.db.prepare('PRAGMA table_info(platform_schedules)').all().some(column=>column.name==='deleted_at'))this.db.exec('ALTER TABLE platform_schedules ADD COLUMN deleted_at INTEGER');
     if(!this.db.prepare('PRAGMA table_info(platform_inspections)').all().some(column=>column.name==='message_id'))this.db.exec('ALTER TABLE platform_inspections ADD COLUMN message_id TEXT');
     if(!this.db.prepare('PRAGMA table_info(platform_inspections)').all().some(column=>column.name==='execution_state'))this.db.exec("ALTER TABLE platform_inspections ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'pending'");
-    this.db.prepare("UPDATE platform_inspections SET finished_at=? WHERE finished_at IS NULL AND status IN ('accepted','cancelled') AND (message_id IS NULL OR execution_state IN ('completed','failed','cancelled'))").run(Date.now());
+    this.db.prepare(`UPDATE platform_inspections SET finished_at=NULL WHERE finished_at IS NOT NULL AND NOT ${terminalInspectionSql}`).run();
+    this.db.prepare(`UPDATE platform_inspections SET finished_at=? WHERE finished_at IS NULL AND ${terminalInspectionSql}`).run(Date.now());
   }
   get(id) {
     const row=this.db.prepare('SELECT * FROM platform_schedules WHERE id=? AND deleted_at IS NULL').get(id);
@@ -116,7 +118,7 @@ export class ScheduleStore {
   pruneInspectionHistory({cutoff,limit=50}={}) {
     if(!Number.isSafeInteger(cutoff)||!Number.isSafeInteger(limit)||limit<1||limit>500)throw new HttpError(400,'INVALID_INPUT','Invalid retention bounds.');
     return this.store.transaction(()=>{
-      const rows=this.db.prepare("SELECT id FROM platform_inspections WHERE status IN ('accepted','cancelled') AND finished_at<? ORDER BY finished_at,id LIMIT ?").all(cutoff,limit);
+      const rows=this.db.prepare(`SELECT id FROM platform_inspections WHERE ${terminalInspectionSql} AND finished_at<? ORDER BY finished_at,id LIMIT ?`).all(cutoff,limit);
       let removed=0;
       for(const {id} of rows) {
         if(this.store.notifications?.hasActive({kind:'inspection',id}))continue;

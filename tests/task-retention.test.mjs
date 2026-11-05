@@ -121,6 +121,7 @@ test('inspection retention removes bounded terminal history while preserving pla
   const plan=schedules.save({kind:'inspection',name:'Synthetic inspection',message:'Inspect synthetic state',cron:'* * * * *',timezone:'UTC'},0);
   for(const [id,status,time] of [['a','accepted',10],['b','cancelled',10],['c','accepted',100],['d','queued',null],['e','claimed',null]]) {
     store.db.prepare('INSERT INTO platform_inspections(id,schedule_id,message,status,created_at,finished_at) VALUES(?,?,?,?,?,?)').run(id,plan.id,'synthetic',status,1,time);
+    if(status==='accepted')store.db.prepare("UPDATE platform_inspections SET execution_state='completed' WHERE id=?").run(id);
     store.db.prepare('INSERT INTO platform_schedule_runs VALUES(?,?,?,?,?)').run(id,plan.id,id.charCodeAt(0),1,id);
   }
   assert.equal(schedules.pruneInspectionHistory({cutoff:100,limit:1}),1);
@@ -132,17 +133,53 @@ test('inspection retention removes bounded terminal history while preserving pla
   schedules.delete(plan.id);assert.ok(store.db.prepare("SELECT finished_at FROM platform_inspections WHERE id='d'").get().finished_at>100);
 });
 
-test('legacy terminal history migrates completion timestamps conservatively after interrupted schema upgrades',t=>{
+test('legacy task terminal timestamps migrate while accepted inspections await execution confirmation',t=>{
   for(const interrupted of [false,true]) {
   const root=mkdtempSync(join(tmpdir(),'task-retention-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
   const path=join(root,'legacy.sqlite'),db=new DatabaseSync(path);
   db.exec("CREATE TABLE agent_requests(task_id TEXT PRIMARY KEY,client_id TEXT NOT NULL,request_id TEXT NOT NULL,type TEXT NOT NULL,module_version TEXT NOT NULL,input TEXT NOT NULL,execution_input TEXT NOT NULL,status TEXT NOT NULL,run_id TEXT,result TEXT,error TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL); INSERT INTO agent_requests VALUES('old','client','request','test.retention','1','{}','{}','completed',NULL,'{}',NULL,1,70); CREATE TABLE platform_inspections(id TEXT PRIMARY KEY,schedule_id TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL,conversation_id TEXT,created_at INTEGER NOT NULL); INSERT INTO platform_inspections VALUES('legacy','schedule','synthetic','accepted','conversation',1)");
   if(interrupted)db.exec('ALTER TABLE agent_requests ADD COLUMN finished_at INTEGER; ALTER TABLE platform_inspections ADD COLUMN finished_at INTEGER');
   db.close();
-  const before=Date.now(),{store}=setup(t,{},path);new ScheduleStore(store);
-  assert.equal(store.raw('old').finished_at,70);assert.ok(store.db.prepare("SELECT finished_at FROM platform_inspections WHERE id='legacy'").get().finished_at>=before);
+  const {store}=setup(t,{},path),schedules=new ScheduleStore(store);
+  assert.equal(store.raw('old').finished_at,70);assert.equal(store.db.prepare("SELECT finished_at FROM platform_inspections WHERE id='legacy'").get().finished_at,null);
+  assert.equal(schedules.pruneInspectionHistory({cutoff:Date.now()+86400000}),0);
   assert.deepEqual(ids(store.expiredTasks({cutoff:100,now:1000})),['old']);
   }
+});
+
+test('inspection pruning protects unresolved execution even with an obsolete finished timestamp and advances past it',t=>{
+  const {store}=setup(t),schedules=new ScheduleStore(store);
+  const plan=schedules.save({kind:'inspection',name:'Synthetic retained inspection',message:'Synthetic evidence',cron:'* * * * *',timezone:'UTC'},0);
+  const protectedIds=[];
+  for(const [id,status,state,message] of [
+    ['a-pending','accepted','pending',null],['b-running','accepted','running','00000000-0000-4000-8000-000000000011'],
+    ['c-interrupted','accepted','interrupted','00000000-0000-4000-8000-000000000012'],['d-queued','queued','pending',null],['e-claimed','claimed','pending',null],
+    ['f-completed','accepted','completed','00000000-0000-4000-8000-000000000013'],['g-failed','accepted','failed','00000000-0000-4000-8000-000000000014'],['h-cancelled','cancelled','pending',null],
+  ]){
+    store.db.prepare('INSERT INTO platform_inspections(id,schedule_id,message,status,conversation_id,message_id,execution_state,created_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id,plan.id,'Synthetic evidence',status,'conversation',message,state,1,10);
+    store.db.prepare('INSERT INTO platform_schedule_runs VALUES(?,?,?,?,?)').run(id,plan.id,id.charCodeAt(0),1,id);
+    if(id<'f')protectedIds.push(id);
+  }
+  for(let n=0;n<3;n++)assert.equal(schedules.pruneInspectionHistory({cutoff:100,limit:1}),1);
+  assert.equal(schedules.pruneInspectionHistory({cutoff:100,limit:1}),0);
+  assert.deepEqual(store.db.prepare('SELECT id FROM platform_inspections ORDER BY id').all().map(row=>row.id),protectedIds);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM platform_schedule_runs').get().n,5);
+});
+
+test('reopening clears obsolete nonterminal finish times and only confirmed terminal history becomes eligible',t=>{
+  const {store}=setup(t);let schedules=new ScheduleStore(store);
+  const plan=schedules.save({kind:'inspection',name:'Synthetic legacy history',message:'Synthetic evidence',cron:'* * * * *',timezone:'UTC'},0);
+  for(const [id,state] of [['pending','pending'],['running','running'],['interrupted','interrupted'],['terminal','completed']]){
+    store.db.prepare("INSERT INTO platform_inspections(id,schedule_id,message,status,conversation_id,execution_state,created_at,finished_at) VALUES(?,?,?,'accepted','conversation',?,1,10)").run(id,plan.id,'Synthetic evidence',state);
+  }
+  schedules=new ScheduleStore(store);
+  for(const id of ['pending','running','interrupted'])assert.equal(store.db.prepare('SELECT finished_at FROM platform_inspections WHERE id=?').get(id).finished_at,null);
+  assert.equal(store.db.prepare("SELECT finished_at FROM platform_inspections WHERE id='terminal'").get().finished_at,10);
+  assert.equal(schedules.pruneInspectionHistory({cutoff:100}),1);
+  assert.equal(schedules.acknowledgeInspection('pending','conversation','00000000-0000-4000-8000-000000000015','completed').accepted,true);
+  assert.equal(schedules.pruneInspectionHistory({cutoff:100}),0);
+  assert.equal(schedules.pruneInspectionHistory({cutoff:Date.now()+1000}),1);
+  assert.deepEqual(store.db.prepare('SELECT id FROM platform_inspections ORDER BY id').all().map(row=>row.id),['interrupted','running']);
 });
 
 test('accepted plugin snapshots and current plugin settings survive removal of unrelated expired history',async t=>{
