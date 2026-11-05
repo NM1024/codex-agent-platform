@@ -219,6 +219,8 @@ button, input, textarea { font: inherit; }
 .composer-toolbar .chat-agent-trigger.ant-btn { display: inline-flex; align-items: center; gap: 7px; width: auto; min-width: 0; max-width: min(100%, 320px); padding-inline: 8px; font-size: 13px; }
 .chat-agent-trigger-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-agent-trigger-effort { flex-shrink: 0; white-space: nowrap; }
+.chat-agent-trigger-fast { display: inline-flex; align-items: center; flex-shrink: 0; gap: 3px; color: #345e4f; white-space: nowrap; }
+.chat-agent-trigger-fast > svg { width: 14px; height: 14px; }
 .chat-agent-trigger > svg { width: 12px; flex-shrink: 0; color: #708577; }
 .chat-agent-inherit-dot { width: 5px; height: 5px; border-radius: 50%; background: #668976; flex-shrink: 0; }
 .chat-agent-popover { width: min(360px, calc(100vw - 24px)); }

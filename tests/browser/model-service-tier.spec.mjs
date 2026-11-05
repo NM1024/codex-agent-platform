@@ -23,8 +23,8 @@ test.beforeEach(async({page})=>{
   // may save an unlisted model, so speed tests must establish a supported one.
   for(const scope of ['manager','execution']){
     const {values}=await operation(page,'configuration_get',{scope});
-    originalGlobals.push({scope,patch:{model:values.model,serviceTier:values.serviceTier??'default'}});
-    await operation(page,'configuration_update',{scope,patch:{model:models[0].model,serviceTier:'default'}});
+    originalGlobals.push({scope,patch:{model:values.model,reasoningEffort:values.reasoningEffort,serviceTier:values.serviceTier??'default'}});
+    await operation(page,'configuration_update',{scope,patch:{model:models[0].model,reasoningEffort:'medium',serviceTier:'default'}});
   }
 });
 test.afterEach(async({page})=>{
@@ -34,6 +34,12 @@ async function conversation(page,execution={}){
   const response=await page.request.post('/admin/api/conversations',{data:{title:'Synthetic speed picker',execution}});expect(response.ok()).toBeTruthy();const created=await response.json();
   await navigate(page,'chat');await expect(page.locator('.chat-header')).toContainText(created.title);
   return async()=>(await(await page.request.get('/admin/api/conversations/'+created.id)).json()).execution;
+}
+async function expectFastIndicator(page,fast){
+  const trigger=page.locator('#chat-model'),indicator=trigger.getByRole('img',{name:'快速模式',exact:true});
+  await expect(trigger).not.toContainText(' - fast');
+  if(fast){await expect(indicator).toBeVisible();await expect(indicator.locator('svg')).not.toHaveCSS('fill','none');}
+  else await expect(indicator).toHaveCount(0);
 }
 
 test('chat defaults to standard, keeps model rows on one line, and saves fast independently',async({page})=>{
@@ -46,15 +52,25 @@ test('chat defaults to standard, keeps model rows on one line, and saves fast in
   await expect(control.locator('svg')).toHaveCount(1);await control.hover();
   await expect(page.locator('.ant-tooltip').getByRole('tooltip')).toContainText('用量更多');
   await page.screenshot({path:'.tmp/inspection-handoff/fast-toggle.png',animations:'disabled'});
-  await expect(control).not.toBeChecked();await expect(chatPicker(page).locator('.chat-agent-option-icon')).toHaveCount(0);
+  await expect(control).not.toBeChecked();await expect(control.locator('svg')).toHaveAttribute('fill','none');await expectFastIndicator(page,false);await expect(chatPicker(page).locator('.chat-agent-option-icon')).toHaveCount(0);
   const row=chatPicker(page).getByRole('radio',{name:'Fixture Default',exact:true});
   const positions=await row.locator('.chat-agent-option-copy').evaluate(element=>Array.from(element.children).map(child=>{const r=child.getBoundingClientRect();return r.y+r.height/2;}));
   expect(Math.abs(positions[0]-positions[1])).toBeLessThan(3);
   await control.click();await expect.poll(saved).toEqual({serviceTier:'priority'});
-  await expect(control).toBeChecked();await control.hover();await expect(control).toHaveCSS('color','rgb(52, 94, 79)');await page.screenshot({path:'.tmp/inspection-handoff/fast-toggle-enabled.png',animations:'disabled'});
+  await expect(control).toBeChecked();await expect(control.locator('svg')).toHaveAttribute('fill','currentColor');await expect(page.locator('#chat-model')).toContainText('Fixture Default - medium');await expectFastIndicator(page,true);await control.hover();await expect(control).toHaveCSS('color','rgb(52, 94, 79)');await page.screenshot({path:'.tmp/inspection-handoff/fast-toggle-enabled.png',animations:'disabled'});
   await chatPicker(page).getByRole('button',{name:'low',exact:true}).click();await expect.poll(saved).toEqual({reasoningEffort:'low',serviceTier:'priority'});
   await chatPicker(page).getByRole('radio',{name:'Fixture Supported',exact:true}).click();await expect.poll(saved).toEqual({model:'fixture-supported',serviceTier:'priority'});
-  await control.click();await expect.poll(saved).toEqual({model:'fixture-supported',serviceTier:'default'});
+  await control.click();await expect.poll(saved).toEqual({model:'fixture-supported',serviceTier:'default'});await expect(control.locator('svg')).toHaveAttribute('fill','none');await expectFastIndicator(page,false);
+});
+
+test('inherited fast is visible and an explicit standard override stays standard after reload',async({page})=>{
+  await operation(page,'configuration_update',{scope:'manager',patch:{serviceTier:'priority'}});
+  const saved=await conversation(page);await openChatPicker(page);
+  const control=chatPicker(page).getByRole('switch',{name:'快速模式',exact:true});
+  await expect(control).toBeChecked();await expect(control.locator('svg')).toHaveAttribute('fill','currentColor');await expect(page.locator('#chat-model')).toContainText('Fixture Default - medium');await expectFastIndicator(page,true);
+  await control.click();await expect.poll(saved).toEqual({serviceTier:'default'});
+  await page.reload();await expect(page.locator('#chat-model')).toHaveText('Fixture Default - medium');await expectFastIndicator(page,false);await openChatPicker(page);
+  await expect(control).not.toBeChecked();await expect(control.locator('svg')).toHaveAttribute('fill','none');
 });
 
 test('unsupported models disable enabling fast while an old fast choice can be switched off',async({page})=>{
@@ -91,5 +107,6 @@ test('phone speed control remains in the reasoning card and preserves the compos
   await page.setViewportSize({width:390,height:844});const saved=await conversation(page);await page.locator('#message-input').fill('Synthetic unsent draft');await openChatPicker(page);
   const control=chatPicker(page).locator('.chat-effort-card').getByRole('switch',{name:'快速模式',exact:true});await expect(control).toBeInViewport({ratio:1});
   await page.setViewportSize({width:320,height:760});await expect(control).toBeInViewport({ratio:1});await page.screenshot({path:'.tmp/inspection-handoff/fast-toggle-mobile.png',animations:'disabled'});
-  await control.click();await expect.poll(saved).toEqual({serviceTier:'priority'});await page.keyboard.press('Escape');await expect(page.locator('#message-input')).toHaveValue('Synthetic unsent draft');
+  await control.click();await expect.poll(saved).toEqual({serviceTier:'priority'});await expect(control.locator('svg')).toHaveAttribute('fill','currentColor');await page.keyboard.press('Escape');await expect(page.locator('#chat-model')).toContainText('Fixture Default - medium');await expectFastIndicator(page,true);await expect(page.locator('#message-input')).toHaveValue('Synthetic unsent draft');
+  await expect(page.locator('.chat-agent-trigger-effort')).toBeInViewport({ratio:1});await expect(page.locator('.chat-agent-trigger-fast')).toBeInViewport({ratio:1});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);await page.screenshot({path:'.tmp/inspection-handoff/fast-indicator-phone-on.png',animations:'disabled'});
 });

@@ -91,7 +91,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false}:Props) 
       <section className="chat-effort-card" aria-label={t('思考程度')}>
         <div className="chat-effort-heading">
           <Tooltip trigger={['hover','focus']} title={!fastSupported?t('当前模型暂不支持快速模式；可选择普通模式。'):<div className="chat-fast-tooltip"><strong>{t('更快响应')}</strong><span>{t('用量更多')}</span></div>}>
-            <span className="chat-fast-control"><Button type="text" size="small" className="chat-fast-toggle" icon={<Icon name="bolt"/>} role="switch" aria-label={t('快速模式')} aria-checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onClick={()=>onChange({...value,serviceTier:serviceTier==='priority'?'default':'priority'})}/></span>
+            <span className="chat-fast-control"><Button type="text" size="small" className="chat-fast-toggle" icon={<Icon name={serviceTier==='priority'?'boltFilled':'bolt'}/>} role="switch" aria-label={t('快速模式')} aria-checked={serviceTier==='priority'} disabled={disabled||(!fastSupported&&serviceTier!=='priority')} onClick={()=>onChange({...value,serviceTier:serviceTier==='priority'?'default':'priority'})}/></span>
           </Tooltip>
           <strong id="chat-reasoning-source" title={modelName}>{modelName}</strong><Button type="text" size="small" icon={<Icon name="reset"/>} aria-label={t('恢复默认思考程度')} title={t('恢复默认思考程度')} disabled={disabled||!overridden} onClick={reset}/>
         </div>
@@ -111,7 +111,7 @@ export function ChatAgentPicker({value,defaults,onChange,disabled=false}:Props) 
     </div>
   </div>;
   const button=<Button ref={trigger} id="chat-model" type="text" className="chat-agent-trigger" aria-label={t('模型与思考设置')} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} title={`${modelName} · ${label(effective)} · ${t(serviceTier==='priority'?'快速模式':'普通模式')} · ${source}`} onClick={()=>{if(mobile)setOpen(!open);}}>
-    {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><span className="chat-agent-trigger-effort"> - {label(effective)}</span><Icon name="chevron"/>
+    {!value.model&&<span className="chat-agent-inherit-dot" aria-hidden="true"/>}<span className="chat-agent-trigger-name">{modelName}</span><span className="chat-agent-trigger-effort"> - {label(effective)}</span>{serviceTier==='priority'&&<span className="chat-agent-trigger-fast" role="img" aria-label={t('快速模式')} title={t('快速模式')}><span aria-hidden="true"> - </span><Icon name="boltFilled"/></span>}<Icon name="chevron"/>
   </Button>;
   // Keep only one live panel/slider in the DOM as the viewport changes.
   return <div className="chat-agent-picker" data-model={value.model??''} data-effort={value.reasoningEffort===null?'__model_default__':value.reasoningEffort??'__inherit__'} data-effective-effort={effective??''} data-service-tier={serviceTier}>

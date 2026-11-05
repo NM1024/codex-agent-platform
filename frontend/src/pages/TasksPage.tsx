@@ -1,16 +1,17 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
-import {Alert,Button,Descriptions,Empty,Image,Input,Select,Space,Table,Tabs,Tooltip,Typography} from 'antd';
+import {Alert,AutoComplete,Button,Descriptions,Empty,Image,Space,Table,Tabs,Tooltip,Typography} from 'antd';
 import {useConsole} from '../context';
 import {AsyncButton,DataLoading,JsonView,LoadingState,Panel,Status,TableField,TableIdentifier,taskStatuses,time,useLoad} from '../components';
 import {NotificationBindingsPanel} from '../NotificationBindingsPanel';
 import {NotificationRetryDialog} from '../NotificationRetryDialog';
-import type {Task} from '../types';
+import type {PluginList,Task} from '../types';
 import {AdminDrawer} from '../AdminOverlays';
 import {Icon} from '../Icon';
 import {PluginActionIcon} from '../PluginActionIcon';
 import ScheduleRunsPage from './ScheduleRunsPage';
 import {InvestigationDialog} from '../InvestigationDialog';
 import {ListPagination} from '../ListPagination';
+import {RecordFilters,recordAfter,type RecordRange} from './RecordFilters';
 export default function TasksPage(){
  const {t}=useConsole();const [tab,setTab]=useState('plugins');
  const tabs=<Tabs activeKey={tab} onChange={setTab} items={[{key:'plugins',label:t('插件任务')},{key:'schedules',label:t('定时任务')}]}/>;
@@ -18,13 +19,15 @@ export default function TasksPage(){
 }
 function PluginTasksPage({tabs}:{tabs:ReactNode}){
   const {api,operation,act,t,notify}=useConsole();
-  const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[pageSize,setPageSize]=useState(20),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
+  const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[type,setType]=useState(''),[range,setRange]=useState<RecordRange>('all'),[knownTypes,setKnownTypes]=useState<string[]>([]),[filter,setFilter]=useState<{search:string;status:string;type:string;after?:number}>({search:'',status:'',type:''}),[offset,setOffset]=useState(0),[pageSize,setPageSize]=useState(20),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
   const [retryOpen,setRetryOpen]=useState(false),[detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(''),[detailTab,setDetailTab]=useState('summary'),[artifactsLoading,setArtifactsLoading]=useState(false);
   const retryLock=useRef(false),[retrying,setRetrying]=useState(false),detailRequest=useRef(0),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;detailRequest.current++;};},[]);
-  const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),offset:String(offset),limit:String(pageSize),include_total:'1'});
+  const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),...(filter.type?{type:filter.type}:{}),...(filter.after!==undefined?{after:String(filter.after)}:{}),offset:String(offset),limit:String(pageSize),include_total:'1'});
   const {data:loadedRows,loading,error}=useLoad(()=>api<Task[]|{items:Task[];total:number}>('/tasks?'+query),[api,filter,offset,pageSize,tick]);
   const rows=Array.isArray(loadedRows)?loadedRows:loadedRows?.items??[],total=loadedRows&&!Array.isArray(loadedRows)?loadedRows.total:null;
+  useEffect(()=>{let active=true;void api<PluginList>('/plugins').then(value=>{if(active)setKnownTypes(current=>[...new Set([...current,...value.configured.map(plugin=>plugin.type)])]);}).catch(()=>{});return()=>{active=false;};},[api]);
+  useEffect(()=>{if(loadedRows)setKnownTypes(current=>[...new Set([...current,...rows.map(row=>row.type)])]);},[loadedRows]);
   useEffect(()=>{setArtifacts([]);setArtifactsLoading(!!detail?.artifacts?.length);if(!detail)return;let active=true;const urls:string[]=[],controller=new AbortController();
     void Promise.allSettled((detail.artifacts??[]).map(async artifact=>{
       const response=await fetch(`/admin/api/artifacts/${detail.task_id}/${artifact.artifact_id}`,{credentials:'same-origin',signal:controller.signal});
@@ -43,7 +46,8 @@ function PluginTasksPage({tabs}:{tabs:ReactNode}){
   };
   const [investigation,setInvestigation]=useState<string>();
   const investigate=async(id:string)=>{setInvestigation(id);};
-  const submit=()=>{closeDetail();setOffset(0);setFilter({search,status});};
+  const submit=()=>{closeDetail();setOffset(0);setFilter({search:search.trim(),status,type:type.trim(),after:recordAfter(range)});};
+  const reset=()=>{closeDetail();setSearch('');setStatus('');setType('');setRange('all');setOffset(0);setFilter({search:'',status:'',type:''});};
   const retry=async(notification_channels?:string[])=>{
     if(retryLock.current||!detail)return;
     retryLock.current=true;setRetrying(true);const request=detailRequest.current;
@@ -52,8 +56,9 @@ function PluginTasksPage({tabs}:{tabs:ReactNode}){
   };
   if(loading&&loadedRows===undefined)return <DataLoading/>;
   return <>{tabs}<Space orientation="vertical" size="large" className="full-width">
-    <div className="task-filters"><Select id="task-status" aria-label={t('任务状态')} value={status} options={[{value:'',label:t('全部状态')},...taskStatuses.map(value=>({value,label:<Status value={value}/>}))]} onChange={setStatus}/><Input id="task-search" aria-label={t('搜索任务')} placeholder={t('搜索请求编号或输入内容')} value={search} onChange={event=>setSearch(event.target.value)} onPressEnter={()=>{if(!loading)submit();}}/><Button type="primary" aria-label={t('查询')} aria-busy={loading} loading={loading} onClick={submit}>{t('查询')}</Button></div>
-    <Panel title={t('执行记录')}><Table<Task> loading={loading} rowKey="task_id" dataSource={rows} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
+    <Panel title={t('执行记录')} extra={<Button aria-label={t('刷新')} aria-busy={loading} onClick={()=>setTick(value=>value+1)} loading={loading}>{t('刷新')}</Button>}>
+    <RecordFilters id="task" search={search} searchLabel={t('搜索任务')} searchPlaceholder={t('搜索请求编号或输入内容')} onSearch={setSearch} typeFilter={<AutoComplete id="task-type" aria-label={t('业务类型')} value={type} placeholder={t('全部业务类型')} options={[...knownTypes].sort().map(value=>({value}))} filterOption={(input,option)=>String(option?.value??'').toLowerCase().includes(input.toLowerCase())} onChange={setType} allowClear/>} status={status} statuses={taskStatuses} onStatus={setStatus} range={range} onRange={setRange} loading={loading} onSubmit={submit} onReset={reset}/>
+    <Table<Task> loading={loading} rowKey="task_id" dataSource={rows} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" columns={[
       {title:t('业务类型'),key:'type',width:'10%',className:'table-name-cell',render:(_,row)=><TableField label={t('业务类型')}><span className="table-summary" title={row.type}>{row.type}</span></TableField>},
       {title:t('任务编号'),key:'task',width:'18%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('任务编号')}><TableIdentifier value={row.task_id}/></TableField>},
       {title:t('请求编号'),key:'request',width:'14%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('请求编号')}><TableIdentifier value={row.request_id}/></TableField>},

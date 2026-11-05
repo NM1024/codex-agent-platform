@@ -43,7 +43,7 @@ export class ScheduleStore {
     return {...JSON.parse(row.definition),revision:row.revision,next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at,...(binding?{notification_channels:binding.notification_channels,notification_revision:binding.notification_revision}:{})};
   }
   list() {return this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
-  runs({status,search,schedule_id,after,before,limit=50,offset=0,id,include_total=false}={}) {
+  runs({kind,status,search,schedule_id,after,before,limit=50,offset=0,id,include_total=false}={}) {
     if(!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0)throw invalid('执行记录分页不正确。');
     const query=`SELECT r.task_id AS id,r.schedule_id,r.due_at,r.triggered_at AS created_at,
       json_extract(s.definition,'$.name') AS schedule_name,json_extract(s.definition,'$.timezone') AS timezone,
@@ -53,6 +53,7 @@ export class ScheduleStore {
       FROM platform_schedule_runs r LEFT JOIN platform_schedules s ON s.id=r.schedule_id
       LEFT JOIN agent_requests q ON q.task_id=r.task_id LEFT JOIN platform_inspections i ON i.id=r.task_id`;
     const clauses=[],values=[];
+    if(kind){clauses.push('kind=?');values.push(kind);}
     if(status){clauses.push('status=?');values.push(status);}
     if(schedule_id){clauses.push('schedule_id=?');values.push(schedule_id);}
     if(id){clauses.push('id=?');values.push(id);}

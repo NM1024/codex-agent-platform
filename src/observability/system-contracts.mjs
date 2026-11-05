@@ -9,6 +9,7 @@ export const SYSTEM_ACTIONS=Object.freeze(['cleanup_retry','inspection_reconcile
 export const SYSTEM_SEARCH_ALIASES=Object.freeze({
  modules:{cleanup:'cleanup 清理 删除',sandbox:'sandbox 沙箱',retention:'retention 历史 清理 保留',configuration:'configuration 同步 配置',events:'events 事件 投递',runtime:'runtime 运行 恢复',schedules:'schedules 定时 计划',inspections:'inspections 巡检',notifications:'notifications 通知',delivery:'delivery 回调',health:'health 健康 服务',api:'api 接口 请求',upgrade:'upgrade 升级 版本',system:'system 系统'},
  codes:{EACCES:'permission 权限 拒绝',EPERM:'permission 权限 禁止',EROFS:'permission 权限 只读',UNSAFE_PATH:'permission 权限 路径',ENOSPC:'storage 空间 存储',AUTH_UNAVAILABLE:'authorization 授权 登录',CHATGPT_LOGIN_REQUIRED:'authorization 授权 登录'},
+ works:{'manager:work:running-version':'运行版本 Running version','manager:work:version-check':'版本检查 Version check','manager:work:host-upgrade':'系统升级 System upgrade','manager:work:host-access':'网页升级服务 Web upgrade service'},
 });
 /** Only these fixed descriptions enter public records. Raw message/title/error text is discarded. */
 export const SYSTEM_CODES=Object.freeze({

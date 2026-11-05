@@ -4,6 +4,14 @@ import {notificationEnglish} from './notification-i18n.ts';
 // remain untouched. The preference is local to this browser, not server config.
 const english: Record<string, string> = {
   '系统运维':'System operations',
+  '全部业务类型':'All business types',
+  '全部计划类型':'All plan types',
+  '时间范围':'Time range',
+  '全部时间':'All time',
+  '最近 24 小时':'Last 24 hours',
+  '最近 7 天':'Last 7 days',
+  '最近 30 天':'Last 30 days',
+  '重置筛选':'Reset filters',
   ...sandboxEnglish,
   ...notificationEnglish,
   '高级模型参数':'Advanced model settings',

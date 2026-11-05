@@ -1,10 +1,10 @@
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Empty,Input,Select,Space,Table,Tabs,Typography} from 'antd';
+import {Alert,Button,Empty,Input,Select,Space,Table,Tabs,Tag,Typography} from 'antd';
 import {useConsole} from '../context';
 import {LoadingState,Panel,Status,TableField,TableIdentifier} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
 import ListPagination from '../ListPagination';
-import {systemClassifications,systemCodes,systemModules} from '../system-i18n';
+import {systemClassifications,systemCodes,systemModules,systemWorkNames} from '../system-i18n';
 import {preserveSystemDetail,preserveSystemPage} from '../system-evidence';
 import type {SystemPageEvidence} from '../system-evidence';
 import type {Conversation,SystemDetail,SystemEvent,SystemPageResult,SystemRecord,SystemSource,SystemStatus,SystemWork} from '../types';
@@ -15,6 +15,12 @@ type Filters={search:string;service:string;module:string;state:string;level:stri
 const initial:Filters={search:'',service:'',module:'',state:'',level:'',resolution:'unresolved',range:'all'};
 const services=['manager','gateway','runner'],states=['running','retrying','blocked','unknown','completed','idle','disabled'];
 const serviceName=(value:string)=>({manager:'Manager',gateway:'Gateway',runner:'Runner'}[value]??value);
+// Only matching work outcomes repeat the state badge. Logs retain their event reason,
+// and a completed work item can still carry a meaningful failure or collection gap.
+const redundantWorkCodes:Record<string,string[]>={
+ running:['WORK_RUNNING'],retrying:['WORK_RETRYING'],blocked:['WORK_BLOCKED'],unknown:['WORK_UNKNOWN'],idle:['WORK_IDLE','SYSTEM_OK'],disabled:['WORK_DISABLED'],
+ completed:['WORK_COMPLETED','SYSTEM_OK','UPGRADE_COMPLETED','SERVICE_RECOVERED','RECOVERY_COMPLETED','CLEANUP_COMPLETED','RETENTION_COMPLETED','CONFIGURATION_SYNCED','OPERATION_COMPLETED'],
+};
 export default function SystemPage(){
  const {operation,api,locale,t,setChatId,navigate}=useConsole();
  const [tab,setTab]=useState<Tab>('issues'),[draftFilters,setDraftFilters]=useState<Filters>(initial),[filters,setFilters]=useState<Filters>(initial),[cursors,setCursors]=useState<string[]>(['']),[tick,setTick]=useState(0);
@@ -73,6 +79,11 @@ export default function SystemPage(){
  const stalePage=!!page?.stale_ids.length,staleDetail=partial(detail?.sources),allUnavailable=(items?:SystemSource[])=>!!items?.length&&items.every(source=>!source.available);
  const unavailableSummarySources=status?.sources.filter(source=>!source.available)??[];
  const collectionWarnings=status?.summary.collections.filter(item=>item.gap_count>0||item.pending)??[];
+ const renderName=(row:SystemRecord)=>{
+  const reason=row.kind==='event'||!redundantWorkCodes[row.state]?.includes(row.code),count=row.kind==='work'?row.issue_count:row.count;
+  const name=row.kind==='work'&&row.module==='upgrade'?systemWorkNames[row.id]:undefined;
+  return <TableField label={t(tab==='issues'?'问题与影响':'名称与原因')}><strong>{t(name??systemModules[row.module]??'系统')}</strong>{reason&&<span className="system-record-reason">{code(row.code)}</span>}{(reason||count>0)&&<small>{reason&&<code>{row.code}</code>}{count>0&&<>{reason?' · ':''}{t(row.kind==='work'?'问题次数':'出现次数')} {count}</>}</small>}</TableField>;
+ };
  const renderState=(row:SystemRecord)=><Status value={row.kind==='event'?row.level:row.state}/>;
  const renderRecovery=(row:SystemWork)=><Typography.Text type="secondary">{row.issue_opened_at?t(row.resolved_at?'已恢复':'未恢复'):'—'}</Typography.Text>;
  const renderVerification=(row:SystemWork)=>row.verification_required?<Status value="需要核验"/>:<Typography.Text type="secondary">—</Typography.Text>;
@@ -90,7 +101,7 @@ export default function SystemPage(){
   {statusError&&<Alert type="warning" showIcon title={t(status?'刷新失败，数据可能过期；保留上次读取的记录。':'概览暂时无法读取。')}/>}
   {status&&(!status.summary.complete||unavailableSummarySources.length>0||collectionWarnings.length>0)&&<div className="system-summary-alerts">{(!status.summary.complete||unavailableSummarySources.length>0)&&<Alert type="warning" showIcon title={t('概览来源不完整；统计仅包含可用来源，不能据此判断系统健康。')} description={unavailableSummarySources.length?<Space wrap>{unavailableSummarySources.map(source=><span key={source.service}>{serviceName(source.service)}{source.error_code&&<> · <code>{source.error_code}</code></>}</span>)}</Space>:undefined}/>} {collectionWarnings.map(item=><Alert key={item.service} type="warning" showIcon title={serviceName(item.service)+' · '+t(item.pending?'待补记采集证据':'采集存在缺口')} description={<span>{t('采集失败次数')} {item.failed_operations} · {t('最近采集失败')} {format(item.last_failed_at)} · {t('最近采集恢复')} {format(item.last_recovered_at)}</span>}/>)}</div>}
   <Tabs activeKey={tab} onChange={chooseTab} aria-label={t('系统运维')} items={[{key:'issues',label:t('待处理问题')},{key:'work',label:t('后台工作')},{key:'logs',label:t('系统日志')}]}/>
-  <Panel title={t(tab==='issues'?'待处理问题':tab==='work'?'后台工作':'系统日志')} extra={<Button id="system-refresh" onClick={refresh} loading={loading||statusLoading}>{t('刷新')}</Button>}>
+  <Panel title={t(tab==='issues'?'待处理问题':tab==='work'?'后台工作':'系统日志')} extra={<><Typography.Text className="system-heading-notice" type="secondary">{t(tab==='issues'?'相同问题合并计数，恢复历史按解决状态筛选；当前工作状态单独显示。':tab==='work'?'没有新进展不代表完成；需要核验的工作保留原状态。':'仅记录脱敏系统事件，不包含业务正文、提示词或凭证。')}</Typography.Text><Button id="system-refresh" aria-label={t('刷新')} aria-busy={loading||statusLoading} onClick={refresh} loading={loading||statusLoading}>{t('刷新')}</Button></>}>
    <form className="system-filters" onSubmit={e=>{e.preventDefault();if(!loading)apply();}}>
     <Input id="system-search" type="search" maxLength={200} aria-label={t('搜索关键词、错误码或编号')} placeholder={t('搜索关键词、错误码或编号')} value={draftFilters.search} onChange={e=>setDraftFilters(value=>({...value,search:e.target.value}))}/>
     <Select virtual={false} id="system-service" aria-label={t('按服务筛选')} value={draftFilters.service} options={[{value:'',label:t('全部服务')},...services.map(value=>({value,label:serviceName(value)}))]} onChange={service=>setDraftFilters(value=>({...value,service}))}/>
@@ -101,21 +112,21 @@ export default function SystemPage(){
     <Select virtual={false} id="system-range" aria-label={t('时间范围')} value={draftFilters.range} options={['all','24h','7d'].map((value,index)=>({value,label:t(['全部时间','最近 24 小时','最近 7 天'][index])}))} onChange={range=>setDraftFilters(value=>({...value,range}))}/>
     <Button id="system-query" type="primary" htmlType="submit" loading={loading}>{t('查询')}</Button>
    </form>
-   <Typography.Paragraph className="system-notice" type="secondary">{t(tab==='issues'?'相同问题合并计数，恢复历史按解决状态筛选；当前工作状态单独显示。':tab==='work'?'没有新进展不代表完成；需要核验的工作保留原状态。':'仅记录脱敏系统事件，不包含业务正文、提示词或凭证。')}</Typography.Paragraph>
    {page&&sources(page.sources,'system-sources')}{partial(page?.sources)&&sourceWarning}
    {pageError&&<Alert type="warning" showIcon title={t(page?'刷新失败，数据可能过期；保留上次读取的记录。':'数据加载失败，请刷新重试。')}/>}
    {stalePage&&<Alert type="warning" showIcon title={t('部分来源失败，数据可能过期；保留已知记录，暂停分页，恢复后请刷新。')}/>}
    {actionError&&!selection&&<Alert type="error" showIcon title={t(actionError)}/>}
    {loading&&!page?<LoadingState/>:<Table<SystemRecord> id="system-records" rowKey="id" dataSource={page?.items??[]} loading={loading} pagination={false} tableLayout="fixed" className="responsive-table expanded-table system-table" locale={{emptyText:<Empty description={t(pageError?'数据加载失败，请刷新重试。':partial(page?.sources)?'来源暂时无法读取。':'没有匹配的记录，请调整筛选条件。')}/>}} columns={[
-    {title:t(tab==='issues'?'问题与影响':'名称与原因'),key:'name',width:tab==='logs'?'29%':'21%',className:'table-name-cell',render:(_,row)=><TableField label={t('名称与原因')}><strong>{t(systemModules[row.module]??'系统')}</strong><div>{code(row.code)}</div><small><code>{row.code}</code>{row.kind==='work'?' · '+t('问题次数')+' '+row.issue_count:' · '+row.count}</small></TableField>},
-    {title:t('服务与编号'),key:'identity',width:tab==='logs'?'21%':'19%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('服务与编号')}><div>{serviceName(row.service)}</div><TableIdentifier value={row.id}/>{page?.stale_ids.includes(row.id)&&<Typography.Text className="system-data-freshness" type="warning">{t('数据可能过期')}</Typography.Text>}</TableField>},
-    {title:t(tab==='logs'?'日志级别':'工作状态'),key:'state',width:tab==='logs'?'16%':'11%',className:'table-status-cell',render:(_,row)=><TableField label={t(tab==='logs'?'日志级别':'工作状态')}>{renderState(row)}</TableField>},
+    {title:t('服务'),key:'service',width:'9%',className:'system-service-cell',render:(_,row)=><TableField label={t('服务')}><Tag className="system-service-tag">{serviceName(row.service)}</Tag></TableField>},
+    {title:t(tab==='issues'?'问题与影响':'名称与原因'),key:'name',width:tab==='logs'?'29%':'20%',className:'table-name-cell',render:(_,row)=>renderName(row)},
+    {title:t('编号'),key:'identity',width:tab==='logs'?'21%':'18%',className:'table-identifier-cell',render:(_,row)=><TableField label={t('编号')}><TableIdentifier value={row.id}/>{page?.stale_ids.includes(row.id)&&<Typography.Text className="system-data-freshness" type="warning">{t('数据可能过期')}</Typography.Text>}</TableField>},
+    {title:t(tab==='logs'?'日志级别':'工作状态'),key:'state',width:tab==='logs'?'12%':'10%',className:'table-status-cell',render:(_,row)=><TableField label={t(tab==='logs'?'日志级别':'工作状态')}>{renderState(row)}</TableField>},
     ...(tab==='logs'?[]:[
-     {title:t('问题恢复'),key:'resolution',width:'10%',className:'system-resolution-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('问题恢复')}>{row.kind==='work'&&renderRecovery(row)}</TableField>},
-     {title:t('核验情况'),key:'verification',width:'10%',className:'system-verification-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('核验情况')}>{row.kind==='work'&&renderVerification(row)}</TableField>},
+     {title:t('问题恢复'),key:'resolution',width:'9%',className:'system-resolution-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('问题恢复')}>{row.kind==='work'&&renderRecovery(row)}</TableField>},
+     {title:t('核验情况'),key:'verification',width:'9%',className:'system-verification-cell',render:(_:unknown,row:SystemRecord)=><TableField label={t('核验情况')}>{row.kind==='work'&&renderVerification(row)}</TableField>},
     ]),
-    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:workTime(row))}{row.kind==='work'&&<>{progressing(row)&&<small>{progress(row)}</small>}{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
-    {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('交给管理 Agent')}</Button>}</Space>},
+    {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'18%':'16%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:workTime(row))}{row.kind==='work'&&<>{progressing(row)&&<small>{progress(row)}</small>}{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
+    {title:t('操作'),key:'actions',width:tab==='logs'?'11%':'9%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('交给管理 Agent')}</Button>}</Space>},
    ]}/>}
    <ListPagination id="system-pagination" page={page?loadedPage:cursors.length} pageSize={pageSize} total={pageError||stalePage?null:page?.total} totalComplete={!pageError&&!stalePage&&page?.total_complete===true} loading={loading} disabled={stalePage} hasPrevious={cursors.length>1} hasNext={!!page?.next_cursor&&!pageError} onPrevious={()=>setCursors(value=>value.slice(0,-1))} onNext={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}} onPageSizeChange={size=>{setPageSize(size);setCursors(['']);}}/>
   </Panel>

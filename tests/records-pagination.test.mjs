@@ -48,11 +48,18 @@ test('schedule totals retain deleted plans and count both task and inspection ex
   const second=await service.execute('schedule_runs',{include_total:true,limit:100,offset:100});
   assert.equal(second.total,130);assert.equal(second.items.length,30);
   assert.equal(new Set([...first.items,...second.items].map(row=>row.id)).size,130);
-  for(const [filter,want] of [[{search:'inspection plan'},65],[{schedule_id:task.id},65],[{status:'cancelled'},65],[{status:'queued',search:'task plan'},65],[{after:start+60000,before:start+4*60000},6],[{search:'absent'},0]]) {
+  for(const [filter,want] of [[{kind:'inspection'},65],[{kind:'task'},65],[{kind:'inspection',status:'cancelled',search:'inspection plan',after:start+60000,before:start+4*60000},3],[{kind:'task',status:'cancelled'},0],[{search:'inspection plan'},65],[{schedule_id:task.id},65],[{status:'cancelled'},65],[{status:'queued',search:'task plan'},65],[{after:start+60000,before:start+4*60000},6],[{search:'absent'},0]]) {
     const page=await service.execute('schedule_runs',{...filter,include_total:true,limit:20,offset:40});
     assert.equal(page.total,want);assert.ok(page.items.length<=20);
+    if(filter.kind)assert.ok(page.items.every(row=>row.kind===filter.kind));
   }
+  const combined=await service.execute('schedule_runs',{kind:'inspection',status:'cancelled',search:'inspection plan',after:start+60000,before:start+4*60000,include_total:true,limit:2,offset:1});
+  assert.equal(combined.total,3);assert.equal(combined.items.length,2);
+  assert.ok(combined.items.every(row=>row.kind==='inspection'&&row.status==='cancelled'&&row.created_at>=start+60000&&row.created_at<start+4*60000));
   assert.deepEqual(await service.execute('schedule_runs',{include_total:true,offset:1000}),{items:[],total:130});
+  const legacy=await service.execute('schedule_runs',{kind:'inspection',limit:200});
+  assert.equal(legacy.length,65);assert.ok(legacy.every(row=>row.kind==='inspection'));
+  await assert.rejects(service.execute('schedule_runs',{kind:'unsupported',include_total:true}),{status:400,code:'INVALID_MANAGEMENT_INPUT'});
 });
 
 test('counted records cap page size at 100 and legacy callers retain arrays and limit 200',async t=>{
@@ -69,6 +76,10 @@ test('counted records cap page size at 100 and legacy callers retain arrays and 
 
 test('Admin record routes request totals through Manager operations and preserve legacy responses',async t=>{
   const {store,service}=fixture(t);tasks(store);
+  const start=Date.parse('2026-10-22T00:00:00Z'),common={cron:'* * * * *',timezone:'Etc/UTC',enabled:true};
+  service.schedules.save({...common,name:'Synthetic task plan',kind:'task',type:'synthetic.alpha',input:{}},start);
+  service.schedules.save({...common,name:'Synthetic inspection plan',kind:'inspection',message:'Synthetic inspection only'},start);
+  await service.schedules.tick(start+60000);
   const operations=createManagerOperations({store:{},client:{execute:(...args)=>service.execute(...args)},models:async()=>[]});
   const server=createManagerServer({store:{},auth:{authorize:()=>true},agent:{},operations,metrics:{}});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -77,7 +88,10 @@ test('Admin record routes request totals through Manager operations and preserve
   const page=await(await fetch(`${base}/tasks?include_total=1&search=needle&limit=20&offset=100`)).json();
   assert.equal(page.total,110);assert.equal(page.items.length,10);
   const schedules=await(await fetch(`${base}/schedule-runs?include_total=1&limit=20`)).json();
-  assert.deepEqual(schedules,{items:[],total:0});
+  assert.equal(schedules.total,2);
+  const inspectionPage=await(await fetch(`${base}/schedule-runs?include_total=1&kind=inspection&search=inspection&after=${start}&limit=20`)).json();
+  assert.equal(inspectionPage.total,1);assert.equal(inspectionPage.items.length,1);assert.equal(inspectionPage.items[0].kind,'inspection');
+  assert.equal((await fetch(`${base}/schedule-runs?include_total=1&kind=unsupported`)).status,400);
   for(const path of ['tasks','schedule-runs']) {
     assert.equal((await fetch(`${base}/${path}?include_total=1&limit=101`)).status,400);
     assert.ok(Array.isArray(await(await fetch(`${base}/${path}?limit=200`)).json()));

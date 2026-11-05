@@ -48,6 +48,15 @@ test('counts retain service, issue recovery, time, state and literal localized s
  assert.equal(events.total,1);assert.equal(events.items.length,1);
 });
 
+test('concise upgrade work labels find the matching work and its related log events',t=>{
+ const {journal}=fixture(t);
+ for(const id of ['running-version','version-check','host-upgrade','host-access'])work(journal,id,{module:'upgrade',state:'completed',code:'SYSTEM_OK'});
+ for(const [search,id] of [['运行版本','running-version'],['Running version','running-version'],['版本检查','version-check'],['Version check','version-check'],['系统升级','host-upgrade'],['SYSTEM UPGRADE','host-upgrade'],['网页升级服务','host-access'],['Web upgrade service','host-access']]){
+  const page=journal.works({search,include_total:true});assert.equal(page.total,1,search);assert.deepEqual(page.items.map(item=>item.id),['manager:work:'+id]);
+  const events=journal.logs({search,include_total:true});assert.ok(events.total>0,search);assert.ok(events.items.every(item=>item.work_id==='manager:work:'+id),search);
+ }
+});
+
 test('federation sums actual filtered owner totals and preserves legacy response shapes',async t=>{
  const journals=Object.fromEntries(['manager','gateway','runner'].map(service=>[service,fixture(t,service).journal]));
  for(const journal of Object.values(journals))for(let i=0;i<12;i++)work(journal,`match-${i}`);

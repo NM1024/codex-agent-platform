@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import {Alert,Button,Descriptions,Input,Select,Space,Table,Tooltip,Typography} from 'antd';
+import {Alert,Button,Descriptions,Select,Space,Table,Tooltip,Typography} from 'antd';
 import {useConsole} from '../context';
 import {Panel,Status,TableField,TableIdentifier,taskStatuses,time} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
@@ -8,18 +8,19 @@ import {InvestigationDialog} from '../InvestigationDialog';
 import {PluginActionIcon} from '../PluginActionIcon';
 import {Icon} from '../Icon';
 import {ListPagination} from '../ListPagination';
+import {RecordFilters,recordAfter,type RecordRange} from './RecordFilters';
 interface Execution {id:string;schedule_id:string;schedule_name:string;kind:'task'|'inspection';status:string;timezone:string;created_at:number;due_at:number;message?:string;error?:{code:string;message?:string}}
 export default function ScheduleRunsPage(){
  const {api,t}=useConsole();
- const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[pageSize,setPageSize]=useState(20),[tick,setTick]=useState(0),[selected,setSelected]=useState<Execution>(),[investigate,setInvestigate]=useState<string>();
- const query=new URLSearchParams({...filter,offset:String(offset),limit:String(pageSize),include_total:'1'});
+ const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[kind,setKind]=useState(''),[range,setRange]=useState<RecordRange>('all'),[filter,setFilter]=useState<{search:string;status:string;kind:string;after?:number}>({search:'',status:'',kind:''}),[offset,setOffset]=useState(0),[pageSize,setPageSize]=useState(20),[tick,setTick]=useState(0),[selected,setSelected]=useState<Execution>(),[investigate,setInvestigate]=useState<string>();
+ const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),...(filter.kind?{kind:filter.kind}:{}),...(filter.after!==undefined?{after:String(filter.after)}:{}),offset:String(offset),limit:String(pageSize),include_total:'1'});
  const [data,setData]=useState<Execution[]|{items:Execution[];total:number}>(),[loading,setLoading]=useState(true),[error,setError]=useState(false);
  useEffect(()=>{let active=true;setLoading(true);void api<Execution[]|{items:Execution[];total:number}>('/schedule-runs?'+query).then(value=>{if(active){setData(value);setError(false);}}).catch(()=>{if(active)setError(true);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[api,filter,offset,pageSize,tick]);
  const rows=Array.isArray(data)?data:data?.items??[],total=data&&!Array.isArray(data)?data.total:null;
  return <Space orientation="vertical" size="large" className="full-width">
-  <div className="task-filters"><Select virtual={false} aria-label={t('任务状态')} value={status} onChange={setStatus} options={[{value:'',label:t('全部状态')},...[...new Set([...taskStatuses,'pending','interrupted','cancelled','unknown'])].map(value=>({value,label:<Status value={value}/>}))]}/><Input aria-label={t('搜索定时执行')} placeholder={t('搜索计划名称或执行编号')} value={search} onChange={event=>setSearch(event.target.value)} onPressEnter={()=>{setOffset(0);setFilter({search,status});setTick(value=>value+1);}}/><Button type="primary" aria-label={t('查询')} aria-busy={loading} loading={loading} onClick={()=>{setOffset(0);setFilter({search,status});setTick(value=>value+1);}}>{t('查询')}</Button></div>
-  {error&&<Alert type="error" title={t('定时执行记录暂时无法读取，请重试。')} action={<Button onClick={()=>setTick(value=>value+1)}>{t('重试')}</Button>}/>}
-  <Panel title={t('定时任务执行记录')}>
+  <Panel title={t('定时任务执行记录')} extra={<Button aria-label={t('刷新')} aria-busy={loading} onClick={()=>setTick(value=>value+1)} loading={loading}>{t('刷新')}</Button>}>
+   <RecordFilters id="schedule-run" search={search} searchLabel={t('搜索定时执行')} searchPlaceholder={t('搜索计划名称或执行编号')} onSearch={setSearch} typeFilter={<Select virtual={false} id="schedule-run-kind" aria-label={t('计划类型')} value={kind} options={[{value:'',label:t('全部计划类型')},{value:'task',label:t('业务任务')},{value:'inspection',label:t('管理巡检')}]} onChange={setKind}/>} status={status} statuses={[...new Set([...taskStatuses,'pending','interrupted','cancelled','unknown'])]} onStatus={setStatus} range={range} onRange={setRange} loading={loading} onSubmit={()=>{setOffset(0);setFilter({search:search.trim(),status,kind,after:recordAfter(range)});}} onReset={()=>{setSearch('');setStatus('');setKind('');setRange('all');setOffset(0);setFilter({search:'',status:'',kind:''});}}/>
+   {error&&<Alert type="error" title={t('定时执行记录暂时无法读取，请重试。')} action={<Button onClick={()=>setTick(value=>value+1)}>{t('重试')}</Button>}/>}
    <Table<Execution> loading={loading} rowKey="id" dataSource={rows} pagination={false} className="responsive-table expanded-table" tableLayout="fixed" locale={{emptyText:t('暂无计划执行记录')}} columns={[
     {title:t('计划名称'),key:'name',width:'16%',className:'table-name-cell',render:(_,row)=><TableField label={t('计划名称')}><span className="table-summary" title={row.schedule_name}>{row.schedule_name}</span></TableField>},
     {title:t('计划类型'),key:'kind',width:'12%',className:'table-target-cell',render:(_,row)=><TableField label={t('计划类型')}>{t(row.kind==='inspection'?'管理巡检':'业务任务')}</TableField>},

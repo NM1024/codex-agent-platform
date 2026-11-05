@@ -1,3 +1,4 @@
+const boltPath='m13 2-9 12h7l-1 8 10-12h-7l1-8Z';
 const paths={
   cpu:'M7 7h10v10H7z M4 9H2 M4 15H2 M22 9h-2 M22 15h-2 M9 4V2 M15 4V2 M9 22v-2 M15 22v-2 M4 4h16v16H4z',
   memory:'M3 6h18v12H3z M7 10h3v4H7z M14 10h3v4h-3z M7 18v3 M12 18v3 M17 18v3',
@@ -24,12 +25,13 @@ const paths={
   chevron:'m7 10 5 5 5-5',
   inherit:'M6 4v9h13 m-5-5 5 5-5 5',
   reset:'M3 11a9 9 0 1 0 3-6 M3 3v6h6',
-  bolt:'m13 2-9 12h7l-1 8 10-12h-7l1-8Z',
+  bolt:boltPath,
+  boltFilled:boltPath,
   attachment:'m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L12 3a7 7 0 0 1 10 10L12 23',
   trash:'M3 6h18 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7',
   close:'m6 6 12 12 M18 6 6 18',
 } as const;
 
 export function Icon({name}:{name:keyof typeof paths}) {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill={name==='stop'?'currentColor':'none'} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]}/></svg>;
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill={name==='stop'||name==='boltFilled'?'currentColor':'none'} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]}/></svg>;
 }

@@ -243,6 +243,8 @@ export class SystemJournal {
           const matched=Object.entries(aliases).filter(([,alias])=>alias.toLowerCase().includes(q.search.toLowerCase())).map(([key])=>key);
           if(matched.length){terms.push(`json_extract(record,'$.${field}') IN (${matched.map(()=>'?').join(',')})`);params.push(...matched);}
         }
+        const namedWork=Object.entries(SYSTEM_SEARCH_ALIASES.works).filter(([,alias])=>alias.toLowerCase().includes(q.search.toLowerCase())).map(([id])=>id);
+        if(namedWork.length){terms.push(`json_extract(record,'$.${event?'work_id':'id'}') IN (${namedWork.map(()=>'?').join(',')})`);params.push(...namedWork);}
         where.push(`(${terms.join(' OR ')})`);
       }
       // Count the complete filtered set before applying the current page position.
