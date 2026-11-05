@@ -10,6 +10,21 @@ import subprocess
 import tarfile
 
 
+def verify_release_identity(source, tag, verified_revision):
+    """Bind a manual publication to the exact commit checked by its operator."""
+    if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag or ''):
+        raise ValueError('A stable vX.Y.Z tag is required')
+    if not re.fullmatch(r'[a-f0-9]{40}', verified_revision or ''):
+        raise ValueError('The full commit SHA verified locally is required')
+    source = Path(source)
+    revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+    if revision != verified_revision:
+        raise ValueError('Tagged source differs from the commit verified locally')
+    if json.loads((source / 'package.json').read_text())['version'] != tag[1:]:
+        raise ValueError('Tag and package version differ')
+    return revision
+
+
 def bootstrap_text(helper):
     return r'''#!/usr/bin/env bash
 set -euo pipefail

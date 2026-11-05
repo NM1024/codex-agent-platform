@@ -1,8 +1,5 @@
-name: CI
+name: Optional verification
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -10,8 +7,6 @@ on:
         type: choice
         options: [full, release]
         default: full
-  schedule:
-    - cron: '17 3 * * 1'
 permissions:
   contents: read
 concurrency:

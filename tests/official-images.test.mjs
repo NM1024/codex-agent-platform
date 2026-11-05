@@ -177,6 +177,18 @@ with tempfile.TemporaryDirectory() as d:
  assert images.source_revision(target)==revision
 `));
 
+test('release publishing accepts only the stable tag and exact commit verified locally',()=>python(`
+import importlib.util,json,subprocess
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('packager','scripts/package-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+source=Path.cwd();revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip();version=json.loads((source/'package.json').read_text())['version']
+assert p.verify_release_identity(source,'v'+version,revision)==revision
+for tag,verified in [('v'+version,'f'*40),('v'+version,''),('v'+version,'HEAD'),('v999.0.0',revision),('v'+version+'-beta',revision),('v'+version,revision.upper())]:
+ try:p.verify_release_identity(source,tag,verified)
+ except ValueError:pass
+ else:raise AssertionError((tag,verified))
+`));
+
 test('CI reruns restore and recheck existing exact-revision candidates before rebuilding missing components',()=>python(fixture+`
 import importlib.util
 spec=importlib.util.spec_from_file_location('publisher','scripts/container-release.py');p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)

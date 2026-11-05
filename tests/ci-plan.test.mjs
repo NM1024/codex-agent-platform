@@ -101,7 +101,7 @@ test('the real Git planner includes both sides of renames and writes safe Action
  run(process.execPath,['scripts/ci.mjs','plan'],{CI_BASE_SHA:base,CI_MODE:'auto',GITHUB_EVENT_NAME:'pull_request'});p=JSON.parse(await readFile(join(root,'.tmp/ci-plan.json'),'utf8'));assert.ok(p.files.includes('frontend/src/pages/TasksPage.tsx'));assert.ok(p.files.includes('frontend/src/pages/Renamed.tsx'));assert.equal(p.full,true);
 });
 
-test('official release helpers require container verification and trusted publication gates release proof',async t=>{
+test('optional CI retains container verification while releases use local revision verification',async t=>{
  for(const file of ['scripts/official_images.py','scripts/container-release.py','scripts/dependency-manifests.mjs'])assert.equal(plan([file]).release,true,file);
  let workflow;
  try{workflow=await readFile('.github/workflows/ci.yml','utf8');}catch(error){if(error.code==='ENOENT'){t.skip('Workflow files are validated on the CI host, outside the distributable image');return;}throw error;}
@@ -110,5 +110,11 @@ test('official release helpers require container verification and trusted public
  assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')>workflow.indexOf('Verify real Compose source and image updates'));
  assert.ok(workflow.indexOf('Preserve successfully tested official image candidates')<workflow.indexOf('Run selected browser verification'));
  assert.equal(releaseEvidence({head_sha:'a'.repeat(40),conclusion:'failure'},[{name:'test',conclusion:'failure'},{name:'Release verification ('+'a'.repeat(40)+')',conclusion:'success'}],'a'.repeat(40)),false,'saved candidates cannot authorize a failed browser run');
- const release=await readFile('.github/workflows/release.yml','utf8');assert.match(release,/container-release\.py promote/);assert.doesNotMatch(release,/docker build/);
+ assert.match(workflow,/^  workflow_dispatch:/m);
+ assert.doesNotMatch(workflow,/^  (?:pull_request|push|schedule):/m,'ordinary GitHub activity must not run tests');
+ const release=await readFile('.github/workflows/release.yml','utf8');
+ assert.match(release,/verified_sha:/);assert.match(release,/verify_release_identity/);
+ assert.match(release,/docker build/);assert.match(release,/container-release\.py promote/);
+ assert.ok(release.indexOf('verify_release_identity')<release.indexOf('docker build'),'identity must be checked before builds or publication');
+ assert.doesNotMatch(release,/verify-release-ci|npm test|playwright|ci\.mjs/,'publishing must not repeat local tests');
 });

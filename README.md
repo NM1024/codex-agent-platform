@@ -303,7 +303,7 @@ sudo bash /tmp/codex-platform-update.sh update --method image
 sudo bash /tmp/codex-platform-update.sh update --method source
 ```
 
-Official images are built and tested in our public GitHub CI. The updater checks exact release revision, component, platform, IDs and checksums. It tries fixed GHCR digest references, then the identical public GitHub Release image archive if GHCR is unavailable. A new GHCR package can require its owner to set public visibility once; Release archive downloads remain available without registry login. Image mode never falls back to compiling; select source mode explicitly if needed. The Admin version dialog offers the same choices when the installed host updater advertises them; older helpers retain their release default until updated.
+Official images are built by the manual GitHub release workflow from the exact source revision verified locally. The updater checks exact release revision, component, platform, IDs and checksums. It tries fixed GHCR digest references, then the identical public GitHub Release image archive if GHCR is unavailable. A new GHCR package can require its owner to set public visibility once; Release archive downloads remain available without registry login. Image mode never falls back to compiling; select source mode explicitly if needed. The Admin version dialog offers the same choices when the installed host updater advertises them; older helpers retain their release default until updated.
 
 Official mode avoids local builds and their cache, but downloaded layers, retained images and private backups still need space. To preview old project image tags eligible for removal, run `sudo ./deploy.sh cleanup-images /data/codex-agent-platform`; add `--apply` to remove only those tags. Cleanup keeps the newest three project versions and all images used by running or stopped containers. It never globally prunes Docker, touches volumes/data, removes other application tags or deletes backups.
 
@@ -382,7 +382,7 @@ npm test
 npm run check:release
 ```
 
-The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. CI selects affected browser suites and core entry checks from changes and shared imports; deployment/release verification additionally builds all release targets and tests real upgrades. Unknown or foundational changes expand to full checks, which also run weekly and on manual request. PRs only restore dependency caches, and browser failure artifacts expire after 3 days. See [CI scope, release authorization and retention](docs/CI.md) and [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration). Tests use synthetic data and fake Codex transports.
+The Admin frontend uses React, TypeScript and Ant Design, with one production bundle and no legacy frontend fallback. Run code checks and affected browser suites locally before publishing, using synthetic data and fake Codex transports. PRs, pushes and weekly schedules do not automatically run GitHub tests. GitHub builds official images and publishes immutable assets on manual release, checking that the stable tag matches the full commit verified locally. An optional verification workflow remains available for explicit manual use. See [local verification, publishing and retention](docs/CI.md) and [validation scope and environment limitations](docs/VALIDATION.md#model-settings-and-react-admin-migration).
 
 | Document | Purpose |
 | --- | --- |

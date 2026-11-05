@@ -1,39 +1,43 @@
-# Continuous integration scope and retention
+# Local verification and release publishing
 
-CI selects verification from the changed files, records its reasons in the Actions summary and `.tmp/ci-plan.json`, and follows relative imports to include consumers of shared frontend components and browser helpers. New or unclassified runtime paths and unavailable change bases expand to full verification. Changes are compared against the PR base or previous main commit; renames include both old and new paths.
+Verification normally runs in the development environment. Pull requests, ordinary pushes and weekly schedules do not automatically start GitHub tests. GitHub is used for the manually requested official image build, packaging and publication.
 
-| Change | Verification |
-| --- | --- |
-| Markdown documentation only | CI policy checks; no dependency install, browser or image build |
-| Frontend page/component | Build, types, complete Node test suite, release-source checks, core browser entry checks and affected page suites |
-| Shared shell navigation | Core login, seven-page navigation, reload/history, language and related shared-interface coverage |
-| Authentication/session provider, shared translation logic, schema, dependency or unclassified runtime changes | Full browser and container/upgrade verification |
-| Deployment, sandbox host helper or application version metadata | Container isolation/network, all release images, container tests, real Compose upgrade and relevant browser suites |
-| Browser test/helper | Changed tests and indirect helper consumers, plus core entry checks |
+## Check the affected code locally
 
-The Node suite includes the frontend build/type check, so CI does not repeat that build before Playwright. Existing legacy console cases carry scope tags; the runner checks the real Playwright inventory and rejects unscoped legacy cases. New dedicated browser files are selected directly, and their actual page navigation supplements the ownership map. Dynamic navigation expands page consumers conservatively. Core entry coverage runs alongside scoped browser suites. Unknown frontend dependencies expand rather than silently dropping coverage.
+Run the required code checks:
 
-## Triggers and manual verification
+```bash
+npm test
+npm run check:release
+```
 
-Pull requests run on creation and updates. Only pushes to `main` trigger push CI, avoiding the duplicate feature-branch push/PR pair. Tag pushes do not start another copy of an already-tested commit. A newer run cancels an older run for the same PR/ref. Full verification also runs every Monday at 03:17 UTC.
+`npm test` includes the production frontend build and TypeScript checks. Run browser suites for directly and indirectly affected pages, adding shared login, navigation or responsive-layout checks when those paths change. Use synthetic data and mocked Codex transports; do not submit real production tasks. For example, a chat picker change should cover model settings, saved speed state and phone layout rather than unrelated plugin editors.
 
-Manual workflows provide two modes:
+Run container, sandbox or upgrade checks locally when those paths change. Record actual passing commands and environment limitations in the PR. Complete checks on the final commit before publishing; changing code after verification requires checking the affected changes again.
+
+## Publish the verified commit
+
+Create the stable tag at that exact commit, then explicitly supply both the tag and full locally verified commit SHA:
+
+```bash
+gh workflow run release.yml --ref main -f tag=vX.Y.Z -f verified_sha=FULL_40_CHARACTER_COMMIT_SHA
+```
+
+The publisher checks the stable tag format, package version and exact checkout SHA before building or pushing images. The supplied SHA is the operator's confirmation of local verification; it does not require a GitHub test run. It builds four official Linux amd64 images from the tagged source, validates OCI version/component/revision labels, publishes immutable image tags and packages those same images. A retry may reuse candidates only after checking their exact revision and labels. Source, update script, image manifest and image archive checksums are verified after upload before the draft becomes the latest stable release. Published releases remain immutable.
+
+## Optional remote verification
+
+The broader verification workflow remains available only on explicit manual request:
 
 ```bash
 gh workflow run ci.yml --ref <branch-or-tag> -f mode=full
 gh workflow run ci.yml --ref <branch-or-tag> -f mode=release
 ```
 
-`full` runs every browser suite and container/upgrade check. `release` compares against the previous reachable stable tag, selects related browser suites and always executes container/upgrade checks. If no safe base exists it expands to full verification.
-
-## Release authorization
-
-A green scoped CI is not sufficient to publish. The publisher requires a successful `test` job and a successful `Release verification (<tested SHA>)` job in the same successful CI run on the exact tagged commit. CI explicitly checks out the PR head or push commit; the proof job includes the actual checkout SHA, so a PR's synthetic merge revision cannot qualify a tag at a different commit. That second job only runs after required code, browser, isolation, image and both source/image Compose update checks succeed and the four tested official candidates have been preserved. Candidates are saved after container/upgrade checks, before browser checks, so registry failures surface early and retries can reuse them. A saved candidate never authorizes release when a later browser check fails. Fork PRs cannot publish candidates or obtain this release proof. The publisher pulls those exact candidates, validates release OCI labels and config IDs, and never rebuilds release images. A skipped or failed job is not evidence. Normal application version-bump PRs request this verification automatically; otherwise run manual release verification on the tag before publishing. Published tags and release files remain immutable.
+It can select browser suites from changed files and shared imports, or run complete container and upgrade checks. It is not a release prerequisite and is never started automatically by a PR, push, tag or schedule.
 
 ## Storage
 
-Npm download caches are keyed by the dependency lock contents excluding the application's own version fields. Updating only the application version reuses the same cache. PRs restore caches but do not save them; successful main-branch runs may save a missing dependency cache. Cache operations are optional and do not block verification if GitHub storage is unavailable.
+Normal releases do not upload browser artifacts or create Actions dependency caches. Optional manual verification retains its existing cache policy and failure-only browser evidence with a three-day expiry. Workflow logs and existing caches follow repository retention settings; disabling automatic runs does not delete historical storage.
 
-Browser screenshots and error contexts upload only when checks fail, expire after 3 days, and upload errors do not conceal the original failure. Successful runs retain no browser artifact uploads. Workflow run records and logs follow repository settings; this change does not delete historical records or change paid budgets. GitHub Actions retention is independent of the platform's runtime history policy. Weekly full checks are one audit run per week, not a model task or production operation.
-
-Official images use GHCR packages, separate from Actions artifact storage. Each trusted release-verification run preserves immutable `COMPONENT-ci-SHA` candidates in one fixed project package; the stable publisher promotes them to version tags and includes the identical images in public Release assets. These candidates and version tags are retained for reproducibility and recovery, so GHCR history can accumulate; it is not covered by Actions artifact expiry. There are no automatic package deletions. Local dependency layers normalize only application version metadata and remove npm download caches within the install layer, reducing repeated layer growth without changing locked dependencies.
+Official images and immutable revision candidates are GHCR packages, separate from Actions artifact storage. Version tags and candidates can accumulate; there is no automatic package deletion. Public Release archives remain available without registry login. GitHub retention is independent of the platform's runtime history cleanup policy.

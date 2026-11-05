@@ -3,12 +3,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tested stable tag (vX.Y.Z)
+        description: Stable tag checked locally (vX.Y.Z)
+        required: true
+        type: string
+      verified_sha:
+        description: Full commit SHA verified locally before publishing
         required: true
         type: string
 permissions:
   contents: write
-  actions: read
   packages: write
 concurrency:
   group: publish-${{ inputs.tag }}
@@ -19,6 +22,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
+      VERIFIED_SHA: ${{ inputs.verified_sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,26 +32,35 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           path: .tmp/release-source
-      - name: Require exact-commit release verification and matching stable version
+      - name: Match the stable tag to the commit verified locally
         run: |
           python3 -B - <<'PY'
-          import json, os, re, subprocess
-          tag = os.environ['RELEASE_TAG']
-          if not re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag):
-              raise SystemExit('A stable vX.Y.Z tag is required')
-          sha = subprocess.check_output(['git', '-C', '.tmp/release-source', 'rev-parse', 'HEAD'], text=True).strip()
-          info = json.load(open('.tmp/release-source/package.json'))
-          if info['version'] != tag[1:]:
-              raise SystemExit('Tag and package version differ')
-          subprocess.run(['node', 'scripts/verify-release-ci.mjs', os.environ['GITHUB_REPOSITORY'], sha], check=True)
-          print(f'Publishing validated tag {tag} from {sha}')
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location('packager', '.tmp/release-source/scripts/package-release.py')
+          packager = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(packager)
+          sha = packager.verify_release_identity('.tmp/release-source', os.environ['RELEASE_TAG'], os.environ['VERIFIED_SHA'])
+          print(f'Publishing locally verified tag {os.environ["RELEASE_TAG"]} from {sha}')
           PY
       - name: Package only the tested Git revision
         run: |
           python3 -B .tmp/release-source/scripts/package-release.py --output "$RUNNER_TEMP/release-assets"
           (cd "$RUNNER_TEMP/release-assets" && sha256sum -c SHA256SUMS)
           bash -n "$RUNNER_TEMP/release-assets/update.sh"
-      - name: Promote tested candidates and package the same official images
+      - name: Build official images from the verified release source
+        run: |
+          version=$(node -p "require('./.tmp/release-source/package.json').version")
+          revision=$(git -C .tmp/release-source rev-parse HEAD)
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          python3 -B .tmp/release-source/scripts/container-release.py restore --source .tmp/release-source --revision "$revision"
+          for target in gateway runner manager sandbox; do
+            if docker image inspect "codex-agent-platform-$target:$version" >/dev/null 2>&1; then continue; fi
+            options=(--build-arg "PLATFORM_VERSION=$version" --build-arg "PLATFORM_REVISION=$revision" --build-arg PLATFORM_DISTRIBUTION=official -t "codex-agent-platform-$target:$version")
+            if [[ "$target" == sandbox ]]; then options+=(-f .tmp/release-source/Dockerfile.sandbox); else options+=(--target "$target"); fi
+            docker build "${options[@]}" .tmp/release-source
+          done
+          python3 -B .tmp/release-source/scripts/container-release.py candidates --source .tmp/release-source --revision "$revision"
+      - name: Publish versioned images and package the same official images
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
           revision=$(git -C .tmp/release-source rev-parse HEAD)

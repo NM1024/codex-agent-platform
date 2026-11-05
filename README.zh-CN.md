@@ -289,7 +289,7 @@ sudo bash /tmp/codex-platform-update.sh update --method image
 sudo bash /tmp/codex-platform-update.sh update --method source
 ```
 
-新安装的 `pull` 下载四个官方 Linux amd64 镜像；需要在本机构建或使用其他架构时，将 `pull` 换成 `build`。两种方式共用原有 Compose 服务、数据目录、备份和健康检查。官方镜像由公开 GitHub CI 构建并检查，更新器验证版本、源码提交、组件、平台、镜像 ID 和校验和。先尝试固定 GHCR 摘要地址，不可用时下载同一 Release 的公开镜像包，无需服务器登录镜像仓库。新建 GHCR 包可能需要所有者首次设置为公开，但公开 Release 镜像包仍可使用。镜像方式失败不会自动改为本地编译，用户可自行选择源码方式。
+新安装的 `pull` 下载四个官方 Linux amd64 镜像；需要在本机构建或使用其他架构时，将 `pull` 换成 `build`。两种方式共用原有 Compose 服务、数据目录、备份和健康检查。官方镜像由手动发布工作流基于本地已验证的同一源码提交构建，更新器验证版本、源码提交、组件、平台、镜像 ID 和校验和。先尝试固定 GHCR 摘要地址，不可用时下载同一 Release 的公开镜像包，无需服务器登录镜像仓库。新建 GHCR 包可能需要所有者首次设置为公开，但公开 Release 镜像包仍可使用。镜像方式失败不会自动改为本地编译，用户可自行选择源码方式。
 
 网页升级弹窗提供相同选择。旧版宿主机更新服务尚未支持选择时，会明确显示“版本默认方式”，升级后即可选择。
 
@@ -387,7 +387,7 @@ npm test
 npm run check:release
 ```
 
-管理前端使用 React、TypeScript 和 Ant Design，仅提供一个生产构建。CI 根据修改文件与共享依赖选择关联浏览器用例，并保留登录、导航等基础检查；部署与发布验证额外构建全部发布镜像并实测升级。未知影响或基础依赖变化扩大检查范围，每周及手动请求也可全量验证。PR 仅读取依赖缓存，失败附件保留 3 天。检查使用合成数据和模拟 Codex 传输，详见 [CI 范围、发布验证与历史保留](docs/CI.md)和[验证范围](docs/VALIDATION.md#model-settings-and-react-admin-migration)。
+管理前端使用 React、TypeScript 和 Ant Design，仅提供一个生产构建。发布前在开发环境执行代码检查和受影响的页面回归，使用合成数据和模拟 Codex 传输。PR、普通推送和每周定时不再自动运行 GitHub 测试。GitHub 仅在手动发布时构建官方镜像并发布不可变的下载文件，同时核对正式标签与本地已验证的完整提交编号；另保留可手动运行的可选验证工作流。详见[本地验证、发布与历史保留](docs/CI.md)和[验证范围](docs/VALIDATION.md#model-settings-and-react-admin-migration)。
 
 | 文档 | 内容 |
 | --- | --- |
