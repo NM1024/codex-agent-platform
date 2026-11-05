@@ -70,7 +70,7 @@ async function fixture(t,{steerError,holdSteer=false,recovered=[]}={}) {
       const history=managerHistoryResponse(method,params,recovered);if(history)return history;
       if(method.startsWith('thread/'))return {thread:{id:'queue-thread',turns:recovered}};
       if(method==='turn/start'){complete();return {turn:{id:'queue-turn'}};}
-      if(method==='turn/steer'){if(holdSteer)await held;if(steerError)throw new Error(steerError);return {turnId:'queue-turn'};}
+      if(method==='turn/steer'){if(holdSteer)await held;if(steerError)throw typeof steerError==='string'?new Error(steerError):steerError;return {turnId:'queue-turn'};}
       return {};
     },
   })});
@@ -122,6 +122,15 @@ test('explicit guidance rejection leaves the request queued and cannot target an
   await assert.rejects(f.agent.steerQueued(f.store.createConversation().id,message.id),{code:'MESSAGE_NOT_FOUND'});
   await assert.rejects(f.agent.steerQueued(f.conversation.id,message.id));
   assert.equal(f.store.message(message.id).status,'queued');
+  f.store.removeQueued(f.conversation.id,message.id);f.finish();await f.agent.idle(f.conversation.id);
+});
+
+test('guidance rejection with diagnostic detail uses its stable error code and remains queued',async t=>{
+  const error=Object.assign(new Error('Synthetic native rejection: active turn no longer accepts input'),{code:'CODEX_RPC_ERROR'});
+  const f=await fixture(t,{steerError:error}),message=f.agent.enqueue(f.conversation.id,'Rejected guidance');
+  await assert.rejects(f.agent.steerQueued(f.conversation.id,message.id),{code:'STEER_REJECTED'});
+  assert.equal(f.store.message(message.id).status,'queued');
+  assert.equal(f.calls.filter(call=>call.method==='turn/start').length,1);
   f.store.removeQueued(f.conversation.id,message.id);f.finish();await f.agent.idle(f.conversation.id);
 });
 

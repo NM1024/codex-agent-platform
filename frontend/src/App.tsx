@@ -54,13 +54,14 @@ function Console(){
       {screens.lg&&<nav id="navigation" aria-label={t('主导航')}>{navigation}</nav>}
     </Layout.Sider>
     <Layout className="console-main">
-      <Layout.Header className="console-header">
+      <Layout.Header className={'console-header'+(view==='chat'?' has-chat-title':'')}>
         <div className="console-title">
           {!screens.lg&&<MobileDropdown trigger={['click']} placement="bottomLeft" open={menuOpen} onOpenChange={setMenuOpen} classNames={{root:'mobile-navigation'}} menu={{id:'mobile-navigation-menu','aria-label':t('主导航'),selectedKeys:[view],selectable:true,items:(Object.keys(titles) as View[]).map(key=>({key,icon:<NavIcon view={key}/>,label:<span data-view={key} aria-current={view===key?'page':undefined}>{t(titles[key])}</span>})),onClick:({key})=>{setMenuOpen(false);navigate(key as View);}}}>
             <Button id="navigation-toggle" type="text" icon={<Icon name="menu"/>} aria-label={t('主导航')} title={t('主导航')} aria-haspopup="menu" aria-controls="mobile-navigation-menu" aria-expanded={menuOpen}/>
           </MobileDropdown>}
           <Typography.Title id="page-title" level={1}>Codex Agent Platform</Typography.Title>
           <Typography.Title id="view-title" level={2}>{t(titles[view])}</Typography.Title>
+          {view==='chat'&&<div id="chat-header-slot"/>}
         </div>
         <ConfigProvider componentSize="small"><Space className="console-header-actions" size={screens.lg?8:2}><Suspense fallback={null}><VersionEntry ui={versionUi} api={api} locale={locale}/></Suspense><Button id="repository-link" type="text" aria-label={t('项目仓库')} title={t('项目仓库')} icon={<Icon name="repository"/>} href="https://github.com/NM1024/codex-agent-platform" target="_blank" rel="noopener noreferrer">{screens.lg?t('项目仓库'):undefined}</Button><Language id="app-language" compact={!screens.lg}/><AsyncButton id="logout" type="text" aria-label={t('退出')} title={t('退出')} icon={<Icon name="logout"/>} onClick={async()=>{try{await api('/logout',{});}finally{setPassword('');setAuthenticated(false);}}}>{screens.lg?t('退出'):undefined}</AsyncButton></Space></ConfigProvider>
       </Layout.Header>

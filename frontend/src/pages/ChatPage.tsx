@@ -1,4 +1,5 @@
 import {Fragment,useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {Alert, Button, Collapse, Drawer, Empty, Input, Modal, Spin, Typography} from 'antd';
 import {ApiError} from '../api';
 import {CatalogNote, LoadingState, Status} from '../components';
@@ -61,6 +62,8 @@ export default function ChatPage() {
   const [loadError,setLoadError]=useState('');
   const [loadRetry,setLoadRetry]=useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [headerTarget,setHeaderTarget]=useState<HTMLElement|null>(null);
+  useLayoutEffect(()=>{setHeaderTarget(document.getElementById('chat-header-slot'));},[]);
   const [unconfirmedRoots,setUnconfirmedRoots]=useState<{id:string;ids:string[]}>({id:'',ids:[]});
   const [readFailure,setReadFailure]=useState<string|null>(null);
   const [streamStatus,setStreamStatus]=useState<'connecting'|'connected'|'reconnecting'|'fallback'>('connecting');
@@ -82,7 +85,8 @@ export default function ChatPage() {
   const initialSelectionDone = useRef(Boolean(chatId));
   const selectionVersions = useRef<Record<string, number>>({});
   const unsavedSelections = useRef<Record<string,boolean>>({});
-  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id])setSelections(current=>({...current,[id]:execution}));};
+  const selectionBases = useRef<Record<string,AgentSettings>>({});
+  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id]){selectionBases.current[id]=execution;setSelections(current=>({...current,[id]:execution}));}};
   const reads = useRef<Record<string, number>>({});
   const fileInput=useRef<HTMLInputElement>(null),genericFileInput=useRef<HTMLInputElement>(null);
   const compressLock=useRef(false);
@@ -321,19 +325,36 @@ export default function ChatPage() {
 
   // Queue explicit local edits before sending; clean server settings may also
   // change through the management Agent and must not be overwritten on send.
+  const writeSelection=async(id:string,value:AgentSettings)=>{
+    const saved=await api<ChatConversation>('/conversations/'+id,{execution:value,expected_execution:selectionBases.current[id]??{}});
+    // Update even if another local edit is queued: it compares against this
+    // successful write, while unrelated server changes still cause a conflict.
+    selectionBases.current[id]=saved.execution??{};
+    return saved;
+  };
   const persistSelection = (id: string, value: AgentSettings) => {
+    selectionBases.current[id]??=selected?.id===id?selected.execution??{}:{};
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
     unsavedSelections.current[id]=true;
     setSaving(current=>({...current,[id]:true}));
     setSaveErrors(current => ({...current, [id]:undefined}));
-    void serialize(id, () => api('/conversations/' + id, {execution:value})).then(() => {
+    void serialize(id, () => writeSelection(id,value)).then(() => {
       if (!mounted.current || selectionVersions.current[id] !== version) return;
       unsavedSelections.current[id]=false;
       setConversations(current => current.map(item => item.id === id ? {...item, execution:value} : item));
       setSaveErrors(current => ({...current, [id]:undefined}));
-    }).catch(error => {
+    }).catch(async error => {
       if (mounted.current && selectionVersions.current[id] === version) setSaveErrors(current => ({...current, [id]:error instanceof Error ? error.message : String(error)}));
+      if(error instanceof ApiError&&error.status===409&&selectionVersions.current[id]===version){
+        try{
+          const latest=await api<ChatConversation>('/conversations/'+id);
+          if(!mounted.current||selectionVersions.current[id]!==version)return;
+          unsavedSelections.current[id]=false;selectionBases.current[id]=latest.execution??{};
+          setSelections(current=>({...current,[id]:latest.execution??{}}));
+          setConversations(current=>current.map(item=>item.id===id?{...item,execution:latest.execution??{}}:item));
+        }catch{/* Keep the original base and error when fresh settings cannot be read. */}
+      }
     }).finally(()=>{if(mounted.current && selectionVersions.current[id]===version)setSaving(current=>({...current,[id]:false}));});
   };
 
@@ -387,6 +408,7 @@ export default function ChatPage() {
         if (mounted.current) {
           setConversations(current => [conversationSummary(created), ...current.filter(row => row.id !== created.id)]);
           setSelections(current => ({...current, [created.id]:execution}));
+          selectionBases.current[created.id]=execution;
         }
         if (stillSelected()) {
           // Creating the conversation is part of this send, not a new navigation.
@@ -407,7 +429,7 @@ export default function ChatPage() {
       if(mounted.current)setUploading(false);
       const accepted=await serialize(sentId, async () => {
         if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
-        if(unsavedSelections.current[sentId]){await api('/conversations/' + sentId, {execution});unsavedSelections.current[sentId]=false;}
+        if(unsavedSelections.current[sentId]){await writeSelection(sentId,execution);unsavedSelections.current[sentId]=false;}
         if(!lease.active())throw new Error(t('登录已过期，请重新登录。'));
         return api<Partial<Message>>('/conversations/' + sentId + '/messages', {text,...(sentImages.length?{attachments:sentImages.map(image=>({name:image.name,dataUrl:image.dataUrl}))}:{}),...(uploaded.length?{file_ids:uploaded.map(file=>file.file_id)}:{})});
       });
@@ -495,6 +517,12 @@ export default function ChatPage() {
     </nav>
   </>;
 
+  const chatTitle=visibleConversation?.title??selected?.title??t('新对话');
+  const chatHeader=<div className="chat-header">
+    <Button className="conversation-toggle" icon={<Icon name="conversations"/>} title={t('会话列表')} onClick={() => setDrawerOpen(true)} aria-label={t('会话列表')}/>
+    <div><Typography.Title level={2} title={chatTitle}>{chatTitle}</Typography.Title>
+      {chatId&&<span className={'chat-stream-status '+streamStatus} role="status" title={t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}>{t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}</span>}</div>
+  </div>;
   return <SandboxProvider conversationId={chatId}><div className="chat-layout">
     <Modal title={t('删除对话')} open={!!deleteTarget} okText={t('删除')} cancelText={t('取消')} okButtonProps={{danger:true,loading:!!deleting,'aria-label':t('删除')}} cancelButtonProps={{disabled:!!deleting}} closable={!deleting} maskClosable={!deleting} keyboard={!deleting} onOk={()=>void deleteConversation()} onCancel={()=>{if(!deleteLock.current)setDeleteTarget(undefined);}}>
       <p>{t('确定删除“{title}”吗？删除后无法恢复。',{title:deleteTarget?.title??''})}</p>
@@ -503,12 +531,7 @@ export default function ChatPage() {
     <aside className="conversation-sidebar">{conversationNavigation}</aside>
     <Drawer title={t('会话列表')} open={drawerOpen} onClose={() => setDrawerOpen(false)} placement="left" size={300} className="conversation-drawer">{conversationNavigation}</Drawer>
     <section className="chat-main" aria-label={t('管理对话')}>
-      <header className="chat-header">
-        <Button className="conversation-toggle" icon={<Icon name="conversations"/>} title={t('会话列表')} onClick={() => setDrawerOpen(true)} aria-label={t('会话列表')}/>
-        <div><Typography.Title level={2}>{visibleConversation?.title ?? selected?.title ?? t('新对话')}</Typography.Title>
-          <Typography.Text type="secondary" className="chat-time-note">{t('消息时间按此浏览器的本地时区显示。')}</Typography.Text>
-          {chatId&&<span className={'chat-stream-status '+streamStatus} role="status">{t({connecting:'正在连接实时回复…',connected:'实时连接',reconnecting:'正在重新连接，暂时定时更新…',fallback:'实时连接不可用，正在定时更新。'}[streamStatus])}</span>}</div>
-      </header>
+      {headerTarget?createPortal(chatHeader,headerTarget):chatHeader}
       <div id="messages" className="messages" ref={messagesRef} role="log" aria-label={t('管理对话')}
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
         {!visibleConversation&&((!!loadingId&&loadingId===chatId)||(listLoading&&!chatId))&&<LoadingState className="chat-loading" label="正在加载对话…"/>}

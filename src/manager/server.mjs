@@ -164,7 +164,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
         if(req.method==='GET'&&conversation[2])return json(res,200,store.messageGroups(conversation[1],(url.searchParams.get('ids')??'').split(',')));
         if(req.method==='DELETE'&&!conversation[2])return json(res,200,await agent.deleteConversation(conversation[1]));
         if(req.method==='GET'&&!conversation[2])return json(res,200,store.getConversationPage(conversation[1],{...(url.searchParams.has('limit')?{limit:Number(url.searchParams.get('limit'))}:{}),...(url.searchParams.has('before')?{before:url.searchParams.get('before')}:{})}));
-        if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);return json(res,200,store.setConversationExecution(conversation[1],body.execution));}
+        if(req.method==='POST'&&!conversation[2]){const body=await readJson(req);store.validateExecution(body.expected_execution);return json(res,200,store.setConversationExecution(conversation[1],body.execution,{expectedExecution:body.expected_execution}));}
         if(req.method==='POST'&&conversation[2]) {const body=await readJson(req),images=await validateChatImages(body.attachments);return json(res,202,agent.enqueue(conversation[1],body.text,images,body.file_ids??[]));}
       }
       if(req.method==='POST'&&path==='/admin/api/operations') {

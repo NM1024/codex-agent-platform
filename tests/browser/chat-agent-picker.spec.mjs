@@ -24,6 +24,60 @@ async function setup(page,{execution={},catalog={models},globalEffort='medium'}=
 const panel=page=>page.locator('.chat-agent-panel:visible');
 async function open(page){await page.locator('#chat-model').click();await expect(panel(page)).toBeInViewport({ratio:1});await panel(page).hover({position:{x:8,y:8}});}
 
+test('stale browser model edits preserve concurrent settings and reload before another explicit edit',async({page})=>{
+  const {id,saved}=await setup(page);await page.locator('#message-input').fill('Synthetic preserved conflict draft');
+  let concurrent=false;
+  await page.route('**/admin/api/conversations/'+id,async route=>{
+    if(route.request().method()==='POST'&&!concurrent){
+      concurrent=true;
+      const response=await page.request.post('/admin/api/conversations/'+id,{data:{execution:{model:'fixture-fast'},expected_execution:{}}});expect(response.ok()).toBeTruthy();
+    }
+    await route.continue();
+  });
+  await open(page);await panel(page).getByRole('button',{name:'high',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toBeVisible();
+  expect(await saved()).toEqual({model:'fixture-fast'});
+  await expect(page.locator('#chat-model')).toContainText('Fixture Fast');
+  await expect(page.locator('#message-input')).toHaveValue('Synthetic preserved conflict draft');
+  await page.screenshot({path:'.tmp/inspection-handoff/chat-model-conflict.png'});
+  await panel(page).getByRole('button',{name:'high',exact:true}).click();
+  await expect.poll(saved).toEqual({model:'fixture-fast',reasoningEffort:'high'});
+  await expect(page.getByRole('button',{name:'保存失败，重试',exact:true})).toHaveCount(0);
+});
+
+test('queued local model edits compare against the preceding successful save',async({page})=>{
+  const {id,saved}=await setup(page),writes=[];let release,entered;
+  const blocked=new Promise(resolve=>release=resolve),first=new Promise(resolve=>entered=resolve);
+  await page.route('**/admin/api/conversations/'+id,async route=>{
+    if(route.request().method()==='POST'){
+      writes.push(route.request().postDataJSON());
+      if(writes.length===1){entered();await blocked;}
+    }
+    await route.continue();
+  });
+  await open(page);await panel(page).getByRole('button',{name:'high',exact:true}).click();await first;
+  await panel(page).getByRole('button',{name:'xhigh',exact:true}).click();release();
+  await expect.poll(saved).toEqual({reasoningEffort:'xhigh'});
+  expect(writes).toEqual([
+    {execution:{reasoningEffort:'high'},expected_execution:{}},
+    {execution:{reasoningEffort:'xhigh'},expected_execution:{reasoningEffort:'high'}},
+  ]);
+});
+
+test('conversation title and connection state share the top bar on desktop and phone',async({page})=>{
+  await setup(page);
+  for(const [width,height] of [[1440,1000],[320,760]]){
+    await page.setViewportSize({width,height});
+    const header=page.locator('.console-header .chat-header');
+    await expect(header).toContainText('Synthetic model picker');
+    await expect(page.locator('.chat-main > .chat-header')).toHaveCount(0);
+    await expect(header.locator('.chat-stream-status')).toBeVisible();
+    const box=await header.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+    if(width===320){const drawer=page.getByRole('dialog').filter({hasText:'会话列表'});await header.getByRole('button',{name:'会话列表',exact:true}).click();await expect(drawer).toBeVisible();await page.keyboard.press('Escape');await expect(drawer).toBeHidden();}
+    await page.screenshot({path:`.tmp/inspection-handoff/chat-topbar-${width}.png`});
+  }
+});
+
 test('one compact entry opens model and stepped reasoning controls and keyboard changes save once',async({page})=>{
   const {saved}=await setup(page);await page.locator('#message-input').fill('Preserved composer draft');
   await page.screenshot({path:'.tmp/model-picker/before-or-current-desktop.png'});

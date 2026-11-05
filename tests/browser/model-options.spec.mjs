@@ -85,7 +85,7 @@ test('server-side current-conversation configuration updates survive the next br
   const next={verbosity:'high',reasoningSummary:'none',toolOutputTokenLimit:1024};
   // The management tool persists through this same Store and stream; its MCP
   // identity/revision contract is independently exercised in Node integration.
-  expect((await page.request.post('/admin/api/conversations/'+created.id,{data:{execution:next}})).ok()).toBeTruthy();
+  expect((await page.request.post('/admin/api/conversations/'+created.id,{data:{execution:next,expected_execution:{verbosity:'low'}}})).ok()).toBeTruthy();
   await expect.poll(async()=>(await(await page.request.get('/admin/api/conversations/'+created.id)).json()).execution).toEqual(next);
   await page.keyboard.press('Escape');await page.locator('#message-input').fill('Synthetic next turn after autonomous setting update');
   await page.getByRole('button',{name:'发送',exact:true}).click();

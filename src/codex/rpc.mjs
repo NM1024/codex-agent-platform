@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { safeRpcDiagnostic } from "./diagnostics.mjs";
 
 export function filteredCodexEnv(source = process.env) {
   const allowed = [
@@ -116,13 +117,17 @@ export class CodexRpcClient {
         if (!entry) continue;
         this.pending.delete(msg.id);
         clearTimeout(entry.timer);
-        if (msg.error)
+        if (Object.hasOwn(msg, "error")) {
+          const rpcError = safeRpcDiagnostic(msg.error);
           entry.reject(
-            Object.assign(new Error("CODEX_RPC_ERROR"), {
+            Object.assign(new Error(rpcError.code === undefined
+              ? "CODEX_RPC_ERROR"
+              : `CODEX_RPC_ERROR (${rpcError.code}, ${rpcError.category}): ${rpcError.reason}`), {
               code: "CODEX_RPC_ERROR",
+              rpcError,
             }),
           );
-        else entry.resolve(msg.result);
+        } else entry.resolve(msg.result);
       }
     }
   }

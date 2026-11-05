@@ -44,6 +44,106 @@ test("RPC timeout and close do not expose raw stderr", async () => {
   await assert.rejects(c.request("hang", {}), /CODEX_TIMEOUT/);
   await c.close();
 });
+test("RPC retains safe upstream classification while preserving its public error code", async () => {
+  const c = new CodexRpcClient({ command: process.execPath, args: [fixture] });
+  try {
+    for (const [code, category, reason] of [
+      [-32700, "parse_error", "Upstream could not parse the RPC request."],
+      [-32600, "invalid_request", "Upstream rejected the RPC request format."],
+      [-32601, "method_not_found", "Upstream does not support this RPC method."],
+      [-32602, "invalid_params", "Upstream rejected the RPC parameters."],
+      [-32603, "internal_error", "Upstream encountered an internal RPC error."],
+      [-32042, "server_error", "Upstream reported an RPC server error."],
+      [-2147483648, "upstream_error", "Upstream RPC request failed."],
+      [2147483647, "upstream_error", "Upstream RPC request failed."],
+      [42, "upstream_error", "Upstream RPC request failed."],
+    ]) {
+      await assert.rejects(c.request("rpc/error", { error: { code, message: "private upstream text", data: { secret: "private data" } } }), error => {
+        assert.equal(error.code, "CODEX_RPC_ERROR");
+        assert.deepEqual(error.rpcError, { code, category, reason });
+        assert.match(error.message, new RegExp(String(code)));
+        assert.ok(error.message.includes(category));
+        assert.ok(error.message.includes(reason));
+        assert.ok(error.message.length <= 256);
+        assert.doesNotMatch(error.message + JSON.stringify(error), /private upstream text|private data/);
+        return true;
+      });
+    }
+    assert.deepEqual(await c.request("fast", { still: "available" }), { still: "available" });
+  } finally {
+    await c.close();
+  }
+});
+test("RPC explains allowlisted upstream failures without retaining arbitrary error details", async () => {
+  const c = new CodexRpcClient({ command: process.execPath, args: [fixture] });
+  try {
+    for (const [message, category, reason] of [
+      ["Thread not found", "thread_not_found", "The requested Codex thread was not found."],
+      ["Rate limit exceeded", "rate_limited", "Upstream rate limit exceeded."],
+      ["Authentication required", "authentication_required", "Upstream authentication is required."],
+      ["Model not found", "model_not_found", "The requested model was not found."],
+      ["Server is busy", "server_busy", "Upstream is busy."],
+    ]) {
+      await assert.rejects(c.request("rpc/error", { error: { code: -32000, message, data: { authorization: "Bearer private-fixture-token" } } }), error => {
+        assert.deepEqual(error.rpcError, { code: -32000, category, reason });
+        assert.ok(error.message.includes(reason));
+        assert.doesNotMatch(JSON.stringify(error), /private-fixture-token|authorization|data/);
+        return true;
+      });
+    }
+  } finally {
+    await c.close();
+  }
+});
+test("RPC diagnostic projections exclude sensitive messages and stay bounded", async () => {
+  const c = new CodexRpcClient({ command: process.execPath, args: [fixture] });
+  try {
+    for (const message of [
+      "Authorization: Bearer fixture-bearer-secret password=fixture-password",
+      "https://fixture-user:fixture-pass@example.invalid/path?token=fixture-query-secret",
+      "Private prompt for fixture-person@example.invalid: use fixture-raw-api-key",
+      "Thread not found; private prompt fixture-private-prompt",
+      "fixture-private-prompt Rate limit exceeded",
+      "x".repeat(200_000) + "fixture-secret-at-end",
+    ]) {
+      await assert.rejects(c.request("rpc/error", { error: { code: -32000, message, data: { raw: message } } }), error => {
+        assert.deepEqual(error.rpcError, { code: -32000, category: "server_error", reason: "Upstream reported an RPC server error." });
+        const serialized = error.message + error.stack + JSON.stringify(error);
+        assert.ok(error.message.length <= 256);
+        assert.ok(serialized.length < 3000);
+        assert.doesNotMatch(serialized, /fixture-|example\.invalid|Private prompt|Authorization/);
+        assert.equal(Object.hasOwn(error, "cause"), false);
+        return true;
+      });
+    }
+  } finally {
+    await c.close();
+  }
+});
+test("RPC malformed error responses reject with a bounded generic diagnostic", async () => {
+  const c = new CodexRpcClient({ command: process.execPath, args: [fixture] });
+  try {
+    for (const upstream of [null, false, 0, "fixture-secret", [], {},
+      { code: "-32601", message: "Thread not found" },
+      { code: -32601.5, message: "Thread not found" },
+      { code: 2 ** 40, message: "Thread not found" },
+      { code: -2147483649, message: "Thread not found" },
+      { code: -32601, message: { secret: "fixture-secret" } },
+      { code: -32601 },
+    ]) {
+      await assert.rejects(c.request("rpc/error", { error: upstream }), error => {
+        assert.equal(error.code, "CODEX_RPC_ERROR");
+        assert.equal(error.message, "CODEX_RPC_ERROR");
+        assert.deepEqual(error.rpcError, { category: "unknown", reason: "Upstream RPC request failed." });
+        assert.doesNotMatch(JSON.stringify(error), /fixture-secret|Thread not found/);
+        return true;
+      });
+    }
+    assert.equal(c.pending.size, 0);
+  } finally {
+    await c.close();
+  }
+});
 test("probe requires ChatGPT and image generation and sanitizes account", async () => {
   for (const [type, image, ready, reason] of [
     ["chatgpt", true, true, null],

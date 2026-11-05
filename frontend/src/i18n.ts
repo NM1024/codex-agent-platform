@@ -64,7 +64,7 @@ const english: Record<string, string> = {
   '仅支持此档位':'Only this level is supported',
   '跟随默认':'Follow default',
   '使用模型默认':'Use model default',
-  '保存失败，已保留当前选择。':'Save failed. Your selection is retained.',
+  '保存失败，请检查当前设置后重试。':'Save failed. Check the current settings before trying again.',
   '重试保存':'Retry saving',
   '正在保存…':'Saving…',
   '下一轮对话生效':'Applies to the next turn',

@@ -29,7 +29,9 @@ process.stdin.on("data", (chunk) => {
           : m.params;
     setTimeout(
       () => {
-        const out = JSON.stringify({ id: m.id, result }) + "\n";
+        const out = JSON.stringify(m.method === "rpc/error"
+          ? { id: m.id, error: m.params.error }
+          : { id: m.id, result }) + "\n";
         splitFrame(out);
       },
       m.method === "slow" ? 30 : 0,

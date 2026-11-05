@@ -174,8 +174,20 @@ button, input, textarea { font: inherit; }
 .chat-header { display: flex; flex-shrink: 0; align-items: center; gap: 14px; min-width: 0; padding: 16px 28px; border-bottom: 1px solid #eff1f0; }
 .chat-header > div { min-width: 0; }
 .chat-header h2.ant-typography { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0 0 3px; font-size: 16px; }
-.chat-time-note { font-size: 11px; }
 .chat-header .conversation-toggle { display: none; }
+.has-chat-title .console-title { flex: 1; }
+.has-chat-title #page-title, .has-chat-title #view-title { flex-shrink: 0; }
+#chat-header-slot { flex: 1; min-width: 0; }
+#chat-header-slot .chat-header { width: 100%; padding: 0; gap: 10px; border: 0; }
+#chat-header-slot .chat-header > div { flex: 1; display: flex; align-items: center; gap: 12px; }
+.console-header .chat-header h2.ant-typography { display: block; flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; font-size: 14px; line-height: 1.4; color: inherit; }
+#chat-header-slot .chat-stream-status { flex-shrink: 0; max-width: 220px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 991px) {
+  .has-chat-title #page-title { display: none; }
+  #chat-header-slot .chat-stream-status { max-width: 8px; font-size: 0; }
+  #chat-header-slot .chat-stream-status::before { content: ''; display: block; width: 6px; height: 6px; margin: 0; border-radius: 50%; background: #ad7a2b; }
+  #chat-header-slot .chat-stream-status.connected::before { background: #4a8760; }
+}
 .messages { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 28px 32px 12px; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .message { display: flex; align-items: flex-start; gap: 12px; min-width: 0; width: 100%; max-width: 1040px; margin: 0 auto 26px; overflow-wrap: anywhere; }
 .message-avatar { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; margin-top: 22px; border-radius: 10px; color: #fff; background: #345e4f; font-size: 12px; font-weight: 600; }
