@@ -11,17 +11,23 @@ async function openHistory(page){
 
 test('scheduled history uses the shared responsive table with filters, pagination and named icon actions',async({page})=>{
  const queries=[];
- await page.route('**/admin/api/schedule-runs?*',route=>{const query=Object.fromEntries(new URL(route.request().url()).searchParams);queries.push(query);return route.fulfill({json:query.search||query.offset==='50'?[runs[1]]:runs});});
+ await page.route('**/admin/api/schedule-runs?*',route=>{
+  const query=Object.fromEntries(new URL(route.request().url()).searchParams);queries.push(query);
+  const matching=runs.filter(run=>(!query.search||run.schedule_name.includes(query.search))&&(!query.status||run.status===query.status)),offset=Number(query.offset),limit=Number(query.limit);
+  return route.fulfill({json:{items:matching.slice(offset,offset+limit),total:matching.length}});
+ });
  await openHistory(page);
  const table=page.locator('.responsive-table.expanded-table');await expect(table).toBeVisible();
  for(const name of ['计划名称','计划类型','执行编号','执行状态','错误','创建时间','操作'])await expect(table.getByRole('columnheader',{name,exact:true})).toBeVisible();
  const row=table.getByRole('row').filter({hasText:runs[1].id});await expect(row).toContainText('Synthetic execution error');await expect(row).toContainText('业务任务');
  for(const name of ['详情','调查']){const action=row.getByRole('button',{name,exact:true});await expect(action).toHaveText('');await expect(action.locator('svg')).toBeVisible();}
  await expect(page.locator('.notification-execution')).toHaveCount(0);
- await page.getByRole('button',{name:'下一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('50');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeDisabled();
- await page.getByRole('button',{name:'上一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('0');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeEnabled();
+ await expect(table.locator('.ant-table-tbody > tr.ant-table-row')).toHaveCount(20);await expect(page.locator('#schedule-run-pagination')).toContainText('共 50 条');
+ await page.getByRole('button',{name:'下一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('20');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeEnabled();
+ await page.getByRole('button',{name:'下一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('40');await expect(table.locator('.ant-table-tbody > tr.ant-table-row')).toHaveCount(10);await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'上一页',exact:true}).click();await expect.poll(()=>queries.at(-1)?.offset).toBe('20');await expect(page.getByRole('button',{name:'下一页',exact:true})).toBeEnabled();
  await page.getByRole('combobox',{name:'任务状态',exact:true}).click();await page.getByRole('option',{name:'执行失败',exact:true}).click();await page.getByRole('textbox',{name:'搜索定时执行',exact:true}).fill('Synthetic plan 1');await page.getByRole('button',{name:'查询',exact:true}).click();
- await expect.poll(()=>queries.at(-1)).toMatchObject({search:'Synthetic plan 1',status:'failed',offset:'0',limit:'50'});await expect(table.getByRole('row').filter({hasText:runs[1].id})).toBeVisible();
+ await expect.poll(()=>queries.at(-1)).toMatchObject({search:'Synthetic plan 1',status:'failed',offset:'0',limit:'20',include_total:'1'});await expect(table.getByRole('row').filter({hasText:runs[1].id})).toBeVisible();await expect(page.locator('#schedule-run-pagination')).toContainText('共 1 条');
  await page.setViewportSize({width:390,height:844});await expect(row.getByRole('button',{name:'详情',exact:true})).toBeVisible();await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth),{message:'Responsive history layout settles after viewport resize'}).toBeLessThanOrEqual(390);await page.screenshot({path:'.tmp/agent-tab-cron/scheduled-history-mobile.png',animations:'disabled'});
 });
 
