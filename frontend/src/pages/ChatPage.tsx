@@ -42,7 +42,7 @@ type ConversationSummary=Pick<Conversation,'id'|'title'|'execution'|'queued_coun
 const conversationSummary=(item:Conversation):ConversationSummary=>({id:item.id,title:item.title,execution:item.execution,...conversationCounts(item)});
 
 export default function ChatPage() {
-  const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatFiles:files,setChatFiles:setFiles,uploadChatFile,chatSendBusy:busy,beginChatSend,serializeConversation:serialize} = useConsole();
+  const {api, operation, notify, t,  chatId, setChatId, setAuthenticated, chatDraft:draft, setChatDraft:setDraft, chatImages:images, setChatImages:setImages,chatFiles:files,setChatFiles:setFiles,uploadChatFile,chatSendBusy:busy,beginChatSend,serializeConversation:serialize,conversationExecutionBases,conversationExecutionPending} = useConsole();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [listLoading,setListLoading]=useState(true);
   const [listCursor,setListCursor]=useState<string|null>(null);
@@ -88,8 +88,9 @@ export default function ChatPage() {
   const initialSelectionDone = useRef(Boolean(chatId));
   const selectionVersions = useRef<Record<string, number>>({});
   const unsavedSelections = useRef<Record<string,boolean>>({});
-  const selectionBases = useRef<Record<string,AgentSettings>>({});
-  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id]){selectionBases.current[id]=execution;setSelections(current=>({...current,[id]:execution}));}};
+  const selectionBases = useRef(conversationExecutionBases);
+  const selectionPending = useRef(conversationExecutionPending);
+  const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id]){if(!selectionPending.current[id])selectionBases.current[id]=execution;setSelections(current=>({...current,[id]:execution}));}};
   const reads = useRef<Record<string, number>>({});
   const fileInput=useRef<HTMLInputElement>(null);
   const compressLock=useRef(false);
@@ -331,6 +332,11 @@ export default function ChatPage() {
 
   // Queue explicit local edits before sending; clean server settings may also
   // change through the management Agent and must not be overwritten on send.
+  const reserveSelectionBase=(id:string)=>{
+    const pending=selectionPending.current;
+    pending[id]=(pending[id]??0)+1;
+    return()=>{if(pending[id]>1)pending[id]--;else delete pending[id];};
+  };
   const writeSelection=async(id:string,value:AgentSettings)=>{
     const saved=await api<ChatConversation>('/conversations/'+id,{execution:value,expected_execution:selectionBases.current[id]??{}});
     // Update even if another local edit is queued: it compares against this
@@ -345,6 +351,8 @@ export default function ChatPage() {
   };
   const persistSelection = (id: string, value: AgentSettings) => {
     selectionBases.current[id]??=selected?.id===id?selected.execution??{}:{};
+    // Reads after a remount must not rebase older queued edits onto external changes.
+    const releaseSelection=reserveSelectionBase(id);
     const version = (selectionVersions.current[id] ?? 0) + 1;
     selectionVersions.current[id] = version;
     unsavedSelections.current[id]=true;
@@ -371,7 +379,10 @@ export default function ChatPage() {
           setConversations(current=>current.map(item=>item.id===id?{...item,execution:latest.execution??{}}:item));
         }catch{/* Keep the original base and error when fresh settings cannot be read. */}
       }
-    }).finally(()=>{if(mounted.current && selectionVersions.current[id]===version)setSaving(current=>({...current,[id]:false}));});
+    }).finally(()=>{
+      releaseSelection();
+      if(mounted.current && selectionVersions.current[id]===version)setSaving(current=>({...current,[id]:false}));
+    });
   };
   useEffect(()=>{
     saveMessage.destroy();
@@ -420,6 +431,8 @@ export default function ChatPage() {
     const releaseSend=()=>{if(released)return;released=true;submitting.current=false;lease.release();};
     const text = draft, sentImages=[...images],sentFiles=[...files], execution = {...selection}, generation = navigation.current;
     let id = chatId;
+    // Retain a dirty send's original comparison base throughout file preparation.
+    const releaseSelection=id&&unsavedSelections.current[id]?reserveSelectionBase(id):undefined;
     const stillSelected = () => mounted.current && navigation.current === generation;
     try {
       if (!id) {
@@ -490,6 +503,7 @@ export default function ChatPage() {
     } catch (error) {
       if (lease.active()&&stillSelected()&&!modelSaveFailed) notify(t(error instanceof Error ? error.message : String(error)));
     } finally {
+      releaseSelection?.();
       if(mounted.current)setUploading(false);
       releaseSend();
     }

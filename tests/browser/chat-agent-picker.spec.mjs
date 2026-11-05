@@ -64,6 +64,52 @@ test('queued local model edits compare against the preceding successful save',as
   ]);
 });
 
+test('reopening chat cannot rebase queued model edits onto an external change',async({page})=>{
+  const {id,saved}=await setup(page),writes=[],statuses=[];let release,entered;
+  const blocked=new Promise(resolve=>release=resolve),first=new Promise(resolve=>entered=resolve);
+  page.on('response',response=>{if(response.url().endsWith('/admin/api/conversations/'+id)&&response.request().method()==='POST')statuses.push(response.status());});
+  await page.route('**/admin/api/conversations/'+id,async route=>{
+    if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());if(writes.length===1){entered();await blocked;}}
+    await route.continue();
+  });
+  try{
+    await open(page);await panel(page).getByRole('button',{name:'high',exact:true}).click();await first;
+    await panel(page).getByRole('button',{name:'xhigh',exact:true}).click();
+    await navigate(page,'overview');
+    const external=await page.request.post('/admin/api/conversations/'+id,{data:{execution:{model:'fixture-fast'},expected_execution:{}}});expect(external.ok()).toBeTruthy();
+    await navigate(page,'chat');await expect(page.locator('#chat-model')).toContainText('Fixture Fast');release();
+    await expect.poll(()=>statuses).toEqual([409,409]);
+    expect(writes.map(write=>write.expected_execution)).toEqual([{},{}]);
+    expect(await saved()).toEqual({model:'fixture-fast'});
+  }finally{release();}
+});
+
+test('a send preparing attachments cannot rebase a failed model save after remount',async({page})=>{
+  const {id,saved}=await setup(page),writes=[],statuses=[];let release,entered;
+  const blocked=new Promise(resolve=>release=resolve),uploading=new Promise(resolve=>entered=resolve);
+  page.on('response',response=>{if(response.url().endsWith('/admin/api/conversations/'+id)&&response.request().method()==='POST')statuses.push(response.status());});
+  await page.route('**/admin/api/conversations/'+id,async route=>{
+    if(route.request().method()==='POST'){
+      writes.push(route.request().postDataJSON());
+      if(writes.length===1)return route.fulfill({status:503,json:{error:{code:'SYNTHETIC_UNAVAILABLE',message:'Synthetic unavailable'}}});
+    }
+    await route.continue();
+  });
+  await page.route('**/admin/api/conversations/'+id+'/files',async route=>{entered();await blocked;await route.fulfill({json:{file_id:'synthetic-upload',name:'synthetic.csv',mime:'text/csv',size:4}});});
+  try{
+    await open(page);await panel(page).getByRole('button',{name:'high',exact:true}).click();
+    await expect(page.locator('.ant-message').getByRole('button',{name:'重试保存',exact:true})).toBeVisible();await page.keyboard.press('Escape');
+    await page.locator('#chat-attachment-input').setInputFiles({name:'synthetic.csv',mimeType:'text/csv',buffer:Buffer.from('a,b\n')});
+    await expect(page.locator('.sandbox-draft-file')).toHaveCount(1);
+    await page.locator('#message-input').fill('Synthetic delayed attachment send');await page.getByRole('button',{name:'发送',exact:true}).click();await uploading;
+    await navigate(page,'overview');
+    const external=await page.request.post('/admin/api/conversations/'+id,{data:{execution:{model:'fixture-fast'},expected_execution:{}}});expect(external.ok()).toBeTruthy();
+    await navigate(page,'chat');await expect(page.locator('#chat-model')).toContainText('Fixture Fast');release();
+    await expect.poll(()=>statuses).toEqual([503,409]);
+    expect(writes.map(write=>write.expected_execution)).toEqual([{},{}]);expect(await saved()).toEqual({model:'fixture-fast'});
+  }finally{release();}
+});
+
 test('conversation title and connection state share the top bar on desktop and phone',async({page})=>{
   await setup(page);
   for(const [width,height] of [[1440,1000],[320,760]]){

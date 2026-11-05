@@ -1,7 +1,7 @@
 import {createContext,useContext,useEffect,useState,useCallback,useRef,type ReactNode} from 'react';
 import {request,ApiError} from './api';
 import {getLocale,setLocale,t} from './i18n';
-import type {Catalog,View,ChatImage,ChatFile,SandboxAttachment,QuestionDraft} from './types';
+import type {Catalog,View,ChatImage,ChatFile,SandboxAttachment,QuestionDraft,AgentSettings} from './types';
 interface ConsoleContext {
   locale:string;changeLocale:(locale:string)=>void;t:typeof t;pending:number;notice:string;notify:(text:string)=>void;
   authenticated:boolean;setAuthenticated:(value:boolean)=>void;view:View;navigate:(view:View)=>void;
@@ -14,6 +14,8 @@ interface ConsoleContext {
   chatSendBusy:boolean;beginChatSend:(text:string,imageIds:string[],fileIds?:string[])=>{accepted:()=>void;release:()=>void;active:()=>boolean;created:(id:string)=>void}|null;
   catalog:Catalog;refreshCatalog:()=>Promise<void>;
   serializeConversation:<T>(id:string,work:()=>Promise<T>)=>Promise<T>;
+  conversationExecutionBases:Record<string,AgentSettings>;
+  conversationExecutionPending:Record<string,number>;
   questionDrafts:Record<string,QuestionDraft>;
   updateQuestionDraft:(id:string,change:(current:QuestionDraft)=>QuestionDraft)=>void;
   beginQuestionAnswer:(id:string)=>{accepted:()=>void;failed:(message:string,expired?:boolean)=>void;release:()=>void}|null;
@@ -43,6 +45,10 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   const setQueueDraft=useCallback((id:string,text:string|undefined)=>setQueueDrafts(current=>{const next={...current};if(text===undefined)delete next[id];else next[id]=text;return next;}),[]);
   const questionLocks=useRef(new Set<string>());
   const conversationWrites=useRef(new Map<string,Promise<void>>()),sessionGeneration=useRef(0);
+  // Share successful comparison bases with the write queue across page mounts.
+  // Replace the object at logout so late writes retain only the old session's cache.
+  const conversationExecutionBases=useRef<Record<string,AgentSettings>>({});
+  const conversationExecutionPending=useRef<Record<string,number>>({});
   const draftVersion=useRef(0),chatSendLock=useRef<symbol|null>(null);
   const updateQuestionDraft=useCallback((id:string,change:(current:QuestionDraft)=>QuestionDraft)=>setQuestionDrafts(current=>({...current,[id]:change(current[id]??{choices:{},texts:{}})})),[]);
   const beginQuestionAnswer=useCallback((id:string)=>{
@@ -73,7 +79,7 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
       release:()=>{if(chatSendLock.current===lease){chatSendLock.current=null;setChatSendBusy(false);}},
     };
   },[]);
-  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});setQueueDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();setChatDraft('');setChatImages([]);setChatFiles([]);fileUploads.current.clear();setChatId(null);notify('');setCatalog({models:[]});}},[]);
+  const setAuthenticated=useCallback((value:boolean)=>{updateAuthenticated(value);if(!value){sessionGeneration.current++;questionLocks.current.clear();setQuestionDrafts({});setQueueDrafts({});chatSendLock.current=null;setChatSendBusy(false);conversationWrites.current.clear();conversationExecutionBases.current={};conversationExecutionPending.current={};setChatDraft('');setChatImages([]);setChatFiles([]);fileUploads.current.clear();setChatId(null);notify('');setCatalog({models:[]});}},[]);
   const uploadChatFile=useCallback((conversationId:string,draft:ChatFile):Promise<SandboxAttachment>=>{
     const generation=sessionGeneration.current,key=conversationId+':'+draft.id;
     const cached=chatFilesRef.current.find(file=>file.id===draft.id)?.uploaded?.[conversationId];
@@ -127,5 +133,5 @@ export function ConsoleProvider({children}:{children:ReactNode}) {
   },[]);
   const changeLocale=(value:string)=>{setLocale(value);updateLocale(getLocale());};
   const navigate=(next:View)=>{const path='/admin/'+next;if(window.location.pathname!==path)window.history.pushState(null,'',path);notify('');setView(next);};
-  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatFiles,setChatFiles,uploadChatFile,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
+  return <Context.Provider value={{locale,changeLocale,t,pending,notice,notify,authenticated,setAuthenticated,view,navigate,api,operation,act,chatId,setChatId,chatDraft,setChatDraft,chatImages,setChatImages,chatFiles,setChatFiles,uploadChatFile,chatSendBusy,beginChatSend,catalog,refreshCatalog,serializeConversation,conversationExecutionBases:conversationExecutionBases.current,conversationExecutionPending:conversationExecutionPending.current,questionDrafts,updateQuestionDraft,beginQuestionAnswer,queueDrafts,setQueueDraft}}>{children}</Context.Provider>;
 }
