@@ -230,6 +230,12 @@ export class ManagerStore {
     if(saved)this.statement('UPDATE manager_messages SET execution=? WHERE id=?').run(JSON.stringify({...execution,...(saved.execution?JSON.parse(saved.execution):{})}),id);
   }
   investigations(){return this.statement("SELECT c.id,c.source_id,c.updated_at,EXISTS(SELECT 1 FROM manager_messages m WHERE m.conversation_id=c.id AND m.role='user' AND m.status IN ('queued','running','interrupted')) AS active FROM manager_conversations c WHERE c.source_id LIKE 'task:%' ORDER BY c.updated_at DESC LIMIT 100").all().map(row=>({...row,task_id:row.source_id.slice(5)}));}
+  existingInspection(sourceId,conversationId) {
+    const row=this.statement('SELECT id,source_message_id FROM manager_conversations WHERE source_id=? AND id=?').get(sourceId,conversationId??null);
+    const message=row&&this.message(row.source_message_id);
+    if(!message||message.conversation_id!==row.id||message.role!=='user')return null;
+    return {conversation:this.getConversationPage(row.id),message};
+  }
   acceptInspection(sourceId,text) {
     this.db.exec('BEGIN IMMEDIATE');
     try {

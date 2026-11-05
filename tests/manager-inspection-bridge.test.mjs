@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ManagerStore} from '../src/manager/store.mjs';
 import {acceptPendingInspections} from '../src/manager/inspections.mjs';
+import {SystemJournal} from '../src/observability/system-journal.mjs';
 
 const inspectionId='00000000-0000-4000-8000-000000000001';
 test('inspection original mapping persists, blocks restart dispatch until ACK, and duplicates keep the same message',async t=>{
@@ -282,4 +283,71 @@ test('local inspection admission reconciliation pages past rejected mappings wit
   for(let n=0;n<103;n++)store.acceptInspection(`00000000-0000-4000-8000-${String(n+1).padStart(12,'0')}`,'Synthetic pending admission');
   const client={async execute(name,args){if(name==='inspection_list')return [];assert.equal(name,'inspection_ack');calls.push(args);return {accepted:calls.length===103};}};
   await acceptPendingInspections({store,client,agent:{kick(id){kicks.push(id);}}});assert.equal(calls.length,103);assert.equal(new Set(calls.map(args=>args.message_id)).size,103);assert.equal(kicks.length,1);assert.equal(store.metadata(kicks[0]).inspection_admitted,1);
+});
+
+for(const state of ['completed','failed'])test(`legacy ${state} original repairs disabled schedule history without another model turn`,async t=>{
+  const {operations,id,gatewayStore}=await gatewayInspection(t),{agent,store,clients}=await agentFixture(t);
+  const original=store.acceptInspection(id,'Synthetic legacy original');store.admitInspection(id,original.conversation.id,original.message.id);
+  store.markRunning(original.message.id);store.finish(original.message,state==='failed'?{code:'SYNTHETIC_FAILURE',message:'Synthetic failure'}:null,'Original terminal result');
+  const later=store.enqueue(original.conversation.id,'Unrelated followup must not start during history repair');
+  // Before message-level lifecycle tracking, only the conversation link existed.
+  gatewayStore.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=?,message_id=NULL,execution_state='pending' WHERE id=?").run(original.conversation.id,id);
+  operations.schedules.setEnabled(operations.schedules.list()[0].id,false);
+  const historyBefore=operations.schedules.execution(id);assert.equal(historyBefore.status,'queued');
+  await acceptPendingInspections({client:operations,store,agent});await agent.idle(original.conversation.id);
+  assert.equal(operations.schedules.execution(id).status,state);
+  assert.equal(gatewayStore.db.prepare('SELECT message_id FROM platform_inspections WHERE id=?').get(id).message_id,original.message.id);
+  await acceptPendingInspections({client:operations,store,agent});
+  assert.equal(clients.length,0);assert.equal(store.list().length,1);assert.equal(store.getConversation(original.conversation.id).messages.length,3);assert.equal(store.message(later.id).status,'queued');
+  assert.equal(operations.schedules.list()[0].enabled,false);assert.deepEqual(await operations.execute('inspection_list'),[]);
+});
+
+for(const mapping of ['missing','different'])test(`legacy ${mapping} conversation mapping never creates or schedules replacement work`,async t=>{
+  const {operations,id,gatewayStore}=await gatewayInspection(t),store=new ManagerStore(':memory:');t.after(()=>store.close());
+  const journal=new SystemJournal({db:store.db,service:'manager'}),kicks=[];
+  if(mapping==='different')store.acceptInspection(id,'Existing unrelated conversation mapping');
+  const before=store.list().map(row=>row.id);
+  gatewayStore.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=?,message_id=NULL,execution_state='pending' WHERE id=?").run('00000000-0000-4000-8000-000000000099',id);
+  await acceptPendingInspections({client:operations,store,agent:{kick(id){kicks.push(id);}},journal});
+  assert.deepEqual(store.list().map(row=>row.id),before);assert.deepEqual(kicks,[]);
+  const work=journal.detail('manager:work:inspection-intake');assert.equal(work.state,'unknown');assert.equal(work.code,'HANDOFF_FAILED');assert.equal(work.pending_count,1);
+  assert.equal(operations.schedules.execution(id).status,'queued');
+});
+
+test('persistently rejected claims stay unresolved while a stale cancelled listing is harmless',async t=>{
+  const {operations,id,gatewayStore}=await gatewayInspection(t),store=new ManagerStore(':memory:');t.after(()=>store.close());
+  const journal=new SystemJournal({db:store.db,service:'manager'});let cancel=false;
+  const client={async execute(name,args){if(name==='inspection_claim'){
+    if(cancel)gatewayStore.db.prepare("UPDATE platform_inspections SET status='cancelled' WHERE id=?").run(id);
+    return {accepted:false};
+  }return operations.execute(name,args);}};
+  const input={client,store,agent:{kick(){assert.fail('A rejected claim cannot execute');}},journal};
+  await acceptPendingInspections(input);assert.equal(journal.detail('manager:work:inspection-intake').state,'unknown');
+  assert.equal(journal.detail('manager:work:inspection-intake').pending_count,1);
+  const revision=journal.detail('manager:work:inspection-intake').revision;
+  await acceptPendingInspections(input);assert.equal(journal.detail('manager:work:inspection-intake').revision,revision);
+  cancel=true;await acceptPendingInspections(input);assert.equal(journal.detail('manager:work:inspection-intake').state,'completed');assert.equal(store.list().length,0);
+});
+
+test('claim evidence records real transitions rather than repeated polls or rejected claims',async t=>{
+  const {operations,id,gatewayStore}=await gatewayInspection(t),journal=new SystemJournal({db:gatewayStore.db,service:'gateway'});operations.schedules.journal=journal;
+  assert.equal((await operations.execute('inspection_claim',{id})).accepted,true);
+  for(let n=0;n<3;n++)assert.equal((await operations.execute('inspection_claim',{id})).accepted,true);
+  const claims=journal.logs({module:'inspections'}).items.filter(row=>row.event==='inspection_claim');
+  assert.equal(claims.length,1);assert.equal(claims[0].count,1);assert.notEqual(claims[0].code,'HANDOFF_COMPLETED');
+  gatewayStore.db.prepare("UPDATE platform_inspections SET status='cancelled' WHERE id=?").run(id);
+  const before=journal.logs();assert.equal((await operations.execute('inspection_claim',{id})).accepted,false);assert.deepEqual(journal.logs(),before);
+});
+
+test('upgrading a pre-lifecycle Gateway record restores the original terminal state without execution',async t=>{
+  const {operations,id,gatewayStore}=await gatewayInspection(t),{agent,store,clients}=await agentFixture(t);
+  const original=store.acceptInspection(id,'Synthetic original before lifecycle tracking');store.admitInspection(id,original.conversation.id,original.message.id);
+  store.markRunning(original.message.id);store.finish(original.message,null,'Existing result');
+  gatewayStore.db.prepare("UPDATE platform_inspections SET status='accepted',conversation_id=? WHERE id=?").run(original.conversation.id,id);
+  gatewayStore.db.exec('ALTER TABLE platform_inspections DROP COLUMN message_id; ALTER TABLE platform_inspections DROP COLUMN execution_state');
+  const {ScheduleStore}=await import('../src/operations/schedules.mjs');operations.schedules=new ScheduleStore(gatewayStore);
+  assert.equal(operations.schedules.execution(id).status,'queued');
+  await acceptPendingInspections({client:operations,store,agent});await agent.idle(original.conversation.id);
+  assert.equal(operations.schedules.execution(id).status,'completed');assert.equal(clients.length,0);
+  assert.equal(gatewayStore.db.prepare('SELECT message_id FROM platform_inspections WHERE id=?').get(id).message_id,original.message.id);
 });

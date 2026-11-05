@@ -21,7 +21,7 @@ import sys
 import tempfile
 import threading
 
-IMAGE = 'codex-agent-platform-sandbox:1.0.8'
+IMAGE = 'codex-agent-platform-sandbox:1.0.9'
 HELPER_ROOT = Path('/usr/local/lib/codex-agent-platform-sandbox')
 CONFIG_ROOT = Path('/etc/codex-agent-platform-sandbox')
 STATE_ROOT = Path('/var/lib/codex-agent-platform-sandbox')

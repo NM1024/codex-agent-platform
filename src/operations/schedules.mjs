@@ -131,10 +131,10 @@ export class ScheduleStore {
   claimInspection(id) {
     if(typeof id!=='string')throw new HttpError(400,'INVALID_INPUT','巡检记录编号不正确。');
     return this.store.transaction(()=>{
-      this.db.prepare("UPDATE platform_inspections SET status='claimed' WHERE id=? AND status='queued'").run(id);
-      const row=this.db.prepare('SELECT id,message,status,message_id FROM platform_inspections WHERE id=?').get(id);
-      if(row)this.journal?.event({module:'inspections',event:'inspection_claim',target_id:id,code:'HANDOFF_COMPLETED',details:{phase:'claim'}});
-      return row&&(row.status==='claimed'||row.status==='accepted'&&row.message_id===null&&row.execution_state==='pending')?{accepted:true,id:row.id,message:row.message,status:row.status}:{accepted:false};
+      const changed=this.db.prepare("UPDATE platform_inspections SET status='claimed' WHERE id=? AND status='queued'").run(id).changes;
+      const row=this.db.prepare('SELECT id,message,status,message_id,execution_state,conversation_id FROM platform_inspections WHERE id=?').get(id);
+      if(changed)this.journal?.event({module:'inspections',event:'inspection_claim',target_id:id,code:'WORK_RUNNING',details:{phase:'claim'}});
+      return row&&(row.status==='claimed'||row.status==='accepted'&&row.message_id===null&&row.execution_state==='pending')?{accepted:true,id:row.id,message:row.message,status:row.status,conversation_id:row.conversation_id}:{accepted:false};
     });
   }
   acknowledgeInspection(id,conversationId,messageId,messageStatus) {

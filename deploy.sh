@@ -103,7 +103,7 @@ CONFIG
     ;;
   build-sandbox)
     agent_build_options
-    agent_sandbox_build=(docker build "${agent_build_args[@]}" -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.8)
+    agent_sandbox_build=(docker build "${agent_build_args[@]}" -f "$agent_source_dir/Dockerfile.sandbox" -t codex-agent-platform-sandbox:1.0.9)
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then agent_sandbox_build+=(--secret "id=proxy_ca,src=$CODEX_PROXY_CERT"); fi
     "${agent_sandbox_build[@]}" "$agent_source_dir"
     ;;
@@ -123,9 +123,9 @@ CONFIG
     agent_build_options
     agent_compose config --quiet
     if [[ -n "${CODEX_PROXY_CERT:-}" ]]; then
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.8 "$agent_source_dir"
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.8 "$agent_source_dir"
-      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.8 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target gateway -t codex-agent-platform-gateway:1.0.9 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target runner -t codex-agent-platform-runner:1.0.9 "$agent_source_dir"
+      docker build "${agent_build_args[@]}" --secret "id=proxy_ca,src=$CODEX_PROXY_CERT" --target manager -t codex-agent-platform-manager:1.0.9 "$agent_source_dir"
     else agent_compose build "${agent_build_args[@]}"; fi
     "$agent_source_dir/deploy.sh" build-sandbox "$agent_deploy_dir"
     ;;
