@@ -1,7 +1,5 @@
 .ops-overview { display: grid; gap: 24px; min-width: 0; }
-.ops-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ui-muted); font-size: 12px; }
-.ops-intro p { margin: 0; }
-.ops-intro #updated { font-size: 12px; flex-shrink: 0; }
+.ops-section-heading #updated { margin-inline-start: auto; font-size: 12px; flex-shrink: 0; }
 .ops-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 38px; margin-bottom: 12px; }
 .ops-overview h2, .ops-overview h3 { margin: 0; color: #263c31; }
 .ops-section-heading h2 { font-size: 16px; font-weight: 600; }
@@ -70,11 +68,9 @@
   .ops-service-grid { grid-template-columns: 1fr; }
   .ops-task-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .ops-task:first-child { grid-column: span 2; }
-  .ops-intro { flex-wrap: wrap; }
 }
 @media (max-width: 599px) {
   .ops-overview { gap: 20px; }
-  .ops-intro p { display: none; }
   .ops-section-heading { flex-wrap: wrap; gap: 8px; }
   .ops-resource-grid { grid-template-columns: 1fr; gap: 12px; }
   .ops-resource, .ops-service { padding: 16px; }

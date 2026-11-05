@@ -74,7 +74,6 @@ export default function SystemPage(){
  const renderVerification=(row:SystemWork)=>row.verification_required?<Status value="需要核验"/>:<Typography.Text type="secondary">—</Typography.Text>;
  const eventFacts=(item:SystemEvent)=><dl className="system-facts"><dt>{t('首次出现')}</dt><dd>{format(item.first_seen_at)}</dd><dt>{t('最近出现')}</dt><dd>{format(item.last_seen_at)}</dd><dt>{t('创建时间')}</dt><dd>{format(item.created_at)}</dd><dt>{t('问题次数')}</dt><dd>{item.count}</dd><dt>{t('安全原因')}</dt><dd>{code(item.code)} <code>{item.code}</code></dd><dt>{t('服务与编号')}</dt><dd>{serviceName(item.service)} · {item.id}</dd></dl>;
  return <div id="system-page" className="system-page">
-  <Typography.Paragraph type="secondary">{t('查看系统内部状态，跟踪异常与处理结果。')}</Typography.Paragraph>
   <div id="system-metrics" className="system-metrics" aria-busy={statusLoading} aria-label={t('按概览筛选')}>
    {[
     {label:'需要处理',value:status?.summary.unresolved,tab:'issues' as Tab,query:{...initial}},

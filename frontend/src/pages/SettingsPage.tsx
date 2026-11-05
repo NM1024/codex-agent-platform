@@ -160,7 +160,6 @@ export default function SettingsPage() {
   ];
   if(loading&&!data)return <DataLoading/>;
   return <section className="settings-page">
-    <Typography.Paragraph type="secondary">{t('按类型管理配置。切换分类保留未保存的修改，每个分类单独保存。')}</Typography.Paragraph>
     {data?.gateway_unavailable&&<Alert type="warning" showIcon title={t('Gateway 暂时不可用，仍可调整管理 Agent 和 Admin 配置。')}/>}
     {data&&<Tabs className="settings-tabs" activeKey={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} animated={false} renderTabBar={mobile?(props,DefaultTabBar)=> <><div hidden><DefaultTabBar {...props}/></div><div className="settings-category-picker"><label htmlFor="settings-category">{t('配置分类')}</label><Select id="settings-category" aria-label={t('配置分类')} value={items.some(item=>item.key===tab)?tab:items[0]?.key} onChange={setTab} virtual={false} options={items.map(item=>({value:item.key,label:item.label}))} optionRender={option=><span data-settings-choice={option.value}>{option.label}</span>}/></div></>:undefined} items={items}/>}
   </section>;

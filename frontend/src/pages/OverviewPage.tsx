@@ -52,11 +52,10 @@ export default function OverviewPage(){
   ];
   const selectedService=services.find(service=>service.id===expanded);
   return <div className="ops-overview">
-    <div className="ops-intro"><p>{t('资源、任务与服务状态，一处掌握。')}</p><Typography.Text id="updated" type="secondary">{t('采样于 {time}',{time:time(data.resources.sampled_at??data.sampled_at)})}</Typography.Text></div>
     {error&&<Alert className="ops-alert" type="warning" showIcon title={t('数据更新失败，当前显示上次采样。')} description={error} action={<AsyncButton onClick={refresh}>{t('重试')}</AsyncButton>}/>}
     {!error&&attention.length>0&&<Alert className="ops-alert" type={attention.some(metric=>metric.ratio!>=90)?'error':'warning'} showIcon title={t('资源占用偏高：{names}',{names:attention.map(metric=>metric.title).join(locale==='en'?', ':'、')})} description={t('请关注可用容量；任务领取仍保持当前设置。')}/>}
     <section aria-labelledby="ops-resources-title">
-      <div className="ops-section-heading"><h2 id="ops-resources-title">{t('资源概览')}</h2><div className="ops-filters" role="group" aria-label={t('资源范围')}>{[['all','全部'],['host','宿主机'],['manager','Manager']].map(([value,label])=><Button size="small" type="text" key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{t(label)}</Button>)}</div></div>
+      <div className="ops-section-heading"><h2 id="ops-resources-title">{t('资源概览')}</h2><Typography.Text id="updated" type="secondary">{t('采样于 {time}',{time:time(data.resources.sampled_at??data.sampled_at)})}</Typography.Text><div className="ops-filters" role="group" aria-label={t('资源范围')}>{[['all','全部'],['host','宿主机'],['manager','Manager']].map(([value,label])=><Button size="small" type="text" key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{t(label)}</Button>)}</div></div>
       <div className="ops-resource-grid">{metrics.filter(metric=>filter==='all'||metric.group===filter).map(metric=><ResourceCard key={metric.id} metric={metric}/>)}</div>
     </section>
     <section aria-labelledby="ops-tasks-title">
