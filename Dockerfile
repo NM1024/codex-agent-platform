@@ -31,7 +31,7 @@ COPY --from=admin-build --chown=1000:1000 /build/src/manager/web-dist ./src/mana
 COPY --chown=1000:1000 scripts ./scripts
 RUN node scripts/check-release.mjs
 RUN mkdir -p /data /workspace /codex /management && chown 1000:1000 /data /workspace /codex /management
-ARG PLATFORM_VERSION=1.0.9
+ARG PLATFORM_VERSION=1.0.10
 ARG PLATFORM_REVISION=unknown
 ARG PLATFORM_DISTRIBUTION=source
 LABEL org.opencontainers.image.source="https://github.com/NM1024/codex-agent-platform" \

@@ -6,6 +6,19 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
+test('release-owned image tags and build defaults match the package version',async()=>{
+  const {version}=JSON.parse(await readFile(join(root,'package.json'),'utf8'));
+  for(const file of ['compose.yaml','deploy.sh','scripts/host-sandbox.py','scripts/sandbox_runtime.py','tests/sandbox-network.test.mjs']){
+    const source=await readFile(join(root,file),'utf8');
+    const tags=[...source.matchAll(/codex-agent-platform-(?:gateway|runner|manager|sandbox):([0-9]+\.[0-9]+\.[0-9]+)/g)];
+    assert.ok(tags.length,file+' must identify its fixed release images');
+    for(const tag of tags)assert.equal(tag[1],version,file+' uses a different release image');
+  }
+  for(const file of ['Dockerfile','Dockerfile.sandbox']){
+    const source=await readFile(join(root,file),'utf8');
+    assert.equal(source.match(/^ARG PLATFORM_VERSION=(.+)$/m)?.[1],version,file+' has a stale build default');
+  }
+});
 test('start and successful staged validation ensure web upgrades; ordinary validation and failures do not',async t=>{
   const {mkdir,copyFile,writeFile}=await import('node:fs/promises');
   const dir=await mkdtemp(join(tmpdir(),'default-web-update-'));t.after(()=>rm(dir,{recursive:true,force:true}));
