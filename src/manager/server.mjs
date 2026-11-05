@@ -186,7 +186,7 @@ export function createManagerServer({store,agent,operations,auth,metrics,sandbox
       }
       const lists={'/admin/api/tasks':'tasks','/admin/api/plugins':'plugins','/admin/api/capabilities':'capabilities','/admin/api/resources':'capabilities','/admin/api/schedules':'schedules','/admin/api/schedule-runs':'schedule_runs'};
       if(req.method==='GET'&&lists[path]) {
-        const args=['/admin/api/tasks','/admin/api/schedule-runs'].includes(path)?Object.fromEntries([...url.searchParams].filter(([key])=>['status','type','search','schedule_id','limit','offset','after','before'].includes(key)).map(([key,value])=>[key,['limit','offset','after','before'].includes(key)?Number(value):value])):{};
+        const args=['/admin/api/tasks','/admin/api/schedule-runs'].includes(path)?Object.fromEntries([...url.searchParams].filter(([key])=>['status','type','search','schedule_id','limit','offset','after','before','include_total'].includes(key)).map(([key,value])=>[key,key==='include_total'?(value==='1'?true:value==='0'?false:value):['limit','offset','after','before'].includes(key)?Number(value):value])):{};
         return json(res,200,await operations.execute(lists[path],args));
       }
       throw new HttpError(404,'NOT_FOUND','找不到接口。');

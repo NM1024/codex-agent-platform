@@ -3,6 +3,7 @@ import {Alert,Button,Empty,Input,Select,Space,Table,Tabs,Typography} from 'antd'
 import {useConsole} from '../context';
 import {LoadingState,Panel,Status,TableField,TableIdentifier} from '../components';
 import {AdminDrawer} from '../AdminOverlays';
+import ListPagination from '../ListPagination';
 import {systemClassifications,systemCodes,systemModules} from '../system-i18n';
 import {preserveSystemDetail,preserveSystemPage} from '../system-evidence';
 import type {SystemPageEvidence} from '../system-evidence';
@@ -12,11 +13,12 @@ import './system.css';
 type Tab='issues'|'work'|'logs';
 type Filters={search:string;service:string;module:string;state:string;level:string;resolution:string;range:string;work_id?:string};
 const initial:Filters={search:'',service:'',module:'',state:'',level:'',resolution:'unresolved',range:'all'};
-const pageSize=20,services=['manager','gateway','runner'],states=['running','retrying','blocked','unknown','completed','idle','disabled'];
+const services=['manager','gateway','runner'],states=['running','retrying','blocked','unknown','completed','idle','disabled'];
 const serviceName=(value:string)=>({manager:'Manager',gateway:'Gateway',runner:'Runner'}[value]??value);
 export default function SystemPage(){
  const {operation,api,locale,t,setChatId,navigate}=useConsole();
  const [tab,setTab]=useState<Tab>('issues'),[draftFilters,setDraftFilters]=useState<Filters>(initial),[filters,setFilters]=useState<Filters>(initial),[cursors,setCursors]=useState<string[]>(['']),[tick,setTick]=useState(0);
+ const [pageSize,setPageSize]=useState(20);
  const [status,setStatus]=useState<SystemStatus>(),[statusError,setStatusError]=useState(false),[statusLoading,setStatusLoading]=useState(true);
  const [page,setPage]=useState<SystemPageEvidence>(),[loading,setLoading]=useState(true),[pageError,setPageError]=useState(false),[loadedPage,setLoadedPage]=useState(1);
  const [selection,setSelection]=useState<{id:string;event?:SystemEvent}>(),[detail,setDetail]=useState<SystemDetail>(),[detailError,setDetailError]=useState(false),[detailLoading,setDetailLoading]=useState(false);
@@ -34,11 +36,11 @@ export default function SystemPage(){
   void operation<SystemStatus>('system_status').then(value=>{if(alive.current&&request===summaryRequest.current){setStatus(value);setStatusError(false);}}).catch(()=>{if(alive.current&&request===summaryRequest.current)setStatusError(true);}).finally(()=>{if(alive.current&&request===summaryRequest.current)setStatusLoading(false);});
  },[operation,tick]);
  useEffect(()=>{
-  const request=++listRequest.current,key=JSON.stringify({tab,filters,cursor}),query=JSON.stringify({tab,filters});
+  const request=++listRequest.current,key=JSON.stringify({tab,filters,pageSize,cursor}),query=JSON.stringify({tab,filters,pageSize});
   if(loadedFilters.current!==query||loadedQuery.current!==key&&!retainRefresh.current){setPage(undefined);setPageError(false);}retainRefresh.current=false;loadedQuery.current=key;loadedFilters.current=query;setLoading(true);
-  const args={limit:pageSize,...(cursor?{cursor}:{}),...(filters.search?{search:filters.search}:{}),...(filters.service?{service:filters.service}:{}),...(filters.module?{module:filters.module}:{}),...(filters.state?{state:filters.state}:{}),...(tab==='logs'&&filters.level?{level:filters.level}:{}),...(tab==='issues'?{resolution:filters.resolution}:{}),...(filters.range==='all'?{}:{[tab==='issues'&&filters.resolution==='recovered'?'resolved_after':'after']:Date.now()-(filters.range==='24h'?86400000:604800000)}),...(filters.work_id?{work_id:filters.work_id}:{})};
+  const args={limit:pageSize,include_total:true,...(cursor?{cursor}:{}),...(filters.search?{search:filters.search}:{}),...(filters.service?{service:filters.service}:{}),...(filters.module?{module:filters.module}:{}),...(filters.state?{state:filters.state}:{}),...(tab==='logs'&&filters.level?{level:filters.level}:{}),...(tab==='issues'?{resolution:filters.resolution}:{}),...(filters.range==='all'?{}:{[tab==='issues'&&filters.resolution==='recovered'?'resolved_after':'after']:Date.now()-(filters.range==='24h'?86400000:604800000)}),...(filters.work_id?{work_id:filters.work_id}:{})};
   void operation<SystemPageResult>(tab==='issues'?'system_issue':tab==='work'?'system_work':'system_logs',args).then(value=>{if(alive.current&&request===listRequest.current){setPage(previous=>preserveSystemPage(value,previous));setLoadedPage(cursors.length);setPageError(false);}}).catch(()=>{if(alive.current&&request===listRequest.current)setPageError(true);}).finally(()=>{if(alive.current&&request===listRequest.current)setLoading(false);});
- },[operation,tab,filters,cursor,tick]);
+ },[operation,tab,filters,pageSize,cursor,tick]);
  const refresh=()=>{retainRefresh.current=true;setCursors(['']);setTick(value=>value+1);};
  const apply=()=>{setCursors(['']);setFilters({...draftFilters,search:draftFilters.search.trim(),work_id:undefined});};
  const chooseTab=(next:string)=>{setTab(next as Tab);setDraftFilters(initial);setFilters(initial);setCursors(['']);};
@@ -115,8 +117,7 @@ export default function SystemPage(){
     {title:t(tab==='logs'?'最近出现':'最近进展'),key:'progress',width:tab==='logs'?'20%':'19%',className:'table-meta-cell',render:(_,row)=><TableField label={t(tab==='logs'?'最近出现':'最近进展')}>{format(row.kind==='event'?row.last_seen_at:workTime(row))}{row.kind==='work'&&<>{progressing(row)&&<small>{progress(row)}</small>}{row.next_retry_at&&<small>{t('下次重试')} {format(row.next_retry_at)}</small>}</>}</TableField>},
     {title:t('操作'),key:'actions',width:tab==='logs'?'14%':'10%',className:'table-actions-cell',render:(_,row)=><Space wrap size={4}><Button type="link" onClick={()=>void inspect(row)}>{t('详情')}</Button>{row.kind==='work'&&<Button type="link" disabled={handoffBusy||pageError||page?.stale_ids.includes(row.id)} onClick={()=>void analyze(row.id)}>{t('交给管理 Agent')}</Button>}</Space>},
    ]}/>}
-   <div id="system-pagination" className="system-pagination"><Button disabled={cursors.length===1||loading||stalePage} onClick={()=>setCursors(value=>value.slice(0,-1))}>{t('上一页')}</Button><Typography.Text type="secondary">{stalePage?t('已知记录 {count} 条；包含过期证据',{count:page?.items.length??0}):t('每页 {limit} 条 · 第 {page} 页 · 本页 {count} 条',{limit:pageSize,page:page?loadedPage:cursors.length,count:page?.items.length??0})}</Typography.Text><Button disabled={!page?.next_cursor||loading||pageError||stalePage} onClick={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}}>{t('下一页')}</Button></div>
-   <Typography.Paragraph className="system-page-help" type="secondary">{t('当前状态游标分页；来源恢复或数据变化后请从首页刷新。')}</Typography.Paragraph>
+   <ListPagination id="system-pagination" page={page?loadedPage:cursors.length} pageSize={pageSize} total={pageError||stalePage?null:page?.total} totalComplete={!pageError&&!stalePage&&page?.total_complete===true} loading={loading} disabled={stalePage} hasPrevious={cursors.length>1} hasNext={!!page?.next_cursor&&!pageError} onPrevious={()=>setCursors(value=>value.slice(0,-1))} onNext={()=>{if(page?.next_cursor)setCursors(value=>[...value,page.next_cursor!]);}} onPageSizeChange={size=>{setPageSize(size);setCursors(['']);}}/>
   </Panel>
   <Typography.Paragraph className="system-retention" type="secondary">{t('系统记录遵循全局历史清理的启用开关与保留天数；未完成工作、未恢复问题及必要证据受保护。')}</Typography.Paragraph>
   <AdminDrawer open={!!selection} title={t(event?'系统事件详情':'系统工作详情')} subtitle={event?.id??selection?.id} width={620} onClose={close}>

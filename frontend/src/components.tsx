@@ -80,7 +80,7 @@ export function AgentPicker({id,value,onChange,defaults={},inherit=false,compact
   </div><ModelOptionsFields id={id} value={value} defaults={defaults} inherit={inherit} disabled={disabled} onChange={onChange}/></>;
 }
 export function useLoad<T>(load:()=>Promise<T>,dependencies:unknown[]) {
-  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),{notify,t}=useConsole();
-  useEffect(()=>{let active=true;setLoading(true);void load().then(value=>{if(active)setData(value);}).catch(error=>{if(active)notify(t(error.message));}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
-  return {data,setData,loading};
+  const [data,setData]=useState<T>(),[loading,setLoading]=useState(true),[error,setError]=useState(false),{notify,t}=useConsole();
+  useEffect(()=>{let active=true;setLoading(true);void load().then(value=>{if(active){setData(value);setError(false);}}).catch(error=>{if(active){setError(true);notify(t(error.message));}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},dependencies);
+  return {data,setData,loading,error};
 }

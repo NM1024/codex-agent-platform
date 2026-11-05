@@ -77,7 +77,13 @@ function pageProjection(raw,service,kind,args,now) {
  const position=args.cursor?decodeSystemCursor(args.cursor):null;
  if(position&&items.some(x=>systemRecordTime(x)>position.time||systemRecordTime(x)===position.time&&x.id>=position.id))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
  if(items.some(x=>args.work_id!==undefined&&(kind==='event'?x.work_id:x.id)!==args.work_id||args.target_id!==undefined&&x.target_id!==args.target_id||args.module!==undefined&&x.module!==args.module||args.after!==undefined&&systemRecordTime(x)<args.after||args.before!==undefined&&systemRecordTime(x)>=args.before))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
- return {items,next_cursor:raw.next_cursor};
+ let totals={};
+ if(args.include_total){
+  const supplied=Object.hasOwn(raw,'total')||Object.hasOwn(raw,'total_complete');
+  if(supplied&&(typeof raw.total_complete!=='boolean'||raw.total!==null&&!time(raw.total)||raw.total_complete&&(raw.total===null||raw.next_cursor!==null&&raw.total<=items.length)||raw.total!==null&&raw.total<items.length))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
+  totals={total:supplied?raw.total:null,total_complete:supplied?raw.total_complete:false};
+ }
+ return {items,next_cursor:raw.next_cursor,...totals};
 }
 function detailProjection(raw,service,id,now) {
  if(!object(raw)||!Object.hasOwn(raw,'work'))throw fault('SYSTEM_SOURCE_UNAVAILABLE');
@@ -136,7 +142,14 @@ export function createSystemOperations({local,remote,now=Date.now,version='unkno
    }
    normalizeSystemQuery(args,{issues:operation==='issue'});
    const {results,sources}=await query(operation,args,args.service?[args.service]:SYSTEM_SERVICES);
-   return {...mergeSystemPages(results.flatMap(r=>r.value?[r.value]:[]),{limit:args.limit??50}),sources};
+   let totals={};
+   if(args.include_total){
+    const complete=results.every(r=>r.source.available&&r.value?.total_complete&&time(r.value.total));
+    const total=complete?results.reduce((sum,r)=>sum+r.value.total,0):null;
+    const totalComplete=complete&&time(total);
+    totals={total:totalComplete?total:null,total_complete:totalComplete};
+   }
+   return {...mergeSystemPages(results.flatMap(r=>r.value?[r.value]:[]),{limit:args.limit??50}),sources,...totals};
   },
  };
 }

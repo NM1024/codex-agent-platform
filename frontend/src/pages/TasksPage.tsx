@@ -10,6 +10,7 @@ import {Icon} from '../Icon';
 import {PluginActionIcon} from '../PluginActionIcon';
 import ScheduleRunsPage from './ScheduleRunsPage';
 import {InvestigationDialog} from '../InvestigationDialog';
+import {ListPagination} from '../ListPagination';
 export default function TasksPage(){
  const {t}=useConsole();const [tab,setTab]=useState('plugins');
  const tabs=<Tabs activeKey={tab} onChange={setTab} items={[{key:'plugins',label:t('插件任务')},{key:'schedules',label:t('定时任务')}]}/>;
@@ -17,13 +18,13 @@ export default function TasksPage(){
 }
 function PluginTasksPage({tabs}:{tabs:ReactNode}){
   const {api,operation,act,t,notify}=useConsole();
-  const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
+  const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[filter,setFilter]=useState({search:'',status:''}),[offset,setOffset]=useState(0),[pageSize,setPageSize]=useState(20),[tick,setTick]=useState(0),[detail,setDetail]=useState<Task>(),[artifacts,setArtifacts]=useState<{url:string;filename:string;image:boolean}[]>([]);
   const [retryOpen,setRetryOpen]=useState(false),[detailOpen,setDetailOpen]=useState(false),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(''),[detailTab,setDetailTab]=useState('summary'),[artifactsLoading,setArtifactsLoading]=useState(false);
   const retryLock=useRef(false),[retrying,setRetrying]=useState(false),detailRequest=useRef(0),alive=useRef(true);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;detailRequest.current++;};},[]);
-  const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),offset:String(offset),limit:'50'});
-  const {data:loadedRows,loading}=useLoad(()=>api<Task[]>('/tasks?'+query),[api,filter,offset,tick]);
-  const rows=loadedRows??[];
+  const query=new URLSearchParams({...(filter.search?{search:filter.search}:{}),...(filter.status?{status:filter.status}:{}),offset:String(offset),limit:String(pageSize),include_total:'1'});
+  const {data:loadedRows,loading,error}=useLoad(()=>api<Task[]|{items:Task[];total:number}>('/tasks?'+query),[api,filter,offset,pageSize,tick]);
+  const rows=Array.isArray(loadedRows)?loadedRows:loadedRows?.items??[],total=loadedRows&&!Array.isArray(loadedRows)?loadedRows.total:null;
   useEffect(()=>{setArtifacts([]);setArtifactsLoading(!!detail?.artifacts?.length);if(!detail)return;let active=true;const urls:string[]=[],controller=new AbortController();
     void Promise.allSettled((detail.artifacts??[]).map(async artifact=>{
       const response=await fetch(`/admin/api/artifacts/${detail.task_id}/${artifact.artifact_id}`,{credentials:'same-origin',signal:controller.signal});
@@ -60,8 +61,9 @@ function PluginTasksPage({tabs}:{tabs:ReactNode}){
       {title:t('错误'),key:'error',className:'table-text-cell',render:(_,row)=><TableField label={t('错误')}><span className="table-summary" title={row.error?.message??row.error?.code}>{row.error?.message??row.error?.code??'—'}</span></TableField>},
       {title:t('创建时间'),key:'created',width:150,className:'table-meta-cell',render:(_,row)=><TableField label={t('创建时间')}>{time(row.created_at)}</TableField>},
       {title:t('操作'),key:'actions',width:100,className:'table-actions-cell',render:(_,row)=><div className="admin-row-actions"><Tooltip title={t('详情')} trigger={['hover','focus']}><AsyncButton type="text" aria-label={t('详情')} icon={<PluginActionIcon name="eye"/>} onClick={()=>inspect(row.task_id)}/></Tooltip><Tooltip title={t('调查')} trigger={['hover','focus']}><AsyncButton type="text" aria-label={t('调查')} icon={<Icon name="conversations"/>} onClick={()=>investigate(row.task_id)}/></Tooltip></div>},
-    ]}/></Panel>
-    <Space wrap><Button disabled={offset===0} onClick={()=>setOffset(value=>Math.max(0,value-50))}>{t('上一页')}</Button><Typography.Text>{t('从第 {start} 条开始 · 本页 {count} 条',{start:rows.length?offset+1:0,count:rows.length})}</Typography.Text><Button disabled={rows.length<50} onClick={()=>setOffset(value=>value+50)}>{t('下一页')}</Button></Space>
+    ]}/>
+    <ListPagination id="task-pagination" page={Math.floor(offset/pageSize)+1} pageSize={pageSize} total={total} totalComplete={!loading&&!error} loading={loading} disabled={error} hasPrevious={offset>0} hasNext={total===null?rows.length>=pageSize:offset+rows.length<total} onPrevious={()=>setOffset(value=>Math.max(0,value-pageSize))} onNext={()=>setOffset(value=>value+pageSize)} onPageSizeChange={size=>{setOffset(0);setPageSize(size);}}/>
+    </Panel>
     <AdminDrawer open={detailOpen} title={t('任务详情')} subtitle={detail?.task_id} onClose={closeDetail} extra={detail&&<Space wrap><AsyncButton disabled={retrying} onClick={()=>investigate(detail.task_id)}>{t('让 Agent 查看')}</AsyncButton>{['completed','failed'].includes(detail.status)&&<Button type="primary" loading={retrying} onClick={()=>detail.notification_channels?.length?setRetryOpen(true):void act(()=>retry())}>{t('重新执行任务')}</Button>}</Space>}>
       <div id="task-details">
         {detailLoading?<LoadingState/>:detailError?<Alert type="error" showIcon title={detailError}/>:detail&&<Tabs activeKey={detailTab} onChange={setDetailTab} items={[

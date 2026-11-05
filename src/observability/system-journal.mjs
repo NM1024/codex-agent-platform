@@ -64,6 +64,7 @@ export function normalizeSystemQuery(query={},{issues=false}={}) {
   const out={...query,limit:query.limit??50};
   for(const [key,allowed] of [['service',SYSTEM_SERVICES],['module',SYSTEM_MODULES],['state',SYSTEM_STATES],['level',SYSTEM_LEVELS]])if(out[key]!==undefined&&!allowed.includes(out[key]))throw fail('SYSTEM_QUERY_INVALID');
   if(!Number.isSafeInteger(out.limit)||out.limit<1||out.limit>100)throw fail('SYSTEM_QUERY_INVALID');
+  if(out.include_total!==undefined&&typeof out.include_total!=='boolean')throw fail('SYSTEM_QUERY_INVALID');
   for(const key of ['after','before','resolved_after'])if(out[key]!==undefined&&!time(out[key]))throw fail('SYSTEM_QUERY_INVALID');
   if(out.after!==undefined&&out.before!==undefined&&out.after>out.before)throw fail('SYSTEM_QUERY_INVALID');
   if(out.search!==undefined&&(typeof out.search!=='string'||!out.search.length||out.search.length>200))throw fail('SYSTEM_QUERY_INVALID');
@@ -217,7 +218,7 @@ export class SystemJournal {
   issues(query={}) {return this.query('system_work',query,true);}
   query(table,query,issues=false) {
     const q=normalizeSystemQuery(query,{issues}),event=table==='system_events',column=event?'last_seen_at':'updated_at';
-    if(q.service&&q.service!==this.service)return {items:[],next_cursor:null};
+    if(q.service&&q.service!==this.service)return {items:[],next_cursor:null,...(q.include_total?{total:0,total_complete:true}:{})};
     return this.read(()=>{
       const where=['service=?'],params=[this.service];
       const completedAlias=issues&&q.resolution===undefined&&q.state==='completed';
@@ -234,7 +235,6 @@ export class SystemJournal {
       }
       for(const [key,op] of [['after','>='],['before','<']])if(q[key]!==undefined){where.push(`${column}${op}?`);params.push(q[key]);}
       if(issues&&q.resolved_after!==undefined){where.push('resolved_at>=?');params.push(q.resolved_after);}
-      if(q.position){where.push(`(${column}<? OR (${column}=? AND id<?))`);params.push(q.position.time,q.position.time,q.position.id);}
       if(q.search!==undefined){
         const fields=['id','service','module','code','message','event','work_id','target_id','title','state','classification'];
         const terms=fields.map(key=>`json_extract(record,'$.${key}') LIKE ? ESCAPE '\\'`);
@@ -245,9 +245,12 @@ export class SystemJournal {
         }
         where.push(`(${terms.join(' OR ')})`);
       }
+      // Count the complete filtered set before applying the current page position.
+      const totals=q.include_total?{total:this.db.prepare(`SELECT count(*) AS total FROM ${table} WHERE ${where.join(' AND ')}`).get(...params).total,total_complete:true}:{};
+      if(q.position){where.push(`(${column}<? OR (${column}=? AND id<?))`);params.push(q.position.time,q.position.time,q.position.id);}
       const rows=this.db.prepare(`SELECT record FROM ${table} WHERE ${where.join(' AND ')} ORDER BY ${column} DESC,id DESC LIMIT ?`).all(...params,q.limit+1);
       const items=rows.slice(0,q.limit).map(row=>JSON.parse(row.record));
-      return {items,next_cursor:rows.length>q.limit?encodeSystemCursor({time:systemRecordTime(items.at(-1)),id:items.at(-1).id}):null};
+      return {items,next_cursor:rows.length>q.limit?encodeSystemCursor({time:systemRecordTime(items.at(-1)),id:items.at(-1).id}):null,...totals};
     });
   }
   detail(id) {const identity=parseSystemId(id);if(!identity)throw fail('SYSTEM_QUERY_INVALID');if(identity.service!==this.service)return null;return this.read(()=>this.getRecord(identity.kind==='event'?'system_events':'system_work',id));}

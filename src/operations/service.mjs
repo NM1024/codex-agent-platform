@@ -61,6 +61,7 @@ export class OperationsService {
     const check=this.checks.get(action);
     if (!check) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT','未知管理操作。');
     if (!check(args)) throw new HttpError(400,'INVALID_MANAGEMENT_INPUT',`${check.errors[0].instancePath || '/'} ${check.errors[0].message} ${JSON.stringify(check.errors[0].params)}`);
+    if(['tasks','schedule_runs'].includes(action)&&args.include_total===true&&(args.limit??50)>100)throw fault('INVALID_MANAGEMENT_INPUT');
     if(notificationManagementActions.has(action))return this.notifications.execute(action,args);
     if(action==='models')return this.runner.models();
     if(action==='configuration_list')return {groups:this.configuration.list(),bootstrap:bootstrapSettings};

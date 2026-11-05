@@ -364,6 +364,15 @@ button, input, textarea { font: inherit; }
 .message-images img { display: block; width: auto; height: auto; max-width: min(260px,100%); max-height: 220px; object-fit: contain; border-radius: 6px; }
 .chat-image-busy { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #738078; margin-bottom: 6px; }
 .chat-attachment-picker { flex-shrink: 0; }
+.list-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; width: 100%; min-width: 0; margin-top: 16px; font-size: 12px; }
+.list-pagination-total { flex: 1; min-width: 0; }
+.list-pagination-size { width: 112px; flex: none; }
+.list-pagination-pages { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.list-pagination-current { white-space: nowrap; font-size: 12px; }
+@media (max-width: 600px) {
+  .list-pagination { gap: 8px; }
+  .list-pagination-pages { flex: 1 1 100%; justify-content: space-between; }
+}
 .copy-control { display: inline-flex; align-items: center; gap: 6px; }
 .copy-feedback { color: #738078; font-size: 11px; }
 .copy-feedback.error { color: #b42318; }

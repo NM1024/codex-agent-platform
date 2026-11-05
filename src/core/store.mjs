@@ -129,7 +129,9 @@ export class RequestStore {
     if(args.after!==undefined){filters.push('created_at>=?');values.push(args.after);}
     if(args.before!==undefined){filters.push('created_at<?');values.push(args.before);}
     if(args.search){filters.push('(request_id LIKE ? OR input LIKE ?)');values.push(`%${args.search}%`,`%${args.search}%`);}
-    return this.db.prepare(`SELECT task_id,request_id,type,status,error,created_at,updated_at,retry_of FROM agent_requests ${filters.length?'WHERE '+filters.join(' AND '):''} ORDER BY created_at DESC,task_id LIMIT ? OFFSET ?`).all(...values,args.limit ?? 50,args.offset ?? 0).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+    const where=filters.length?'WHERE '+filters.join(' AND '):'';
+    const items=this.db.prepare(`SELECT task_id,request_id,type,status,error,created_at,updated_at,retry_of FROM agent_requests ${where} ORDER BY created_at DESC,task_id LIMIT ? OFFSET ?`).all(...values,args.limit ?? 50,args.offset ?? 0).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+    return args.include_total===true?{items,total:this.db.prepare(`SELECT COUNT(*) AS total FROM agent_requests ${where}`).get(...values).total}:items;
   }
   isHistoryIdle() {
     return this.validations.size===0 && !this.db.prepare("SELECT 1 FROM agent_requests WHERE status NOT IN ('completed','failed') LIMIT 1").get();

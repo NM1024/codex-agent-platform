@@ -40,7 +40,7 @@ const integer={type:'integer',minimum:0,maximum:Number.MAX_SAFE_INTEGER};
 export const systemQueryProperties={
   service:{enum:SYSTEM_SERVICES},module:{enum:SYSTEM_MODULES},state:{enum:SYSTEM_STATES},level:{enum:SYSTEM_LEVELS},
   search:text(200),after:integer,before:integer,cursor:text(1024),limit:{type:'integer',minimum:1,maximum:100},
-  work_id:id,target_id:text(128),
+  work_id:id,target_id:text(128),include_total:{type:'boolean'},
 };
 const object=(properties,required=[])=>({type:'object',additionalProperties:false,properties,required});
 export const systemQuerySchema=object(systemQueryProperties);

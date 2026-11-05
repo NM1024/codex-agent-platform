@@ -43,7 +43,7 @@ export class ScheduleStore {
     return {...JSON.parse(row.definition),revision:row.revision,next_run_at:row.next_run_at,blocked_reason:row.blocked_reason,updated_at:row.updated_at,...(binding?{notification_channels:binding.notification_channels,notification_revision:binding.notification_revision}:{})};
   }
   list() {return this.db.prepare('SELECT id FROM platform_schedules WHERE deleted_at IS NULL ORDER BY updated_at DESC,id').all().map(row=>this.get(row.id));}
-  runs({status,search,schedule_id,limit=50,offset=0,id}={}) {
+  runs({status,search,schedule_id,after,before,limit=50,offset=0,id,include_total=false}={}) {
     if(!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0)throw invalid('执行记录分页不正确。');
     const query=`SELECT r.task_id AS id,r.schedule_id,r.due_at,r.triggered_at AS created_at,
       json_extract(s.definition,'$.name') AS schedule_name,json_extract(s.definition,'$.timezone') AS timezone,
@@ -56,8 +56,12 @@ export class ScheduleStore {
     if(status){clauses.push('status=?');values.push(status);}
     if(schedule_id){clauses.push('schedule_id=?');values.push(schedule_id);}
     if(id){clauses.push('id=?');values.push(id);}
+    if(after!==undefined){clauses.push('created_at>=?');values.push(after);}
+    if(before!==undefined){clauses.push('created_at<?');values.push(before);}
     if(search){clauses.push("(instr(lower(COALESCE(schedule_name,'')),lower(?))>0 OR instr(lower(id),lower(?))>0)");values.push(search,search);}
-    return this.db.prepare(`SELECT * FROM (${query}) ${clauses.length?'WHERE '+clauses.join(' AND '):''} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`).all(...values,limit,offset).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+    const filtered=`FROM (${query}) ${clauses.length?'WHERE '+clauses.join(' AND '):''}`;
+    const items=this.db.prepare(`SELECT * ${filtered} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`).all(...values,limit,offset).map(row=>({...row,error:row.error?JSON.parse(row.error):null}));
+    return include_total===true?{items,total:this.db.prepare(`SELECT COUNT(*) AS total ${filtered}`).get(...values).total}:items;
   }
   execution(id){const row=this.runs({id,limit:1})[0];if(!row)throw new HttpError(404,'SCHEDULE_EXECUTION_NOT_FOUND','找不到定时执行记录。');return row;}
   save(raw,now=Date.now(),{revision,notificationRevision}={}) {
