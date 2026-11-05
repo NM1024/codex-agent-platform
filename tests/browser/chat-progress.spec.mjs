@@ -22,7 +22,7 @@ test.beforeEach(async({page})=>{
 test('composer keeps one continuous focus frame while typing or choosing a model',async({page})=>{
   await navigate(page,'chat');await page.locator('#message-input').fill('Synthetic focus check');
   const frame=page.locator('.composer-input-shell');await expect(frame).toBeVisible();
-  for(const target of ['#message-input','#chat-model','.chat-image-picker','.composer-send']){
+  for(const target of ['#message-input','#chat-model','.chat-attachment-picker','.composer-send']){
     await page.locator(target).focus();
     const borders=await frame.evaluate(element=>{const style=getComputedStyle(element);return ['Top','Right','Bottom','Left'].map(edge=>({width:style['border'+edge+'Width'],color:style['border'+edge+'Color']}));});
     expect(new Set(borders.map(border=>border.color)).size).toBe(1);expect(borders.every(border=>border.width==='1px')).toBe(true);
@@ -99,7 +99,7 @@ test('image drafts and a pending queue leave readable transcript space on short 
     user('next','queued','Then summarize the findings')],actions:[]};
   await synthetic(page,conversation);
   const buffer=await raster(page);
-  await page.locator('#chat-image-input').setInputFiles(Array.from({length:4},(_,index)=>({name:`layout-${index}.png`,mimeType:'image/png',buffer})));
+  await page.locator('#chat-attachment-input').setInputFiles(Array.from({length:4},(_,index)=>({name:`layout-${index}.png`,mimeType:'image/png',buffer})));
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(4);
   await page.locator('#message-input').fill('Line one\nLine two\nLine three\nLine four\nLine five\nLine six');
   await page.locator('.message-activity summary').click();
@@ -134,7 +134,7 @@ test('initial chat errors are local and retry while background errors preserve t
 test('image-only drafts compress, survive navigation and can be removed',async({page})=>{
   await navigate(page,'chat');
   const bytes=await page.evaluate(async()=>{const canvas=document.createElement('canvas');canvas.width=2400;canvas.height=1200;canvas.getContext('2d').fillRect(0,0,2400,1200);return Array.from(new Uint8Array(await(await new Promise(resolve=>canvas.toBlob(resolve,'image/png'))).arrayBuffer()));});
-  await page.locator('#chat-image-input').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from(bytes)});
+  await page.locator('#chat-attachment-input').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:Buffer.from(bytes)});
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(1);
   const info=await page.locator('.chat-image-drafts img').evaluate(img=>({width:img.naturalWidth,height:img.naturalHeight,url:img.src}));
   expect(Math.max(info.width,info.height)).toBeLessThanOrEqual(2048);expect(info.url).toMatch(/^data:image\/jpeg;base64,/);
@@ -187,18 +187,18 @@ test('pasted and dropped images share the four-image limit and reject oversized 
   }
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(2);
   const file={name:'extra.png',mimeType:'image/png',buffer:Buffer.from(bytes)};
-  await page.locator('#chat-image-input').setInputFiles([file,file,file]);
+  await page.locator('#chat-attachment-input').setInputFiles([file,file,file]);
   await expect(page.locator('.chat-image-error')).toContainText('最多添加 4');
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(2);
   const huge=Buffer.from(bytes);huge.writeUInt32BE(10000,16);huge.writeUInt32BE(10000,20);
-  await page.locator('#chat-image-input').setInputFiles({name:'oversized.png',mimeType:'image/png',buffer:huge});
+  await page.locator('#chat-attachment-input').setInputFiles({name:'oversized.png',mimeType:'image/png',buffer:huge});
   await expect(page.locator('.chat-image-error')).toContainText('4000 万像素');
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(2);
 });
 
 test('image-only sends persist compressed attachments behind authenticated same-origin previews',async({page})=>{
   await navigate(page,'chat');await page.getByRole('button',{name:'＋ 新对话',exact:true}).click();
-  await page.locator('#chat-image-input').setInputFiles({name:'image-only.png',mimeType:'image/png',buffer:await raster(page,128,64)});
+  await page.locator('#chat-attachment-input').setInputFiles({name:'image-only.png',mimeType:'image/png',buffer:await raster(page,128,64)});
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(1);
   const sent=page.waitForRequest(request=>request.url().endsWith('/messages')&&request.method()==='POST');
   await page.getByRole('button',{name:'发送',exact:true}).click();const request=await sent;
@@ -227,7 +227,7 @@ test('switching conversations shows an independent loader and ignores a late pre
 
 test('leaving chat during compression cannot repopulate the image draft after logout',async({page})=>{
   await page.evaluate(()=>{const original=window.createImageBitmap;window.createImageBitmap=(...args)=>new Promise(resolve=>{window.releaseSyntheticImage=async()=>resolve(await original(...args));});});
-  await navigate(page,'chat');await page.locator('#chat-image-input').setInputFiles({name:'held.png',mimeType:'image/png',buffer:await raster(page)});
+  await navigate(page,'chat');await page.locator('#chat-attachment-input').setInputFiles({name:'held.png',mimeType:'image/png',buffer:await raster(page)});
   await expect(page.locator('.chat-image-busy')).toBeVisible();await page.locator('#logout').click();await expect(page.locator('#login')).toBeVisible();
   await page.evaluate(()=>window.releaseSyntheticImage());
   await page.locator('#password').fill('local-browser-password');await page.getByRole('button',{name:'登录工作台'}).click();await navigate(page,'chat');

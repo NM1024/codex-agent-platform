@@ -16,7 +16,7 @@ async function setup(page,{existing=true,context={}}={}) {
   await expect(page.locator('#message-input')).toBeVisible();
   return conversation;
 }
-const selectFile=(page,name='sample.csv',mimeType='text/csv',buffer=Buffer.from('name\nexample'))=>page.locator('#chat-file-input').setInputFiles({name,mimeType,buffer});
+const selectFile=(page,name='sample.csv',mimeType='text/csv',buffer=Buffer.from('name\nexample'))=>page.locator('#chat-attachment-input').setInputFiles({name,mimeType,buffer});
 
 for(const existing of [true,false])test(`file-only ${existing?'existing':'new'} chat uploads lazily and preserves stable IDs on send failure`,async({page})=>{
   await setup(page,{existing});let uploads=0,sends=0;
@@ -32,7 +32,7 @@ test('file count and raw size validation retain the existing draft',async({page}
   await setup(page);await selectFile(page);
   await selectFile(page,'too-large.zip','application/zip',Buffer.alloc(20*1024*1024+1));
   await expect(page.locator('.sandbox-draft-files')).toContainText('sample.csv');await expect(page.getByRole('alert')).toContainText('20 MiB');
-  await page.locator('#chat-file-input').setInputFiles(Array.from({length:5},(_,i)=>({name:`extra-${i}.txt`,mimeType:'text/plain',buffer:Buffer.from('x')})));
+  await page.locator('#chat-attachment-input').setInputFiles(Array.from({length:5},(_,i)=>({name:`extra-${i}.txt`,mimeType:'text/plain',buffer:Buffer.from('x')})));
   await expect(page.getByRole('alert')).toContainText('5');await expect(page.locator('.sandbox-draft-file')).toHaveCount(1);
 });
 
@@ -86,7 +86,7 @@ test('English permission cards and file controls fit phone layouts',async({page}
   const card=page.locator(`[data-permission-id="${permissionId}"]`);await expect(card.getByRole('button',{name:'Allow once',exact:true})).toBeVisible();
   await selectFile(page,'a-very-long-synthetic-input-filename-for-layout.csv');
   for(const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
-    await page.setViewportSize(viewport);await expect(page.getByRole('button',{name:'Add files',exact:true})).toBeInViewport({ratio:1});await expect(page.getByRole('button',{name:'Send',exact:true})).toBeInViewport({ratio:1});
+    await page.setViewportSize(viewport);await expect(page.getByRole('button',{name:'Add attachments',exact:true})).toBeInViewport({ratio:1});await expect(page.getByRole('button',{name:'Send',exact:true})).toBeInViewport({ratio:1});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBeTruthy();
     await expect(card).toContainText('Timeout: 180 seconds');
   }
@@ -128,7 +128,7 @@ test('retry after a partial batch upload reuses the successful file',async({page
     return route.fulfill({status:201,json:{...attachment,file_id:uploadedId,name,url:`/admin/api/conversations/${id}/files/${uploadedId}`,preview_url:`/admin/api/conversations/${id}/files/${uploadedId}?preview=1`}});
   });
   await page.route(`**/conversations/${id}/messages`,route=>{sends++;expect(route.request().postDataJSON().file_ids).toEqual([fileId,'44444444-4444-4444-8444-444444444444']);return route.fulfill({json:{id:messageId,status:'queued'}});});
-  await page.locator('#chat-file-input').setInputFiles(['first.txt','second.txt'].map(name=>({name,mimeType:'text/plain',buffer:Buffer.from('synthetic')})));
+  await page.locator('#chat-attachment-input').setInputFiles(['first.txt','second.txt'].map(name=>({name,mimeType:'text/plain',buffer:Buffer.from('synthetic')})));
   await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.getByText('Synthetic second upload failure')).toBeVisible();expect(sends).toBe(0);
   await navigate(page,'overview');await navigate(page,'chat');await page.getByRole('button',{name:'发送',exact:true}).click();await expect(page.locator('.sandbox-draft-files')).toHaveCount(0);
   expect(calls).toEqual(['first.txt','second.txt','second.txt']);expect(sends).toBe(1);

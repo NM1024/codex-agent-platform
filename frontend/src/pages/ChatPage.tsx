@@ -10,6 +10,7 @@ import {AgentMessage, CopyButton, MessageTime} from '../ChatMessage';
 import {isPending, MessageProgress} from '../ChatActivity';
 import {DraftImages, MessageImages} from '../ImageAttachments';
 import {compressChatImage} from '../chatImages';
+import {partitionChatAttachments} from '../chat-attachments';
 import {Icon} from '../Icon';
 import {QuestionCard} from '../QuestionCard';
 import {ChatQueue,type QueueAction} from '../ChatQueue';
@@ -90,9 +91,11 @@ export default function ChatPage() {
   const selectionBases = useRef<Record<string,AgentSettings>>({});
   const syncSelection=(id:string,execution:AgentSettings)=>{if(!unsavedSelections.current[id]){selectionBases.current[id]=execution;setSelections(current=>({...current,[id]:execution}));}};
   const reads = useRef<Record<string, number>>({});
-  const fileInput=useRef<HTMLInputElement>(null),genericFileInput=useRef<HTMLInputElement>(null);
+  const fileInput=useRef<HTMLInputElement>(null);
   const compressLock=useRef(false);
+  const attachmentQueue=useRef(Promise.resolve()),pendingAttachmentBatches=useRef(0);
   const imagesRef=useRef(images);imagesRef.current=images;
+  const filesRef=useRef(files);filesRef.current=files;
   // Track external navigation as well as sidebar clicks before any async response can render.
   if (currentId.current !== chatId) {
     currentId.current = chatId;
@@ -377,29 +380,29 @@ export default function ChatPage() {
     return()=>saveMessage.destroy();
   },[chatId,saveMessage]);
 
-  const addImages=async(files:File[])=>{
-    if(compressLock.current || !files.length)return;
-    if(imagesRef.current.length+files.length>4){setImageError(t('每条消息最多添加 4 张图片。'));return;}
-    const generation=navigation.current;
-    compressLock.current=true;setCompressing(true);setImageError('');
-    try {
-      const compressed:ChatImage[]=[];
-      for(const file of files)compressed.push(await compressChatImage(file));
-      if(mounted.current && navigation.current===generation)setImages(current=>[...current,...compressed].slice(0,4));
-    }catch(error){if(mounted.current && navigation.current===generation)setImageError(t(error instanceof Error?error.message:String(error)));}
-    finally {compressLock.current=false;if(mounted.current)setCompressing(false);}
-  };
-  const addFiles=(selected:File[])=>{
+  const addAttachments=(selected:File[])=>{
     if(!selected.length)return;
-    setFiles(current=>{
-      const error=validateSandboxFiles(current,selected);
-      if(error){setImageError(t(error));return current;}
-      setImageError('');return [...current,...selected.map(file=>({id:crypto.randomUUID(),file}))];
+    const generation=navigation.current;
+    pendingAttachmentBatches.current++;compressLock.current=true;setCompressing(true);
+    const work=attachmentQueue.current.then(async()=>{
+      if(!mounted.current||navigation.current!==generation)return;
+      setImageError('');
+      try{
+        const batch=await partitionChatAttachments(selected);
+        if(imagesRef.current.length+batch.images.length>4)throw new Error('每条消息最多添加 4 张图片。');
+        const error=validateSandboxFiles(filesRef.current,batch.files);if(error)throw new Error(error);
+        const compressed:ChatImage[]=[];
+        for(const file of batch.images)compressed.push(await compressChatImage(file));
+        if(!mounted.current||navigation.current!==generation)return;
+        const drafts=batch.files.map(file=>({id:crypto.randomUUID(),file}));
+        // Reserve capacity for another queued intake before React's next render.
+        imagesRef.current=[...imagesRef.current,...compressed];filesRef.current=[...filesRef.current,...drafts];
+        setImages(current=>[...current,...compressed]);setFiles(current=>[...current,...drafts]);
+      }catch(error){if(mounted.current&&navigation.current===generation)setImageError(t(error instanceof Error?error.message:String(error)));}
     });
-  };
-  const addDroppedFiles=(selected:File[])=>{
-    if(selected.every(file=>/^image\/(jpeg|png|webp)$/.test(file.type)))void addImages(selected);
-    else addFiles(selected);
+    attachmentQueue.current=work.then(()=>{},()=>{});
+    const finished=()=>{pendingAttachmentBatches.current--;if(!pendingAttachmentBatches.current){compressLock.current=false;if(mounted.current)setCompressing(false);}};
+    void work.then(finished,finished);
   };
   const changeSelection = (value: AgentSettings) => {
     initialSelectionDone.current = true;
@@ -561,7 +564,8 @@ export default function ChatPage() {
     </Modal>
     <aside className="conversation-sidebar">{conversationNavigation}</aside>
     <Drawer title={t('会话列表')} open={drawerOpen} onClose={() => setDrawerOpen(false)} placement="left" size={300} className="conversation-drawer">{conversationNavigation}</Drawer>
-    <section className="chat-main" aria-label={t('管理对话')}>
+    <section className="chat-main" aria-label={t('管理对话')} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
+      onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();addAttachments(Array.from(event.dataTransfer.files));}}}>
       {headerTarget?createPortal(chatHeader,headerTarget):chatHeader}
       <div id="messages" className="messages" ref={messagesRef} role="log" aria-label={t('管理对话')}
         onScroll={event => {const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;}}>
@@ -593,22 +597,23 @@ export default function ChatPage() {
         </article>{message.role==='user'&&!hasAssistant&&<SandboxActivity messageId={message.id} existingFileIds={message.files?.map(file=>file.file_id)} asAgentReply/>}</Fragment>;})}
         {!messages.length && !loadError && !listLoading && (!loadingId||loadingId!==chatId) && <div className="chat-empty"><Empty description={t('从一个问题开始。状态、异常和业务插件，都可以在这里管理。')}/></div>}
       </div>
-      <div className="chat-compose" onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}
-        onDrop={event=>{if(event.dataTransfer.files.length){event.preventDefault();addDroppedFiles(Array.from(event.dataTransfer.files));}}}>
+      <div className="chat-compose">
         <ChatQueue key={'queue:'+selectedKey} messages={queue} canSteer={messages.some(message=>message.role==='user'&&message.status==='running')} onAction={queueAction}/>
         {actions.length > 0 && <div id="actions" className="actions"><Collapse size="small" aria-label={t('执行记录')} items={[{key:'actions', label:`${t('执行记录')} (${actions.length})`, children:actions.map(action => <div key={action.id} className="chat-action">
           <Status value={action.status}/> {action.name}{action.target ? ' · ' + action.target : ''}{action.summary?.task_id ? ' → ' + action.summary.task_id : ''}{action.error ? ' · ' + t(action.error.message ?? action.error.code) : ''}
         </div>)}]}/></div>}
         <CatalogNote/>
-        <SandboxDraftFiles files={files} remove={id=>setFiles(current=>current.filter(file=>file.id!==id))}/>
-        <DraftImages images={images} remove={id=>setImages(current=>current.filter(image=>image.id!==id))}/>
+        {!!(files.length||images.length)&&<div className="chat-attachment-drafts">
+          <SandboxDraftFiles files={files} remove={id=>setFiles(current=>current.filter(file=>file.id!==id))}/>
+          <DraftImages images={images} remove={id=>setImages(current=>current.filter(image=>image.id!==id))}/>
+        </div>}
         {imageError && <Alert type="error" className="chat-image-error" title={imageError} closable onClose={()=>setImageError('')}/>}
         {uploading&&<div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在上传文件…')}</div>}
-        {compressing && <div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在压缩图片…')}</div>}
+        {compressing && <div className="chat-image-busy" role="status"><Spin size="small"/> {t('正在准备附件…')}</div>}
         <div className="composer-input-shell">
         <Input.TextArea id="message-input" aria-label={t('消息')} autoSize={{minRows:2, maxRows:6}} value={draft}
           placeholder={t('告诉我你想了解或处理什么，例如：查询失败任务并说明原因。')} onChange={event => setDraft(event.target.value)}
-          onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();addDroppedFiles(files);}}}
+          onPaste={event=>{const files=Array.from(event.clipboardData.files);if(files.length){event.preventDefault();addAttachments(files);}}}
           onCompositionStart={() => {composing.current = true;}} onCompositionEnd={() => {composing.current = false;}}
           onKeyDown={event => {
             if (event.key !== 'Enter' || event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
@@ -616,10 +621,8 @@ export default function ChatPage() {
           }}/>
         <div className="composer-toolbar">
           <ChatAgentPicker key={selectedKey} value={selection} defaults={defaults} disabled={busy} onChange={changeSelection}/>
-          <input ref={fileInput} id="chat-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={event=>{void addImages(Array.from(event.target.files??[]));event.target.value='';}}/>
-          <Button className="chat-image-picker" icon={<Icon name="image"/>} title={t('添加图片')} aria-label={t('添加图片')} disabled={compressing||images.length>=4} onClick={()=>fileInput.current?.click()}/>
-          <input ref={genericFileInput} id="chat-file-input" type="file" multiple hidden onChange={event=>{addFiles(Array.from(event.target.files??[]));event.target.value='';}}/>
-          <Button className="chat-file-picker" icon={<Icon name="box"/>} title={t('添加文件')} aria-label={t('添加文件')} disabled={files.length>=5} onClick={()=>genericFileInput.current?.click()}/>
+          <input ref={fileInput} id="chat-attachment-input" type="file" multiple hidden onChange={event=>{addAttachments(Array.from(event.target.files??[]));event.target.value='';}}/>
+          <Button className="chat-attachment-picker" icon={<Icon name="attachment"/>} title={t('添加附件')} aria-label={t('添加附件')} disabled={compressing||(images.length>=4&&files.length>=5)} onClick={()=>fileInput.current?.click()}/>
           <Button type="primary" className="composer-send" icon={<Icon name={activeMessage?'stop':'send'}/>} title={t(activeMessage?'停止执行':'发送')} aria-label={t(activeMessage?'停止执行':'发送')} loading={activeMessage?stopping:busy} disabled={activeMessage?stopping:compressing||(!draft.trim()&&!images.length&&!files.length)||draft.length>20000} onClick={()=>{void (activeMessage?stopExecution():send());}}/>
         </div>
         </div>

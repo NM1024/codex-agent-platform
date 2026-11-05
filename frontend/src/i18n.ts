@@ -251,6 +251,8 @@ const english: Record<string, string> = {
   '移除':'Remove',
   '正在压缩图片…':'Compressing images…',
   '添加图片':'Add images',
+  '添加附件':'Add attachments',
+  '正在准备附件…':'Preparing attachments…',
   '消息不能超过 20000 个字符。':'Messages must not exceed 20,000 characters.',
   '正在保存模型设置…':'Saving model settings…',
   '推理摘要':'Reasoning summary',

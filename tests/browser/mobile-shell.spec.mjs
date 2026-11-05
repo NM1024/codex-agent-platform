@@ -28,7 +28,7 @@ test('phone composer fits the unified model entry upload and send on one line an
   await page.setViewportSize({width:390,height:844});await login(page);await openChat(page);
   for(const width of [390,320,768]){
     await page.setViewportSize({width,height:844});
-    const centers=await page.locator('#chat-model,.chat-image-picker,.composer-send').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return b.y+b.height/2;}));
+    const centers=await page.locator('#chat-model,.chat-attachment-picker,.composer-send').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return b.y+b.height/2;}));
     expect(centers).toHaveLength(3);expect(Math.max(...centers)-Math.min(...centers)).toBeLessThan(2);
     await expect(page.locator('.composer-send')).toBeInViewport({ratio:1});
   }

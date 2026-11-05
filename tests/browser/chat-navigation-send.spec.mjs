@@ -18,7 +18,7 @@ test('pending image send keeps ownership across page navigation and clears the a
   await page.getByRole('button',{name:'登录工作台',exact:true}).click();
   await page.locator('[data-view="chat"]').click();
   const image=await sharp({create:{width:20,height:10,channels:3,background:'blue'}}).png().toBuffer();
-  await page.locator('#chat-image-input').setInputFiles({name:'pending.png',mimeType:'image/png',buffer:image});
+  await page.locator('#chat-attachment-input').setInputFiles({name:'pending.png',mimeType:'image/png',buffer:image});
   await expect(page.locator('.chat-image-drafts img')).toHaveCount(1);
   let release,started;const gate=new Promise(resolve=>{release=resolve;}),requested=new Promise(resolve=>{started=resolve;});
   let posts=0;

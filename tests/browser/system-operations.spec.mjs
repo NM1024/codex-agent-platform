@@ -85,13 +85,13 @@ test('diagnostic work has the same two actions and related logs remain a read-on
 
 test('explicit Agent management creates a fresh conversation and preserves unrelated composer text and image',async({page})=>{
  await navigate(page,'chat');await page.locator('#message-input').fill('Unrelated synthetic unsent composer text');
- await page.locator('input[type=file][accept*="image"]').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:await sharp({create:{width:32,height:32,channels:3,background:'#a2bdad'}}).png().toBuffer()});
- await expect(page.locator('.chat-image-drafts')).toContainText('synthetic.png');
+ await page.locator('#chat-attachment-input').setInputFiles({name:'synthetic.png',mimeType:'image/png',buffer:await sharp({create:{width:32,height:32,channels:3,background:'#a2bdad'}}).png().toBuffer()});
+ await expect(page.locator('.chat-image-drafts img[alt="synthetic.png"]')).toHaveCount(1);
  let starts=0;await page.route('**/admin/api/conversations',async route=>{if(route.request().method()==='POST')starts++;await route.continue();});
  await navigate(page,'system');await page.locator('#system-refresh').click();expect(starts).toBe(0);
  await search(page,'manager:work:permissions');await rows(page).first().getByRole('button',{name:'交给管理 Agent',exact:true}).click();await expect(page.locator('#message-input')).toHaveValue('Unrelated synthetic unsent composer text');
  await expect(page.locator('#messages .message.user')).toContainText('manager:work:permissions');await expect(page.locator('#messages .message.user')).toContainText('system_issue');await expect(page.locator('#messages .message.user')).not.toContainText('Unrelated synthetic');expect(starts).toBe(1);
- await expect(page.locator('.chat-compose')).toContainText('synthetic.png');
+ await expect(page.locator('.chat-compose img[alt="synthetic.png"]')).toHaveCount(1);
 });
 
 test('Chinese and English system UI fits 320px and detail scroll stays inside the drawer',async({page})=>{

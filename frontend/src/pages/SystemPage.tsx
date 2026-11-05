@@ -69,6 +69,8 @@ export default function SystemPage(){
  const work=detail?.work;
  const event=selection?.event;
  const stalePage=!!page?.stale_ids.length,staleDetail=partial(detail?.sources),allUnavailable=(items?:SystemSource[])=>!!items?.length&&items.every(source=>!source.available);
+ const unavailableSummarySources=status?.sources.filter(source=>!source.available)??[];
+ const collectionWarnings=status?.summary.collections.filter(item=>item.gap_count>0||item.pending)??[];
  const renderState=(row:SystemRecord)=><Status value={row.kind==='event'?row.level:row.state}/>;
  const renderRecovery=(row:SystemWork)=><Typography.Text type="secondary">{row.issue_opened_at?t(row.resolved_at?'已恢复':'未恢复'):'—'}</Typography.Text>;
  const renderVerification=(row:SystemWork)=>row.verification_required?<Status value="需要核验"/>:<Typography.Text type="secondary">—</Typography.Text>;
@@ -84,7 +86,7 @@ export default function SystemPage(){
    {status&&!status.summary.complete&&<small className="system-metrics-partial">{t('仅可用来源')}</small>}
   </div>
   {statusError&&<Alert type="warning" showIcon title={t(status?'刷新失败，数据可能过期；保留上次读取的记录。':'概览暂时无法读取。')}/>}
-  {status&&<div className="system-summary-source"><Typography.Text type="secondary">{t('最后采集')} {format(status.sampled_at)}</Typography.Text>{sources(status.sources)}{!status.summary.complete&&sourceWarning}{status.summary.collections.filter(item=>item.gap_count>0||item.pending).map(item=><Alert key={item.service} type="warning" showIcon title={serviceName(item.service)+' · '+t(item.pending?'待补记采集证据':'采集存在缺口')} description={<span>{t('采集失败次数')} {item.failed_operations} · {t('最近采集失败')} {format(item.last_failed_at)} · {t('最近采集恢复')} {format(item.last_recovered_at)}</span>}/>)}</div>}
+  {status&&(!status.summary.complete||unavailableSummarySources.length>0||collectionWarnings.length>0)&&<div className="system-summary-alerts">{(!status.summary.complete||unavailableSummarySources.length>0)&&<Alert type="warning" showIcon title={t('概览来源不完整；统计仅包含可用来源，不能据此判断系统健康。')} description={unavailableSummarySources.length?<Space wrap>{unavailableSummarySources.map(source=><span key={source.service}>{serviceName(source.service)}{source.error_code&&<> · <code>{source.error_code}</code></>}</span>)}</Space>:undefined}/>} {collectionWarnings.map(item=><Alert key={item.service} type="warning" showIcon title={serviceName(item.service)+' · '+t(item.pending?'待补记采集证据':'采集存在缺口')} description={<span>{t('采集失败次数')} {item.failed_operations} · {t('最近采集失败')} {format(item.last_failed_at)} · {t('最近采集恢复')} {format(item.last_recovered_at)}</span>}/>)}</div>}
   <Tabs activeKey={tab} onChange={chooseTab} aria-label={t('系统运维')} items={[{key:'issues',label:t('待处理问题')},{key:'work',label:t('后台工作')},{key:'logs',label:t('系统日志')}]}/>
   <Panel title={t(tab==='issues'?'待处理问题':tab==='work'?'后台工作':'系统日志')} extra={<Button id="system-refresh" onClick={refresh} loading={loading||statusLoading}>{t('刷新')}</Button>}>
    <form className="system-filters" onSubmit={e=>{e.preventDefault();if(!loading)apply();}}>
